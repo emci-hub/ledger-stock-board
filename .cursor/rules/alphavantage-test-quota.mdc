@@ -1,0 +1,17 @@
+---
+description: Conserve Alpha Vantage quota during manual development tests
+alwaysApply: true
+---
+
+# Alpha Vantage test quota
+
+Alpha Vantage free tier is limited (≈25 requests/day). Do not burn quota on unrelated tests.
+
+## When testing manually
+
+- For `analyzeStock`, cache helpers, `getStockReport` flow (when not verifying live market data), Express routes, Gemini, SQLite, etc.: use a **hardcoded fake data object** instead of calling live Alpha Vantage functions.
+- Only call real Alpha Vantage (`getQuoteAndIndicators`, `getFundamentalsAndNews`, or anything that hits `alphavantage.co`) when the user is **specifically** testing that connection or live market data.
+
+## Fake data shape (example)
+
+Match what `dataFetch` / `getStockReport` expect, e.g. quote with `price` + `indicators`, fundamentals with `overview` + `news`, and a short `peers` array of tickers.

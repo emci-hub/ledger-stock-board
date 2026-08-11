@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger — Family Stock Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0D1210;
+    --bg-line:#141B18;
+    --surface:#151C1A;
+    --surface-2:#1A231F;
+    --line:#26302B;
+    --line-soft:#1E2723;
+    --ink:#EDEFE9;
+    --muted:#8B978F;
+    --muted-dim:#5C6862;
+
+    --green:#4FB88A;
+    --green-bg:rgba(79,184,138,0.12);
+    --rust:#E2735A;
+    --rust-bg:rgba(226,115,90,0.13);
+    --gold:#D9A857;
+    --gold-bg:rgba(217,168,87,0.12);
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      repeating-linear-gradient(0deg, var(--bg-line) 0px, var(--bg-line) 1px, transparent 1px, transparent 64px),
+      var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 90px;}
+
+  /* header */
+  header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:10px;}
+  .brand{display:flex;align-items:baseline;gap:10px;}
+  .brand h1{
+    font-family:'Fraunces',serif;
+    font-weight:600;
+    font-size:27px;
+    margin:0;
+    letter-spacing:-0.01em;
+    color:#F5F6F1;
+  }
+  .brand .tick{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+    border:1px solid var(--line);
+    border-radius:20px;
+    padding:3px 10px;
+    letter-spacing:0.02em;
+  }
+  .updated{font-size:12px;color:var(--muted-dim);font-family:'IBM Plex Mono',monospace;}
+  .updated .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:6px;box-shadow:0 0 6px var(--green);}
+
+  .sub{color:var(--muted);font-size:14px;margin:6px 0 24px;}
+
+  /* controls row */
+  .controls{
+    display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+    margin-bottom:28px;
+  }
+  .mode-toggle{
+    display:flex;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;
+  }
+  .mode-toggle button{
+    border:none;background:transparent;padding:9px 16px;font-family:'Inter';font-size:13px;font-weight:600;
+    color:var(--muted);cursor:pointer;transition:background .15s, color .15s;
+  }
+  .mode-toggle button.active{background:var(--surface-2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line);}
+  .search{
+    flex:1;min-width:220px;
+    display:flex;align-items:center;gap:8px;
+    background:var(--surface);border:1px solid var(--line);border-radius:10px;
+    padding:9px 14px;
+  }
+  .search:focus-within{border-color:#3A4A43;}
+  .search input{
+    border:none;outline:none;background:transparent;font-family:'Inter';font-size:14px;width:100%;color:var(--ink);
+  }
+  .search input::placeholder{color:var(--muted-dim);}
+  .search svg{flex:none;color:var(--muted);}
+
+  /* section labels */
+  .section-label{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.09em;
+    text-transform:uppercase;
+    color:var(--muted-dim);
+    margin:32px 0 12px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .section-label::after{content:"";flex:1;height:1px;background:var(--line);}
+
+  /* grid of cards */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px;}
+
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:16px;
+    position:relative;
+    overflow:hidden;
+  }
+  .card::before{
+    content:"";position:absolute;top:0;left:0;right:0;height:2px;
+    background:var(--accent, var(--muted-dim));
+  }
+  .card.lean-pos::before{background:var(--green);}
+  .card.lean-watch::before{background:var(--gold);}
+  .card.lean-risk::before{background:var(--rust);}
+
+  .card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;}
+  .ticker-block .ticker{font-family:'Fraunces',serif;font-weight:600;font-size:19px;color:#F5F6F1;}
+  .ticker-block .company{font-size:12px;color:var(--muted-dim);margin-top:1px;}
+  .sector{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);
+    border:1px solid var(--line);border-radius:6px;padding:2px 6px;white-space:nowrap;
+  }
+
+  .price-row{display:flex;align-items:baseline;gap:8px;margin:10px 0 2px;}
+  .price{font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:600;font-variant-numeric:tabular-nums;color:#F5F6F1;}
+  .delta{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;}
+  .delta.up{color:var(--green);}
+  .delta.down{color:var(--rust);}
+
+  .spark{display:block;margin:10px 0 2px;filter:drop-shadow(0 0 3px rgba(79,184,138,0.35));}
+  .spark.down{filter:drop-shadow(0 0 3px rgba(226,115,90,0.35));}
+
+  .target-line{font-size:11px;color:var(--muted-dim);font-family:'IBM Plex Mono',monospace;margin-bottom:11px;display:flex;align-items:center;gap:5px;}
+  .target-line .dots{color:var(--muted-dim);letter-spacing:1px;}
+  .target-line b{color:var(--muted);font-weight:600;}
+
+  .tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:11px;}
+  .tag{
+    font-size:11px;font-weight:500;padding:3px 8px;border-radius:6px;
+  }
+  .tag.pos{background:var(--green-bg);color:var(--green);}
+  .tag.watch{background:var(--gold-bg);color:var(--gold);}
+  .tag.risk-low{background:var(--green-bg);color:var(--green);}
+  .tag.risk-med{background:var(--gold-bg);color:var(--gold);}
+  .tag.risk-high{background:var(--rust-bg);color:var(--rust);}
+
+  .summary{font-size:13px;line-height:1.5;color:var(--muted);margin-bottom:11px;}
+
+  .card-foot{
+    display:flex;justify-content:space-between;align-items:center;
+    border-top:1px solid var(--line-soft);padding-top:11px;margin-top:2px;
+  }
+  .track{font-size:11px;color:var(--muted-dim);font-family:'IBM Plex Mono',monospace;}
+  .track.building{font-style:italic;}
+  .star{background:none;border:none;cursor:pointer;font-size:16px;color:var(--muted-dim);transition:color .15s;}
+  .star.active,.star:hover{color:var(--gold);}
+
+  .why-help{
+    font-size:10px;color:var(--muted-dim);cursor:help;border-bottom:1px dotted var(--muted-dim);
+  }
+
+  /* recently viewed - compact rows instead of cards */
+  .row-list{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;}
+  .row-item{
+    display:flex;align-items:center;gap:14px;padding:12px 16px;
+    border-bottom:1px solid var(--line-soft);font-size:13px;
+  }
+  .row-item:last-child{border-bottom:none;}
+  .row-item:hover{background:var(--surface-2);}
+  .row-item .r-ticker{font-family:'IBM Plex Mono',monospace;font-weight:600;width:56px;color:var(--ink);}
+  .row-item .r-name{color:var(--muted-dim);flex:1;}
+  .row-item .r-price{font-family:'IBM Plex Mono',monospace;width:70px;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);}
+  .row-item .r-delta{width:60px;text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600;font-variant-numeric:tabular-nums;}
+  .row-item .r-when{width:70px;text-align:right;color:var(--muted-dim);font-size:11px;}
+
+  footer{margin-top:38px;font-size:12px;color:var(--muted-dim);text-align:center;}
+  #search-section{display:none;}
+  .empty-note{font-size:13px;color:var(--muted-dim);padding:8px 2px;}
+  .search-msg{
+    font-size:13px;line-height:1.45;color:var(--muted);
+    background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    padding:14px 16px;
+  }
+  .search-msg.warn{border-color:#5a4a2a;color:var(--gold);}
+  .search-msg.err{border-color:#5a3530;color:var(--rust);}
+  .pw-row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;}
+  .pw-row input{
+    flex:1;min-width:160px;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:8px;padding:8px 10px;color:var(--ink);font-family:'Inter';font-size:13px;
+  }
+  .pw-row button{
+    border:1px solid var(--line);background:var(--surface-2);color:var(--ink);
+    border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;
+  }
+  .pw-row button:hover{border-color:#3A4A43;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <h1>Ledger</h1>
+      <span class="tick">family board</span>
+    </div>
+    <span class="updated" id="updated-label"><span class="dot"></span>loading…</span>
+  </header>
+  <p class="sub">A quiet daily read on stocks worth knowing about — plus anything you want to look up yourself.</p>
+
+  <div class="controls">
+    <div class="mode-toggle">
+      <button type="button" class="active" data-mode="long">Long-term</button>
+      <button type="button" data-mode="short">Short-term</button>
+    </div>
+    <div class="search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="search-input" type="text" placeholder="Look up any stock — e.g. AAPL, Tesla, Costco">
+    </div>
+  </div>
+
+  <div id="search-section">
+    <div class="section-label">Search result</div>
+    <div class="grid" id="search-grid"></div>
+  </div>
+
+  <div class="section-label" id="picks-label">Today's picks · stable, long-term leaning</div>
+  <div class="grid" id="picks-grid"></div>
+
+  <div class="section-label">Recently looked up <span class="why-help" title="Pulled instantly from what your family has already searched — no new data cost">why instant?</span></div>
+  <div class="row-list" id="recent-list"></div>
+
+  <footer>
+    Not financial advice — a plain-English read to help your family learn, not a broker.
+  </footer>
+
+</div>
+
+<script>
+  let currentMode = "long";
+  const starred = new Set();
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function formatMoney(n) {
+    if (n == null || Number.isNaN(Number(n))) return "—";
+    return "$" + Number(n).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  function formatPct(n) {
+    if (n == null || Number.isNaN(Number(n))) return "—";
+    const v = Number(n);
+    const arrow = v >= 0 ? "▲" : "▼";
+    return arrow + " " + Math.abs(v).toFixed(1) + "%";
+  }
+
+  function shortSector(sector) {
+    if (!sector) return "—";
+    const map = {
+      Technology: "Tech",
+      Healthcare: "Healthcare",
+      "Consumer Defensive": "Staples",
+      "Consumer Cyclical": "Consumer",
+      Financial: "Finance",
+      "Financial Services": "Finance",
+      Energy: "Energy",
+    };
+    return map[sector] || sector;
+  }
+
+  function leanClass(report, status) {
+    const lean = report?.analysis?.lean;
+    const risk = report?.analysis?.risk;
+    if (status === "watch" || lean === "bearish" || risk === "high") return "lean-risk";
+    if (lean === "neutral") return "lean-watch";
+    return "lean-pos";
+  }
+
+  function riskTag(risk) {
+    if (risk === "low") return { cls: "risk-low", label: "Low risk" };
+    if (risk === "high") return { cls: "risk-high", label: "High volatility" };
+    return { cls: "risk-med", label: "Medium risk" };
+  }
+
+  function tagClass(lean) {
+    if (lean === "bearish") return "watch";
+    if (lean === "neutral") return "watch";
+    return "pos";
+  }
+
+  function trackHtml(trackRecord) {
+    if (!trackRecord || trackRecord.building) {
+      return `<span class="track building">building track record</span>`;
+    }
+    return `<span class="track">${escapeHtml(trackRecord.hitRate)}% on-target · ${escapeHtml(trackRecord.resolvedCount)} picks</span>`;
+  }
+
+  function sparklineSvg(history, price, target, down) {
+    const w = 240;
+    const h = 34;
+    const padY = 4;
+    const values = (Array.isArray(history) ? history.map(Number).filter(Number.isFinite) : []).slice(-12);
+    if (!values.length && price != null) values.push(Number(price));
+    if (!values.length) values.push(100);
+
+    const lastX = 200;
+    const points = values.map((v, i) => {
+      const x = values.length === 1 ? lastX : (i / (values.length - 1)) * lastX;
+      return { x, v };
+    });
+
+    const all = [...points.map((p) => p.v)];
+    if (target != null && Number.isFinite(Number(target))) all.push(Number(target));
+    const min = Math.min(...all);
+    const max = Math.max(...all);
+    const span = max - min || 1;
+    const yAt = (v) => padY + (1 - (v - min) / span) * (h - padY * 2);
+
+    const stroke = down ? "#E2735A" : "#4FB88A";
+    const solid = points.map((p) => `${p.x.toFixed(1)},${yAt(p.v).toFixed(1)}`).join(" ");
+    const last = points[points.length - 1];
+    const targetY = target != null && Number.isFinite(Number(target)) ? yAt(Number(target)) : yAt(last.v);
+    const dashed = `${last.x.toFixed(1)},${yAt(last.v).toFixed(1)} 240,${targetY.toFixed(1)}`;
+
+    return `<svg class="spark${down ? " down" : ""}" width="100%" height="34" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <polyline points="${solid}" fill="none" stroke="${stroke}" stroke-width="2"/>
+      <polyline points="${dashed}" fill="none" stroke="${stroke}" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.55"/>
+    </svg>`;
+  }
+
+  function buildCardHtml(report, status) {
+    if (!report) return "";
+    const lean = report.analysis?.lean || "neutral";
+    const risk = report.analysis?.risk || "medium";
+    const pct = Number(report.changePercent);
+    const down = Number.isFinite(pct) ? pct < 0 : false;
+    const deltaCls = down ? "down" : "up";
+    const riskInfo = riskTag(risk);
+    const tags = Array.isArray(report.analysis?.tags) ? report.analysis.tags.slice(0, 2) : [];
+    const isStarred = starred.has(report.ticker);
+    const target = report.analystTarget;
+
+    const tagHtml =
+      tags.map((t) => `<span class="tag ${tagClass(lean)}">${escapeHtml(t)}</span>`).join("") +
+      `<span class="tag ${riskInfo.cls}">${escapeHtml(riskInfo.label)}</span>`;
+
+    return `<div class="card ${leanClass(report, status)}" data-ticker="${escapeHtml(report.ticker)}">
+      <div class="card-top">
+        <div class="ticker-block">
+          <div class="ticker">${escapeHtml(report.ticker)}</div>
+          <div class="company">${escapeHtml(report.name || report.ticker)}</div>
+        </div>
+        <div class="sector">${escapeHtml(shortSector(report.sector))}</div>
+      </div>
+      <div class="price-row">
+        <span class="price">${formatMoney(report.price)}</span>
+        <span class="delta ${deltaCls}">${formatPct(report.changePercent)}</span>
+      </div>
+      ${sparklineSvg(report.priceHistory, report.price, target, down)}
+      <div class="target-line" title="Average of published analyst 12-month price targets — a research estimate, not a guarantee">
+        <span class="dots">┈┈</span> Analyst target: <b>${formatMoney(target)}</b> · 12mo
+      </div>
+      <div class="tags">${tagHtml}</div>
+      <div class="summary">${escapeHtml(report.analysis?.summary || "")}</div>
+      <div class="card-foot">
+        ${trackHtml(report.trackRecord)}
+        <button class="star${isStarred ? " active" : ""}" type="button" data-star="${escapeHtml(report.ticker)}" aria-label="Add to watchlist">${isStarred ? "★" : "☆"}</button>
+      </div>
+    </div>`;
+  }
+
+  function timeAgo(iso) {
+    if (!iso) return "";
+    const then = Date.parse(iso);
+    if (Number.isNaN(then)) return "";
+    const mins = Math.round((Date.now() - then) / 60000);
+    if (mins < 60) return mins <= 1 ? "just now" : mins + "m ago";
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return hours + "h ago";
+    const days = Math.round(hours / 24);
+    if (days === 1) return "yesterday";
+    return days + " days ago";
+  }
+
+  function setUpdatedNow() {
+    const el = document.getElementById("updated-label");
+    const t = new Date();
+    const label = t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    el.innerHTML = `<span class="dot"></span>updated ${escapeHtml(label)} · today`;
+  }
+
+  async function loadBoard() {
+    const grid = document.getElementById("picks-grid");
+    const label = document.getElementById("picks-label");
+    label.textContent =
+      currentMode === "short"
+        ? "Today's picks · shorter-term leaning"
+        : "Today's picks · stable, long-term leaning";
+
+    grid.innerHTML = `<div class="empty-note">Loading picks…</div>`;
+    try {
+      const res = await fetch(`/api/board?mode=${encodeURIComponent(currentMode)}`);
+      const board = await res.json();
+      if (!Array.isArray(board) || !board.length) {
+        grid.innerHTML = `<div class="empty-note">No board picks yet.</div>`;
+        return;
+      }
+      grid.innerHTML = board
+        .filter((row) => row.report)
+        .map((row) => buildCardHtml(row.report, row.status))
+        .join("");
+      setUpdatedNow();
+    } catch (err) {
+      console.error(err);
+      grid.innerHTML = `<div class="empty-note">Could not load board picks.</div>`;
+    }
+  }
+
+  async function loadRecent() {
+    const list = document.getElementById("recent-list");
+    list.innerHTML = `<div class="row-item"><span class="r-name">Loading…</span></div>`;
+    try {
+      const res = await fetch("/api/recent");
+      const rows = await res.json();
+      if (!Array.isArray(rows) || !rows.length) {
+        list.innerHTML = `<div class="row-item"><span class="r-name">No recent lookups yet.</span></div>`;
+        return;
+      }
+      list.innerHTML = rows
+        .map((row) => {
+          const report = row.report || {};
+          const pct = Number(report.changePercent);
+          const color = Number.isFinite(pct) && pct < 0 ? "#E2735A" : "#4FB88A";
+          return `<div class="row-item">
+            <span class="r-ticker">${escapeHtml(row.ticker)}</span>
+            <span class="r-name">${escapeHtml(report.name || row.ticker)}</span>
+            <span class="r-price">${formatMoney(report.price)}</span>
+            <span class="r-delta" style="color:${color};">${formatPct(report.changePercent).replace(" ", "")}</span>
+            <span class="r-when">${escapeHtml(timeAgo(row.lastUpdated))}</span>
+          </div>`;
+        })
+        .join("");
+    } catch (err) {
+      console.error(err);
+      list.innerHTML = `<div class="row-item"><span class="r-name">Could not load recent lookups.</span></div>`;
+    }
+  }
+
+  async function runSearch(ticker, passwordOverride) {
+    const section = document.getElementById("search-section");
+    const grid = document.getElementById("search-grid");
+    section.style.display = "block";
+    grid.innerHTML = `<div class="empty-note">Looking up ${escapeHtml(ticker)}…</div>`;
+
+    const storedPw = sessionStorage.getItem("ledger_search_pw") || "";
+    const password = passwordOverride != null ? passwordOverride : storedPw;
+
+    try {
+      const params = new URLSearchParams({
+        ticker,
+        mode: currentMode,
+      });
+      if (password) params.set("password", password);
+
+      const res = await fetch(`/api/search?${params.toString()}`);
+      const data = await res.json();
+
+      if (data.error === "locked") {
+        grid.innerHTML = `
+          <div class="search-msg warn">
+            This one needs a fresh lookup — enter password to continue
+            <div class="pw-row">
+              <input id="search-pw" type="password" placeholder="Password" autocomplete="current-password" />
+              <button type="button" id="search-pw-go">Continue</button>
+            </div>
+          </div>`;
+        const input = document.getElementById("search-pw");
+        const go = document.getElementById("search-pw-go");
+        const submit = () => {
+          const pw = input.value;
+          if (!pw) return;
+          sessionStorage.setItem("ledger_search_pw", pw);
+          runSearch(ticker, pw);
+        };
+        go.addEventListener("click", submit);
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") submit();
+        });
+        input.focus();
+        return;
+      }
+
+      if (data.error === "rate_limit") {
+        const used = data.used != null ? data.used : "?";
+        const limit = data.limit != null ? data.limit : 25;
+        grid.innerHTML = `<div class="search-msg err">We've hit today's data limit (${escapeHtml(used)}/${escapeHtml(limit)} used) — resets around 1 AM.</div>`;
+        return;
+      }
+
+      if (data.error === "invalid_ticker") {
+        grid.innerHTML = `<div class="search-msg err">We couldn't find that ticker. Check the symbol and try again.</div>`;
+        return;
+      }
+
+      if (!res.ok || data.error) {
+        grid.innerHTML = `<div class="search-msg err">${escapeHtml(
+          typeof data.error === "string" ? data.error : "Search failed."
+        )}</div>`;
+        return;
+      }
+
+      grid.innerHTML = buildCardHtml(data, null);
+      setUpdatedNow();
+      loadRecent();
+    } catch (err) {
+      console.error(err);
+      grid.innerHTML = `<div class="search-msg err">Search failed.</div>`;
+    }
+  }
+
+  async function starTicker(ticker, button) {
+    try {
+      const res = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker }),
+      });
+      if (!res.ok) throw new Error("watchlist failed");
+      starred.add(ticker);
+      button.classList.add("active");
+      button.textContent = "★";
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  document.querySelectorAll(".mode-toggle button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".mode-toggle button").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentMode = btn.dataset.mode === "short" ? "short" : "long";
+      loadBoard();
+    });
+  });
+
+  document.getElementById("search-input").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const ticker = e.target.value.trim().toUpperCase();
+    if (!ticker) return;
+    runSearch(ticker);
+  });
+
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-star]");
+    if (!btn) return;
+    starTicker(btn.dataset.star, btn);
+  });
+
+  loadBoard();
+  loadRecent();
+</script>
+</body>
+</html>

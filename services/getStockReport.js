@@ -260,9 +260,18 @@ async function loadSharedStockData(ticker, options = {}) {
   const fullyFresh = isFullyFresh(rawData);
 
   if (fullyFresh && analysis && !newsOnly) {
-    console.log(
-      `[getStockReport] full cache hit for ${symbol} — no live API calls`
-    );
+    // Still fill missing peers — empty [] used to stick forever on full cache hits.
+    if (!skipPeers && (!rawData.peers || !rawData.peers.length)) {
+      console.log(
+        `[getStockReport] full cache hit for ${symbol} but peers empty — fetching peers only`
+      );
+      rawData.peers = (await getPeers(symbol)) || [];
+      await saveStockToCache(symbol, null, rawData);
+    } else {
+      console.log(
+        `[getStockReport] full cache hit for ${symbol} — no live API calls`
+      );
+    }
     return {
       rawData,
       analysis,

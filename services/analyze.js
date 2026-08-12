@@ -292,19 +292,49 @@ function parseAnalysisJson(text) {
   return { short: take, long: take, quip };
 }
 
-async function callGemini(model, prompt) {
+function isInvalidArgumentError(err) {
+  const status = err.response?.status;
+  const apiErr = err.response?.data?.error || {};
+  const message = String(apiErr.message || err.message || "").toLowerCase();
+  const statusText = String(apiErr.status || "").toUpperCase();
+  return (
+    status === 400 ||
+    statusText === "INVALID_ARGUMENT" ||
+    message.includes("invalid argument") ||
+    message.includes("invalid_argument")
+  );
+}
+
+function formatGeminiError(err) {
+  const apiErr = err.response?.data?.error;
+  if (apiErr) {
+    return `${apiErr.status || err.response?.status || "ERR"}: ${apiErr.message || JSON.stringify(apiErr)}`;
+  }
+  return err.message;
+}
+
+async function callGemini(model, prompt, { useThinkingConfig = false } = {}) {
   await incrementUsage(PROVIDERS.GEMINI);
+
+  const generationConfig = {
+    temperature: 0.35,
+    maxOutputTokens: 2048,
+    responseMimeType: "application/json",
+  };
+
+  // thinkingBudget: 0 causes INVALID_ARGUMENT on several Gemini 2.5 models
+  // (Pro rejects 0; some Flash aliases also reject the nested thinkingConfig).
+  // Only attach when explicitly requested.
+  if (useThinkingConfig) {
+    generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  }
 
   const { data } = await axios.post(
     geminiUrl(model),
     {
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.35,
-        maxOutputTokens: 2048,
-        responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 0 },
-      },
+      // Omit role — some Gemini endpoints reject unexpected role values with INVALID_ARGUMENT.
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig,
     },
     {
       params: { key: getGeminiKey() },
@@ -362,20 +392,59 @@ async function analyzeStock(
     try {
       data = await callGemini(primaryModel, prompt);
     } catch (primaryErr) {
-      if (!isModelUnavailableError(primaryErr)) {
+      console.error(
+        `[analyzeStock] Primary Gemini error for ${ticker}:`,
+        formatGeminiError(primaryErr)
+      );
+
+      if (isModelUnavailableError(primaryErr)) {
+        console.warn(
+          `GEMINI_MODEL in .env may be outdated — fell back to ${FALLBACK_MODEL}. Consider updating .env. [${new Date().toISOString()}]`
+        );
+        console.log(
+          `[analyzeStock] Gemini model=${FALLBACK_MODEL} at ${new Date().toISOString()}`
+        );
+        data = await callGemini(FALLBACK_MODEL, prompt);
+      } else if (isInvalidArgumentError(primaryErr)) {
+        // Retry once with an even leaner payload shape (no thinkingConfig already).
+        // If the model rejected nested JSON mime + large prompt, try without mime type.
+        console.warn(
+          `[analyzeStock] INVALID_ARGUMENT on ${primaryModel} — retrying without responseMimeType`
+        );
+        await incrementUsage(PROVIDERS.GEMINI);
+        const { data: retryData } = await axios.post(
+          geminiUrl(primaryModel),
+          {
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.35,
+              maxOutputTokens: 2048,
+            },
+          },
+          {
+            params: { key: getGeminiKey() },
+            headers: { "Content-Type": "application/json" },
+            timeout: 45000,
+          }
+        );
+        data = retryData;
+      } else {
         throw primaryErr;
       }
-
-      console.warn(
-        `GEMINI_MODEL in .env may be outdated — fell back to ${FALLBACK_MODEL}. Consider updating .env. [${new Date().toISOString()}]`
-      );
-      console.log(
-        `[analyzeStock] Gemini model=${FALLBACK_MODEL} at ${new Date().toISOString()}`
-      );
-      data = await callGemini(FALLBACK_MODEL, prompt);
     }
 
     const text = extractText(data);
+    if (!text) {
+      const blockReason =
+        data?.promptFeedback?.blockReason ||
+        data?.candidates?.[0]?.finishReason ||
+        null;
+      console.error(
+        `[analyzeStock] Empty Gemini text for ${ticker}` +
+          (blockReason ? ` (finish/block=${blockReason})` : "") +
+          ` raw=${JSON.stringify(data?.candidates?.[0] || data?.promptFeedback || {}).slice(0, 400)}`
+      );
+    }
     const parsed = parseAnalysisJson(text);
     if (!parsed) {
       console.error(`[analyzeStock] Failed to parse Gemini JSON for ${ticker}`);
@@ -395,7 +464,7 @@ async function analyzeStock(
   } catch (err) {
     console.error(
       `[analyzeStock] Failed for ${ticker}:`,
-      err.response?.data?.error?.message || err.message
+      formatGeminiError(err)
     );
     const quip = await getFallbackJoke();
     return {

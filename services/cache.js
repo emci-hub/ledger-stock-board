@@ -2,6 +2,8 @@ const { dbGet, dbRun } = require("../db/schema");
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
+const FALLBACK_SUMMARY_SNIPPET = "wasn't available";
+
 function isFresh(isoTimestamp, ttlMs = CACHE_TTL_MS) {
   if (!isoTimestamp) return false;
   const then = Date.parse(isoTimestamp);
@@ -26,8 +28,18 @@ function freshnessFromData(data) {
   };
 }
 
+/** True when quote has post-merge short+long indicator windows. */
+function hasSharedIndicatorShape(data) {
+  const ind = data?.quote?.indicators;
+  return Boolean(ind && typeof ind === "object" && ind.short && ind.long);
+}
+
 function isPriceFresh(data) {
-  return Boolean(data?.quote) && isFresh(freshnessFromData(data).priceUpdatedAt);
+  return (
+    Boolean(data?.quote) &&
+    hasSharedIndicatorShape(data) &&
+    isFresh(freshnessFromData(data).priceUpdatedAt)
+  );
 }
 
 function isTargetFresh(data) {
@@ -168,6 +180,16 @@ function pickAnalysisTake(dual, mode) {
   return dual[m] || dual.long || dual.short || null;
 }
 
+/** True when cached analysis is the canned Gemini failure fallback — must not block re-analyze. */
+function isFallbackAnalysis(dual) {
+  if (!dual) return true;
+  const take = pickAnalysisTake(dual, "long") || pickAnalysisTake(dual, "short");
+  const summary = String(take?.summary || "");
+  if (!summary.trim()) return true;
+  if (summary.toLowerCase().includes(FALLBACK_SUMMARY_SNIPPET)) return true;
+  return false;
+}
+
 async function getCachedSummary(ticker, _mode) {
   const row = await dbGet(
     `SELECT summary_json, generated_at FROM ai_reports WHERE ticker = ?`,
@@ -179,7 +201,11 @@ async function getCachedSummary(ticker, _mode) {
   }
 
   try {
-    return normalizeDualAnalysis(JSON.parse(row.summary_json));
+    const dual = normalizeDualAnalysis(JSON.parse(row.summary_json));
+    if (!dual || isFallbackAnalysis(dual)) {
+      return null;
+    }
+    return dual;
   } catch {
     return null;
   }
@@ -187,6 +213,16 @@ async function getCachedSummary(ticker, _mode) {
 
 async function saveSummaryToCache(ticker, _mode, summary) {
   const dual = normalizeDualAnalysis(summary) || summary;
+  // Do not persist pure fallbacks as "fresh" analysis — leave miss so next pass retries.
+  if (isFallbackAnalysis(dual)) {
+    console.warn(
+      `[cache] Refusing to cache fallback analysis for ${String(ticker).toUpperCase()}`
+    );
+    await dbRun(`DELETE FROM ai_reports WHERE ticker = ?`, [
+      String(ticker).toUpperCase(),
+    ]);
+    return;
+  }
   await dbRun(
     `INSERT OR REPLACE INTO ai_reports (ticker, summary_json, generated_at)
      VALUES (?, ?, ?)`,
@@ -203,6 +239,7 @@ module.exports = {
   isFresh,
   emptyFreshness,
   freshnessFromData,
+  hasSharedIndicatorShape,
   isPriceFresh,
   isTargetFresh,
   isNewsFresh,
@@ -216,4 +253,5 @@ module.exports = {
   saveSummaryToCache,
   normalizeDualAnalysis,
   pickAnalysisTake,
+  isFallbackAnalysis,
 };

@@ -19,11 +19,13 @@ const {
   resolveOldRecommendations,
   getTrackRecord,
 } = require("./jobs/refreshBoard");
+const { invalidateBoardStaleCaches } = require("./jobs/invalidateBoardCache");
 const {
   getApiUsageToday,
   getUsageToday,
   nextMidnightPacificIso,
   getSetting,
+  setSetting,
   PROVIDERS,
 } = require("./services/usage");
 const { AlphaVantageError } = require("./services/dataFetch");
@@ -341,20 +343,34 @@ async function start() {
       "[cron] Scheduled cleanupStaleCache + joke pool top-up monthly (1st, 04:00)"
     );
 
-    dbGet(`SELECT COUNT(*) AS n FROM board_picks`)
-      .then((row) => {
+    // One-shot heal after shared-fetch merge: drop fallback ai_reports + flat
+    // pre-merge price rows, then refreshBoard so Gemini/shared indicators rebuild.
+    (async () => {
+      const healKey = "sharedCacheHeal_v1";
+      const already = await getSetting(healKey);
+      if (already) {
+        console.log(`[startup] ${healKey} already done at ${already}`);
+        const row = await dbGet(`SELECT COUNT(*) AS n FROM board_picks`);
         const count = Number(row?.n || 0);
         if (count === 0) {
           console.log("[startup] board_picks empty — running refreshBoard once");
-          return refreshBoard();
+          await refreshBoard();
         }
-        console.log(
-          `[startup] board_picks already has ${count} row(s) — skip refresh`
-        );
-      })
-      .catch((err) => {
-        console.error("[startup] Could not check board_picks:", err.message);
-      });
+        return;
+      }
+
+      console.log(
+        "[startup] Running shared-cache heal (invalidate fallbacks + flat prices, then refreshBoard)"
+      );
+      const result = await invalidateBoardStaleCaches();
+      await refreshBoard();
+      await setSetting(healKey, new Date().toISOString());
+      console.log(
+        `[startup] shared-cache heal complete — aiDeleted=${result.aiDeleted}, priceInvalidated=${result.priceInvalidated}`
+      );
+    })().catch((err) => {
+      console.error("[startup] shared-cache heal failed:", err.message);
+    });
   });
 }
 

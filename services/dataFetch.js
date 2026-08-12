@@ -830,6 +830,7 @@ async function getFundamentalsAndNews(ticker) {
 
 /**
  * Finnhub peers — returns 3–5 peer tickers, excluding the original.
+ * Free-tier /stock/peers is generally available (unlike /news-sentiment which is often 403).
  */
 async function getPeers(ticker) {
   try {
@@ -837,6 +838,10 @@ async function getPeers(ticker) {
     const data = await callFinnhub("/stock/peers", { symbol });
 
     if (!Array.isArray(data)) {
+      console.error(
+        `[getPeers] Unexpected Finnhub peers payload for ${symbol}:`,
+        typeof data === "object" ? JSON.stringify(data).slice(0, 300) : data
+      );
       throw new Error("Finnhub peers response was not an array");
     }
 
@@ -847,13 +852,22 @@ async function getPeers(ticker) {
 
     if (peers.length < 3) {
       console.warn(
-        `[getPeers] Only found ${peers.length} peer(s) for ${symbol} (wanted 3–5)`
+        `[getPeers] Only found ${peers.length} peer(s) for ${symbol} (wanted 3–5); rawCount=${data.length}`
       );
+    } else {
+      console.log(`[getPeers] ${symbol} → ${peers.join(", ")}`);
     }
 
     return peers;
   } catch (err) {
-    console.error(`[getPeers] Failed for ${ticker}:`, err.message);
+    const status = err.response?.status;
+    const body = err.response?.data;
+    console.error(
+      `[getPeers] Failed for ${ticker}:`,
+      status ? `HTTP ${status}` : "",
+      err.message,
+      body ? JSON.stringify(body).slice(0, 300) : ""
+    );
     return null;
   }
 }

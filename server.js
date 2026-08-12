@@ -30,6 +30,7 @@ const {
 } = require("./services/usage");
 const { AlphaVantageError } = require("./services/dataFetch");
 const { DATA_SOURCES, hasSourceKey, sourcesLegend } = require("./lib/dataSources");
+const { glossaryList } = require("./lib/glossary");
 
 const app = express();
 const PORT = 3000;
@@ -121,6 +122,7 @@ async function buildStatusPayload() {
     geminiUsedToday: geminiUsed,
     newSearchesAvailableToday,
     sourcesLegend: sourcesLegend(),
+    glossary: glossaryList(),
     lastBoardRefresh: await getSetting("lastBoardRefresh"),
     boardRefreshStatus: await getSetting("lastBoardRefreshStatus"),
     resetsAt: nextMidnightPacificIso(),

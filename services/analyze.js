@@ -3,6 +3,7 @@ require("dotenv").config();
 const axios = require("axios");
 const { incrementUsage, PROVIDERS } = require("./usage");
 const { getFallbackJoke } = require("./jokes");
+const { computeNewsAgreement } = require("../lib/newsAgreement");
 
 const FALLBACK_MODEL = "gemini-flash-latest";
 
@@ -123,6 +124,8 @@ function buildPayload(ticker, quoteData, fundamentalsData, peersData) {
       }))
     : null;
 
+  const newsAgreement = computeNewsAgreement(fundamentalsData);
+
   const peers = Array.isArray(peersData)
     ? peersData.map((peer) => {
         if (peer && typeof peer === "object") {
@@ -170,6 +173,7 @@ function buildPayload(ticker, quoteData, fundamentalsData, peersData) {
         }
       : null,
     newsPending,
+    newsAgreement,
     peers,
   };
 }
@@ -206,7 +210,10 @@ Rules:
 - Do NOT apologize for or explain missing/unavailable data (no news, no peers, no analyst target, not enough history for a 200-day average, missing 52-week range, etc.). The UI shows those gaps as small badges separately. Write only genuine analysis from the data that IS present, and simply omit topics you cannot support.
 - You may still use real stock-specific reasoning that happens to mention a shorter history when it adds insight (e.g. a newer public company) — but never boilerplate "we don't have X" / "data isn't available" disclaimers.
 - If newsPending is true, do not invent news sentiment and do not say that news is missing — just skip news and lean on price/indicators/target.
-- If multiple news sources are present, briefly note whether they seem to agree or disagree.
+- newsAgreement is critical when Alpha Vantage and Marketaux both succeed:
+  - status "agree": both point the same way. Factor that as ADDED CONFIDENCE in lean and summary — say something like "both news sources point the same way" or "the two news feeds agree".
+  - status "disagree": sources genuinely conflict. Do NOT silently pick one. Set lean toward "neutral" / cautious, and say plainly that signals are mixed (e.g. "mixed signals in recent news right now").
+  - status "single" or "none": only one feed or neither — no agreement claim; just use what you have.
 - "quip" must be about this company/ticker specifically (name, products, sector, or well-known traits) — light and tasteful, not mean-spirited, not financial advice, max ~20 words. Never a generic stock-market joke that could apply to any ticker.
 - Do not give buy/sell advice or trading instructions.
 
@@ -248,6 +255,36 @@ function parseTake(raw) {
     summary: raw.summary.trim(),
     deepDive,
   };
+}
+
+function mentionsMixedNews(take) {
+  const text = `${take?.summary || ""} ${(take?.tags || []).join(" ")} ${take?.deepDive || ""}`.toLowerCase();
+  return (
+    text.includes("mixed") ||
+    text.includes("disagree") ||
+    text.includes("conflict") ||
+    text.includes("don't agree") ||
+    text.includes("do not agree") ||
+    text.includes("split") ||
+    text.includes("don't line up") ||
+    text.includes("do not line up")
+  );
+}
+
+/** Soft guard: disagreement must not stay strongly directional without acknowledgment. */
+function applyNewsAgreementGuard(parsed, newsAgreement) {
+  if (!parsed || newsAgreement?.status !== "disagree") return parsed;
+  for (const mode of ["short", "long"]) {
+    const take = parsed[mode];
+    if (!take) continue;
+    if (
+      (take.lean === "bullish" || take.lean === "bearish") &&
+      !mentionsMixedNews(take)
+    ) {
+      take.lean = "neutral";
+    }
+  }
+  return parsed;
 }
 
 function parseAnalysisJson(text) {
@@ -389,6 +426,7 @@ async function analyzeStock(
       peersData
     );
     const prompt = buildPrompt(payload);
+    const newsAgreement = payload.newsAgreement;
 
     let data;
     try {
@@ -447,7 +485,10 @@ async function analyzeStock(
           ` raw=${JSON.stringify(data?.candidates?.[0] || data?.promptFeedback || {}).slice(0, 400)}`
       );
     }
-    const parsed = parseAnalysisJson(text);
+    const parsed = applyNewsAgreementGuard(
+      parseAnalysisJson(text),
+      newsAgreement
+    );
     if (!parsed) {
       console.error(`[analyzeStock] Failed to parse Gemini JSON for ${ticker}`);
       const quip = await getFallbackJoke();

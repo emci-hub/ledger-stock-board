@@ -24,6 +24,7 @@ const { logQuoteClose } = require("./priceHistoryLog");
 const { getTickerInfo } = require("../lib/tickerInfo");
 const { sourceShortCode, formatSourceList } = require("../lib/dataSources");
 const { deriveDataCaveats } = require("../lib/dataCaveats");
+const { computeNewsAgreement } = require("../lib/newsAgreement");
 
 /** In-flight shared-data loads keyed by ticker only (mode is display-only). */
 const inFlight = new Map();
@@ -148,6 +149,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
   const weekRange = computeWeekRange(price, priceHistory, overview);
   const earnings = buildEarningsFlag(overview.earningsDate);
   const peers = Array.isArray(rawData?.peers) ? rawData.peers : [];
+  const newsAgreement = computeNewsAgreement(rawData?.fundamentals);
 
   const dual = normalizeDualAnalysis(analysis);
   const take = pickAnalysisTake(dual, displayMode);
@@ -185,6 +187,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     newsSources,
     newsSourceLabel: formatSourceList(newsSources),
     newsPending,
+    newsAgreement,
     weekRange,
     earnings,
     peers,
@@ -219,6 +222,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
   reportBase.caveats = deriveDataCaveats(reportBase, {
     sharedIndicators: quote.indicators,
   });
+  reportBase.fullyAnalyzed = reportBase.caveats.length === 0;
 
   return reportBase;
 }

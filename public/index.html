@@ -158,6 +158,35 @@
   .tag.risk-low{background:var(--green-bg);color:var(--green);}
   .tag.risk-med{background:var(--gold-bg);color:var(--gold);}
   .tag.risk-high{background:var(--rust-bg);color:var(--rust);}
+  .tag.complete{
+    background:rgba(79,184,138,0.14);color:var(--green);
+    border:1px solid rgba(79,184,138,0.28);
+  }
+
+  .gloss{
+    display:inline-flex;flex-direction:column;align-items:flex-start;
+    max-width:100%;vertical-align:middle;
+  }
+  .gloss-main{
+    display:inline-flex;align-items:center;gap:4px;
+    background:transparent;border:0;padding:0;margin:0;
+    font:inherit;color:inherit;cursor:pointer;text-align:left;
+  }
+  .gloss-chevron{
+    font-size:9px;opacity:0.7;line-height:1;
+    transition:transform 0.15s ease;
+  }
+  .gloss.open .gloss-chevron{transform:rotate(90deg);}
+  .gloss-detail{
+    display:none;margin-top:4px;max-width:240px;
+    font-size:11px;line-height:1.4;color:var(--muted-dim);
+    font-weight:400;font-family:'IBM Plex Mono',monospace;
+  }
+  .gloss.open .gloss-detail{display:block;}
+  .gloss-detail .grown-ups{color:var(--muted);}
+  .tag .gloss-detail{padding:2px 0 0;}
+  .target-line .gloss,.deep-label .gloss{display:inline-flex;}
+  .deep-label .gloss-main{color:var(--muted);}
 
   .summary{font-size:13px;line-height:1.5;color:var(--muted);margin-bottom:11px;}
   .news-pending{
@@ -329,6 +358,8 @@
 <script>
   let currentMode = "long";
   const starred = new Set();
+  /** Shared glossary from /api/status — add terms in lib/glossary.js only. */
+  let glossaryEntries = [];
 
   function escapeHtml(value) {
     return String(value ?? "")
@@ -336,6 +367,109 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  function matchGlossary(text) {
+    const raw = String(text || "").trim();
+    if (!raw || !glossaryEntries.length) return null;
+    const t = raw.toLowerCase();
+    let best = null;
+    let bestLen = 0;
+    for (const entry of glossaryEntries) {
+      const candidates = [
+        entry.id,
+        entry.technicalTerm,
+        entry.plainLabel,
+        ...(Array.isArray(entry.aliases) ? entry.aliases : []),
+      ]
+        .filter(Boolean)
+        .map((s) => String(s).toLowerCase());
+      for (const c of candidates) {
+        if (t === c || t.includes(c) || c.includes(t)) {
+          if (c.length > bestLen) {
+            best = entry;
+            bestLen = c.length;
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  function glossaryById(id) {
+    if (!id) return null;
+    return glossaryEntries.find((e) => e.id === id) || null;
+  }
+
+  /**
+   * Plain label by default; chevron expands technical term + explanation.
+   * Driven only by the shared glossary — never hardcode jargon per component.
+   */
+  function glossaryLabelHtml(textOrId, { asTagClass = "", forceId = null } = {}) {
+    const entry = forceId
+      ? glossaryById(forceId)
+      : glossaryById(textOrId) || matchGlossary(textOrId);
+    if (!entry) {
+      const plain = escapeHtml(textOrId);
+      if (asTagClass) return `<span class="tag ${asTagClass}">${plain}</span>`;
+      return plain;
+    }
+    const plain = escapeHtml(entry.plainLabel);
+    const tech = escapeHtml(entry.technicalTerm);
+    const explain = escapeHtml(entry.explanation);
+    const detail = `<span class="gloss-detail"><span class="grown-ups">Grown-ups call this ${tech}.</span> ${explain}</span>`;
+    const inner = `<span class="gloss" data-gloss="${escapeHtml(entry.id)}"><button type="button" class="gloss-main" aria-expanded="false"><span class="gloss-label">${plain}</span><span class="gloss-chevron" aria-hidden="true">▸</span></button>${detail}</span>`;
+    if (asTagClass) return `<span class="tag ${asTagClass}">${inner}</span>`;
+    return inner;
+  }
+
+  /** Wrap known glossary terms inside free prose (summary / deep dive). */
+  function glossifyProse(text) {
+    const raw = String(text || "");
+    if (!raw || !glossaryEntries.length) return escapeHtml(raw);
+
+    const needles = [];
+    for (const entry of glossaryEntries) {
+      const terms = [entry.technicalTerm, ...(entry.aliases || [])]
+        .filter(Boolean)
+        .map((s) => String(s).trim())
+        .filter((s) => s.length >= 3);
+      for (const term of terms) {
+        needles.push({ term, entry, len: term.length });
+      }
+    }
+    needles.sort((a, b) => b.len - a.len);
+
+    const lower = raw.toLowerCase();
+    const hits = [];
+    const used = [];
+    for (const n of needles) {
+      let from = 0;
+      const needle = n.term.toLowerCase();
+      while (from < lower.length) {
+        const idx = lower.indexOf(needle, from);
+        if (idx === -1) break;
+        const end = idx + needle.length;
+        const overlaps = used.some((r) => !(end <= r.start || idx >= r.end));
+        if (!overlaps) {
+          hits.push({ start: idx, end, entry: n.entry });
+          used.push({ start: idx, end });
+        }
+        from = idx + 1;
+      }
+    }
+    hits.sort((a, b) => a.start - b.start);
+    if (!hits.length) return escapeHtml(raw);
+
+    let out = "";
+    let cursor = 0;
+    for (const h of hits) {
+      out += escapeHtml(raw.slice(cursor, h.start));
+      out += glossaryLabelHtml(h.entry.id, { forceId: h.entry.id });
+      cursor = h.end;
+    }
+    out += escapeHtml(raw.slice(cursor));
+    return out;
   }
 
   function formatMoney(n) {
@@ -376,9 +510,9 @@
   }
 
   function riskTag(risk) {
-    if (risk === "low") return { cls: "risk-low", label: "Low risk" };
-    if (risk === "high") return { cls: "risk-high", label: "High volatility" };
-    return { cls: "risk-med", label: "Medium risk" };
+    if (risk === "low") return { cls: "risk-low", glossId: "risk_low" };
+    if (risk === "high") return { cls: "risk-high", glossId: "risk_high" };
+    return { cls: "risk-med", glossId: "risk_medium" };
   }
 
   function tagClass(lean) {
@@ -467,7 +601,7 @@
         ? `<div class="news-via">via ${escapeHtml(report.newsSourceLabel)}</div>`
         : "";
     const rangeNote = report.weekRange?.label
-      ? `<div class="range-flag">${escapeHtml(report.weekRange.label)}${
+      ? `<div class="range-flag">${glossifyProse(report.weekRange.label)}${
           report.weekRange.low != null && report.weekRange.high != null
             ? ` · ${escapeHtml(formatMoney(report.weekRange.low))}–${escapeHtml(formatMoney(report.weekRange.high))}`
             : ""
@@ -498,6 +632,11 @@
       inline: true,
     });
     const summaryCaveats = caveatBadgesHtml(caveatsForPlace(report, "summary"));
+    const rangeLabel = glossaryLabelHtml("week52_range", { forceId: "week52_range" });
+    const peersLabel = glossaryLabelHtml("peers", { forceId: "peers" });
+    const targetLabel = glossaryLabelHtml("analyst_target", {
+      forceId: "analyst_target",
+    });
 
     const deepHtml = `<details class="deep-dive">
       <summary>Deep dive</summary>
@@ -509,7 +648,7 @@
           <li>News: ${escapeHtml(src.news || "—")}</li>
           <li>Peers: ${escapeHtml(src.peers || "—")}</li>
         </ul>
-        <div class="deep-label">52-week range</div>
+        <div class="deep-label">${rangeLabel}</div>
         <div>${
           report.weekRange?.low != null && report.weekRange?.high != null
             ? `${escapeHtml(formatMoney(report.weekRange.low))} – ${escapeHtml(formatMoney(report.weekRange.high))}${
@@ -522,10 +661,10 @@
             ? `<div class="deep-label">Earnings</div><div>${escapeHtml(report.earnings.text)}</div>`
             : ""
         }
-        <div class="deep-label">Peers</div>
+        <div class="deep-label">${peersLabel}</div>
         ${peerHtml}
         <div class="deep-label">AI deep dive</div>
-        <div class="deep-ai">${escapeHtml(report.analysis?.deepDive || "A longer AI deep dive wasn't available for this name yet.")}</div>
+        <div class="deep-ai">${glossifyProse(report.analysis?.deepDive || "A longer AI deep dive wasn't available for this name yet.")}</div>
       </div>
     </details>`;
 
@@ -537,14 +676,40 @@
         </details>`
       : "";
 
+    const completeBadge =
+      report.fullyAnalyzed === true ||
+      (Array.isArray(report.caveats) && report.caveats.length === 0)
+        ? `<span class="tag complete" title="All usual data checks passed for this card">Complete</span>`
+        : "";
+
+    const newsAgreeBadge =
+      report.newsAgreement?.status === "agree"
+        ? glossaryLabelHtml("news_agree", {
+            forceId: "news_agree",
+            asTagClass: tagClass(lean),
+          })
+        : report.newsAgreement?.status === "disagree"
+          ? glossaryLabelHtml("news_disagree", {
+              forceId: "news_disagree",
+              asTagClass: "watch",
+            })
+          : "";
+
     const tagHtml =
-      tags.map((t) => `<span class="tag ${tagClass(lean)}">${escapeHtml(t)}</span>`).join("") +
-      `<span class="tag ${riskInfo.cls}">${escapeHtml(riskInfo.label)}</span>`;
+      tags
+        .map((t) => glossaryLabelHtml(t, { asTagClass: tagClass(lean) }))
+        .join("") +
+      glossaryLabelHtml(riskInfo.glossId, {
+        forceId: riskInfo.glossId,
+        asTagClass: riskInfo.cls,
+      }) +
+      newsAgreeBadge +
+      completeBadge;
 
     const targetLine =
       target != null && Number.isFinite(Number(target))
-        ? `<div class="target-line" title="Average of published analyst 12-month price targets — a research estimate, not a guarantee">
-        <span class="dots">┈┈</span> Analyst target: <b>${formatMoney(target)}</b> · 12mo
+        ? `<div class="target-line">
+        <span class="dots">┈┈</span> ${targetLabel}: <b>${formatMoney(target)}</b> · 12mo
       </div>`
         : `<div class="target-line">${targetCaveats}</div>`;
 
@@ -569,7 +734,7 @@
       ${sparkCaveats}
       ${targetLine}
       <div class="tags">${tagHtml}</div>
-      <div class="summary">${escapeHtml(report.analysis?.summary || "")}${newsNote}</div>
+      <div class="summary">${glossifyProse(report.analysis?.summary || "")}${newsNote}</div>
       ${summaryCaveats}
       ${deepHtml}
       ${lighterHtml}
@@ -623,6 +788,7 @@
         s.newSearchesAvailableToday != null ? s.newSearchesAvailableToday : "—";
 
       const legend = Array.isArray(s.sourcesLegend) ? s.sourcesLegend : [];
+      if (Array.isArray(s.glossary)) glossaryEntries = s.glossary;
       const shortOf = (id, fallback) => {
         const hit = legend.find((x) => x.id === id);
         return hit?.shortCode || fallback;
@@ -830,14 +996,24 @@
   });
 
   document.addEventListener("click", (e) => {
+    const glossBtn = e.target.closest(".gloss-main");
+    if (glossBtn) {
+      e.preventDefault();
+      const gloss = glossBtn.closest(".gloss");
+      if (!gloss) return;
+      const open = gloss.classList.toggle("open");
+      glossBtn.setAttribute("aria-expanded", open ? "true" : "false");
+      return;
+    }
     const btn = e.target.closest("[data-star]");
     if (!btn) return;
     starTicker(btn.dataset.star, btn);
   });
 
-  loadStatus();
-  loadBoard();
-  loadRecent();
+  loadStatus().then(() => {
+    loadBoard();
+    loadRecent();
+  });
 </script>
 </body>
 </html>

@@ -22,7 +22,7 @@ const {
 const { analyzeStock } = require("./analyze");
 const { logQuoteClose } = require("./priceHistoryLog");
 const { getTickerInfo } = require("../lib/tickerInfo");
-const { sourceLabel, formatSourceList } = require("../lib/dataSources");
+const { sourceShortCode, formatSourceList } = require("../lib/dataSources");
 
 /** In-flight shared-data loads keyed by ticker only (mode is display-only). */
 const inFlight = new Map();
@@ -178,9 +178,9 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     targetUpdatedAt: freshness.targetUpdatedAt || null,
     newsUpdatedAt: freshness.newsUpdatedAt || null,
     priceSource,
-    priceSourceLabel: sourceLabel(priceSource),
+    priceSourceLabel: sourceShortCode(priceSource),
     targetSource,
-    targetSourceLabel: sourceLabel(targetSource),
+    targetSourceLabel: sourceShortCode(targetSource),
     newsSources,
     newsSourceLabel: formatSourceList(newsSources),
     newsPending,
@@ -191,11 +191,11 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     quip,
     deepDive: {
       sources: {
-        price: sourceLabel(priceSource),
-        target: sourceLabel(targetSource),
+        price: sourceShortCode(priceSource),
+        target: sourceShortCode(targetSource),
         news: formatSourceList(newsSources),
-        peers: peers.length ? sourceLabel("finnhub") : null,
-        analysis: sourceLabel("gemini"),
+        peers: peers.length ? sourceShortCode("finnhub") : null,
+        analysis: sourceShortCode("gemini"),
       },
       weekRange,
       earnings,

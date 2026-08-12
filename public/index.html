@@ -241,6 +241,13 @@
   .row-item .r-when{width:70px;text-align:right;color:var(--muted-dim);font-size:11px;}
 
   footer{margin-top:38px;font-size:12px;color:var(--muted-dim);text-align:center;}
+  .sources-legend{
+    margin-top:14px;padding-top:12px;border-top:1px solid var(--line-soft);
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+    display:flex;flex-wrap:wrap;justify-content:center;gap:6px 14px;
+  }
+  .sources-legend .leg-item{white-space:nowrap;}
+  .sources-legend .leg-code{color:var(--ink);font-weight:600;}
   #search-section{display:none;}
   .empty-note{font-size:13px;color:var(--muted-dim);padding:8px 2px;}
   .search-msg{
@@ -298,6 +305,7 @@
 
   <footer>
     Not financial advice — a plain-English read to help your family learn, not a broker.
+    <div class="sources-legend" id="sources-legend" aria-label="Data source legend"></div>
   </footer>
 
 </div>
@@ -555,6 +563,7 @@
 
   async function loadStatus() {
     const el = document.getElementById("updated-label");
+    const legendEl = document.getElementById("sources-legend");
     try {
       const res = await fetch("/api/status");
       const s = await res.json();
@@ -563,24 +572,42 @@
         : "not yet";
       const searches =
         s.newSearchesAvailableToday != null ? s.newSearchesAvailableToday : "—";
+
+      const legend = Array.isArray(s.sourcesLegend) ? s.sourcesLegend : [];
+      const shortOf = (id, fallback) => {
+        const hit = legend.find((x) => x.id === id);
+        return hit?.shortCode || fallback;
+      };
+
+      if (legendEl) {
+        legendEl.innerHTML = legend.length
+          ? legend
+              .map(
+                (src) =>
+                  `<span class="leg-item"><span class="leg-code">${escapeHtml(src.shortCode)}</span> = ${escapeHtml(src.label)}</span>`
+              )
+              .join("")
+          : "";
+      }
+
       const twelve =
         s.twelveDataUsedToday != null && s.twelveDataLimit != null
-          ? `${s.twelveDataUsedToday}/${s.twelveDataLimit} Twelve`
+          ? `${s.twelveDataUsedToday}/${s.twelveDataLimit} ${shortOf("twelve_data", "TD")}`
           : null;
       const alpha =
         s.alphaVantageUsedToday != null && s.alphaVantageLimit != null
-          ? `${s.alphaVantageUsedToday}/${s.alphaVantageLimit} AV news`
+          ? `${s.alphaVantageUsedToday}/${s.alphaVantageLimit} ${shortOf("alpha_vantage", "AV")} news`
           : null;
       const finnhub =
         s.finnhubUsedToday != null
-          ? `${s.finnhubUsedToday} Finnhub` +
+          ? `${s.finnhubUsedToday} ${shortOf("finnhub", "FH")}` +
             (s.finnhubRateDelayTriggeredToday
               ? ` (${s.finnhubRateDelayTriggeredToday} delays)`
               : "")
           : null;
       const marketaux =
         s.marketauxUsedToday != null && s.marketauxLimit != null
-          ? `${s.marketauxUsedToday}/${s.marketauxLimit} Marketaux`
+          ? `${s.marketauxUsedToday}/${s.marketauxLimit} ${shortOf("marketaux", "MX")}`
           : null;
       const usageBits = [twelve, alpha, finnhub, marketaux]
         .filter(Boolean)

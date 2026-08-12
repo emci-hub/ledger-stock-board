@@ -29,7 +29,7 @@ const {
   PROVIDERS,
 } = require("./services/usage");
 const { AlphaVantageError } = require("./services/dataFetch");
-const { DATA_SOURCES, hasSourceKey } = require("./lib/dataSources");
+const { DATA_SOURCES, hasSourceKey, sourcesLegend } = require("./lib/dataSources");
 
 const app = express();
 const PORT = 3000;
@@ -120,6 +120,7 @@ async function buildStatusPayload() {
     marketauxConfigured: hasSourceKey("marketaux"),
     geminiUsedToday: geminiUsed,
     newSearchesAvailableToday,
+    sourcesLegend: sourcesLegend(),
     lastBoardRefresh: await getSetting("lastBoardRefresh"),
     boardRefreshStatus: await getSetting("lastBoardRefreshStatus"),
     resetsAt: nextMidnightPacificIso(),

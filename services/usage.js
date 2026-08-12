@@ -1,10 +1,14 @@
 const { dbGet, dbRun } = require("../db/schema");
+const { USAGE_KEYS } = require("../lib/dataSources");
 
+/** Stable aliases used across the codebase (backed by the source registry). */
 const PROVIDERS = {
-  ALPHA: "alpha_vantage",
-  FINNHUB: "finnhub",
-  FINNHUB_DELAY: "finnhub_rate_delay",
-  TWELVE: "twelve_data",
+  ALPHA: USAGE_KEYS.alpha_vantage,
+  FINNHUB: USAGE_KEYS.finnhub,
+  FINNHUB_DELAY: USAGE_KEYS.finnhub_rate_delay,
+  TWELVE: USAGE_KEYS.twelve_data,
+  MARKETAUX: USAGE_KEYS.marketaux,
+  GEMINI: USAGE_KEYS.gemini,
 };
 
 function getPacificDateString(date = new Date()) {
@@ -64,6 +68,7 @@ async function setSetting(key, value) {
 
 module.exports = {
   PROVIDERS,
+  USAGE_KEYS,
   incrementUsage,
   getUsageToday,
   getApiUsageToday,

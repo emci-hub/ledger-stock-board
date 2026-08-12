@@ -12,10 +12,16 @@ const {
   PROVIDERS,
   nextMidnightPacificIso,
 } = require("./usage");
+const {
+  enabledSourcesFor,
+  hasSourceKey,
+  sourceLabel,
+} = require("../lib/dataSources");
 
 const ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query";
 const FINNHUB_BASE = "https://finnhub.io/api/v1";
 const TWELVE_DATA_BASE = "https://api.twelvedata.com";
+const MARKETAUX_BASE = "https://api.marketaux.com/v1";
 
 /** Once Twelve Data rejects price_target as plan-gated, skip further TD target calls this process. */
 let twelvePriceTargetPlanBlocked = false;
@@ -57,8 +63,18 @@ function getTwelveKey() {
   return key;
 }
 
+function getMarketauxKey() {
+  const key = process.env.MARKETAUX_API_KEY;
+  if (!key) throw new Error("MARKETAUX_API_KEY is not set in .env");
+  return key;
+}
+
 function hasTwelveKey() {
-  return Boolean(process.env.TWELVE_DATA_API_KEY);
+  return hasSourceKey("twelve_data");
+}
+
+function hasMarketauxKey() {
+  return hasSourceKey("marketaux");
 }
 
 function num(value) {
@@ -190,6 +206,27 @@ async function callFinnhub(pathname, params = {}) {
   const { data } = await axios.get(`${FINNHUB_BASE}${pathname}`, {
     params: { ...params, token: getFinnhubKey() },
   });
+
+  return data;
+}
+
+/**
+ * Sole Marketaux HTTP entry point — always increments marketaux usage.
+ */
+async function callMarketaux(pathname, params = {}) {
+  await incrementUsage(PROVIDERS.MARKETAUX);
+
+  const { data } = await axios.get(`${MARKETAUX_BASE}${pathname}`, {
+    params: { ...params, api_token: getMarketauxKey() },
+  });
+
+  if (data?.error || data?.errors) {
+    const msg =
+      data?.error?.message ||
+      (Array.isArray(data.errors) ? data.errors.join(", ") : null) ||
+      "Marketaux error";
+    throw new Error(msg);
+  }
 
   return data;
 }
@@ -508,6 +545,14 @@ async function getAnalystTargetFromAlphaOverview(ticker) {
     description: overview.Description || null,
     marketCap: num(overview.MarketCapitalization),
     peRatio: num(overview.PERatio),
+    week52High: num(overview["52WeekHigh"]),
+    week52Low: num(overview["52WeekLow"]),
+    // Present on some OVERVIEW payloads; null when absent.
+    earningsDate:
+      overview.EarningsDate ||
+      overview.NextEarningsDate ||
+      overview.EarningsReportDate ||
+      null,
   };
 }
 
@@ -642,21 +687,115 @@ async function getNewsFromFinnhub(ticker) {
 }
 
 /**
- * Fetch Alpha Vantage + Finnhub news in parallel; neither blocks the other.
+ * Marketaux /v1/news/all — entity sentiment_score + one highlight snippet.
+ * Soft-fail: returns null on error (non-blocking).
+ */
+async function getNewsFromMarketaux(ticker) {
+  try {
+    if (!hasMarketauxKey()) return null;
+
+    const symbol = String(ticker).toUpperCase();
+    const data = await callMarketaux("/news/all", {
+      symbols: symbol,
+      filter_entities: true,
+      language: "en",
+      limit: 5,
+    });
+
+    const articles = Array.isArray(data?.data) ? data.data : [];
+    const scored = [];
+
+    for (const article of articles) {
+      const entities = Array.isArray(article.entities) ? article.entities : [];
+      const match =
+        entities.find(
+          (e) => String(e.symbol || "").toUpperCase() === symbol
+        ) || entities[0];
+      if (!match) continue;
+
+      const highlight =
+        Array.isArray(match.highlights) && match.highlights[0]
+          ? match.highlights[0].highlight || null
+          : null;
+
+      scored.push({
+        title: article.title || null,
+        url: article.url || null,
+        publishedAt: article.published_at || null,
+        sentimentScore: num(match.sentiment_score),
+        highlight: highlight
+          ? String(highlight).replace(/<[^>]+>/g, "").slice(0, 220)
+          : null,
+      });
+    }
+
+    if (!scored.length) {
+      return {
+        ticker: symbol,
+        source: "marketaux",
+        articles: [],
+        sentimentScore: null,
+        highlight: null,
+      };
+    }
+
+    const scores = scored
+      .map((a) => a.sentimentScore)
+      .filter((n) => n != null && Number.isFinite(n));
+    const avg = scores.length
+      ? scores.reduce((sum, n) => sum + n, 0) / scores.length
+      : null;
+
+    return {
+      ticker: symbol,
+      source: "marketaux",
+      articles: scored.slice(0, 3),
+      sentimentScore: avg != null ? avg : scored[0].sentimentScore,
+      highlight: scored[0].highlight,
+    };
+  } catch (err) {
+    console.error(`[getNewsFromMarketaux] Failed for ${ticker}:`, err.message);
+    return null;
+  }
+}
+
+/** Capability → fetcher map (registry-driven news aggregation). */
+const NEWS_FETCHERS = {
+  alpha_vantage: getNewsSentiment,
+  finnhub: getNewsFromFinnhub,
+  marketaux: getNewsFromMarketaux,
+};
+
+/**
+ * Fetch all enabled news sources from the registry in parallel.
+ * One failure never blocks another.
  */
 async function getCombinedNews(ticker) {
-  const [alpha, finnhub] = await Promise.all([
-    getNewsSentiment(ticker),
-    getNewsFromFinnhub(ticker),
-  ]);
+  const enabled = enabledSourcesFor("news");
+  const settled = await Promise.all(
+    enabled.map(async (src) => {
+      const fetch = NEWS_FETCHERS[src.id];
+      if (!fetch) return { id: src.id, data: null };
+      try {
+        return { id: src.id, data: await fetch(ticker) };
+      } catch (err) {
+        console.error(
+          `[getCombinedNews] ${sourceLabel(src.id)} failed:`,
+          err.message
+        );
+        return { id: src.id, data: null };
+      }
+    })
+  );
 
-  const sources = [];
-  if (alpha) sources.push("alpha_vantage");
-  if (finnhub) sources.push("finnhub");
+  const byId = Object.fromEntries(settled.map((r) => [r.id, r.data]));
+  const sources = settled.filter((r) => r.data).map((r) => r.id);
 
   return {
-    alpha,
-    finnhub,
+    alpha: byId.alpha_vantage || null,
+    finnhub: byId.finnhub || null,
+    marketaux: byId.marketaux || null,
+    byId,
     sources,
     pending: sources.length === 0,
   };
@@ -681,9 +820,13 @@ async function getFundamentalsAndNews(ticker) {
       peRatio: target?.peRatio ?? null,
       analystTargetPrice: target?.analystTargetPrice ?? null,
       analystTargetSource: target?.source || null,
+      week52High: target?.week52High ?? null,
+      week52Low: target?.week52Low ?? null,
+      earningsDate: target?.earningsDate || null,
     },
     news: combined.alpha?.news || [],
     newsFinnhub: combined.finnhub || null,
+    newsMarketaux: combined.marketaux || null,
     newsSources: combined.sources,
     newsPending: combined.pending,
   };
@@ -723,10 +866,12 @@ module.exports = {
   callAlphaVantage,
   callFinnhub,
   callTwelveData,
+  callMarketaux,
   getQuoteAndIndicators,
   getAnalystTarget,
   getNewsSentiment,
   getNewsFromFinnhub,
+  getNewsFromMarketaux,
   getCombinedNews,
   getFundamentalsAndNews,
   getPeers,

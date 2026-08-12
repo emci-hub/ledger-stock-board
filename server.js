@@ -26,13 +26,15 @@ const {
   PROVIDERS,
 } = require("./services/usage");
 const { AlphaVantageError } = require("./services/dataFetch");
+const { DATA_SOURCES, hasSourceKey } = require("./lib/dataSources");
 
 const app = express();
 const PORT = 3000;
-const DAILY_AV_LIMIT = 25;
+const DAILY_AV_LIMIT = DATA_SOURCES.alpha_vantage.rateLimit.limit;
 /** Alpha Vantage is mostly reserved for NEWS_SENTIMENT (~1 call / search when news is stale). */
 const AV_CALLS_PER_SEARCH_NEWS = 1;
-const DAILY_TWELVE_LIMIT = 800;
+const DAILY_TWELVE_LIMIT = DATA_SOURCES.twelve_data.rateLimit.limit;
+const DAILY_MARKETAUX_LIMIT = DATA_SOURCES.marketaux.rateLimit.limit;
 /** Typical Twelve Data cost per search: time_series (+ optional price_target when plan allows). */
 const TWELVE_CALLS_PER_SEARCH = 1;
 
@@ -80,19 +82,18 @@ async function buildStatusPayload() {
   const twelveUsed = await getUsageToday(PROVIDERS.TWELVE);
   const finnhubUsed = await getUsageToday(PROVIDERS.FINNHUB);
   const finnhubDelayTriggered = await getUsageToday(PROVIDERS.FINNHUB_DELAY);
+  const marketauxUsed = await getUsageToday(PROVIDERS.MARKETAUX);
+  const geminiUsed = await getUsageToday(PROVIDERS.GEMINI);
   const alphaRemaining = Math.max(0, DAILY_AV_LIMIT - alphaUsed);
   const twelveRemaining = Math.max(0, DAILY_TWELVE_LIMIT - twelveUsed);
-  const twelveAvailable = Boolean(process.env.TWELVE_DATA_API_KEY);
+  const twelveAvailable = hasSourceKey("twelve_data");
 
-  // Price path is Twelve-first; AV is mainly news (+ rare price/target fallback).
   const twelveBudgetSearches = twelveAvailable
     ? Math.floor(twelveRemaining / TWELVE_CALLS_PER_SEARCH)
     : 0;
   const avNewsBudgetSearches = Math.floor(
     alphaRemaining / AV_CALLS_PER_SEARCH_NEWS
   );
-  // Searches can still succeed with news pending, so Twelve budget is the main gate.
-  // When Twelve is exhausted, allow a few AV-only price fallbacks if AV remains.
   const newSearchesAvailableToday = twelveAvailable
     ? twelveBudgetSearches
     : avNewsBudgetSearches;
@@ -105,10 +106,15 @@ async function buildStatusPayload() {
     twelveDataLimit: DAILY_TWELVE_LIMIT,
     twelveDataRole: "price_indicators_target_primary",
     finnhubUsedToday: finnhubUsed,
-    finnhubLimitPerMinute: 60,
-    finnhubSoftCapPerMinute: 50,
+    finnhubLimitPerMinute: DATA_SOURCES.finnhub.rateLimit.limit,
+    finnhubSoftCapPerMinute: DATA_SOURCES.finnhub.rateLimit.softCap,
     finnhubRateDelayTriggeredToday: finnhubDelayTriggered,
     finnhubRole: "news_sentiment_and_peers",
+    marketauxUsedToday: marketauxUsed,
+    marketauxLimit: DAILY_MARKETAUX_LIMIT,
+    marketauxRole: "news_sentiment",
+    marketauxConfigured: hasSourceKey("marketaux"),
+    geminiUsedToday: geminiUsed,
     newSearchesAvailableToday,
     lastBoardRefresh: await getSetting("lastBoardRefresh"),
     boardRefreshStatus: await getSetting("lastBoardRefreshStatus"),

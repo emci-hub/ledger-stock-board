@@ -168,6 +168,33 @@
     display:inline-block;margin-top:6px;
     font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
   }
+  .range-flag,.earnings-flag{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+    margin:0 0 8px;
+  }
+  .earnings-flag{color:var(--gold);}
+  .deep-dive{
+    margin:10px 0 4px;border-top:1px solid var(--line-soft);padding-top:8px;
+  }
+  .deep-dive > summary{
+    cursor:pointer;list-style:none;font-size:12px;color:var(--muted);
+    font-family:'IBM Plex Mono',monospace;user-select:none;
+  }
+  .deep-dive > summary::-webkit-details-marker{display:none;}
+  .deep-dive > summary::after{content:" ▾";color:var(--muted-dim);}
+  .deep-dive[open] > summary::after{content:" ▴";}
+  .deep-body{margin-top:10px;font-size:12px;line-height:1.45;color:var(--muted);}
+  .deep-body .deep-label{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+    text-transform:uppercase;letter-spacing:0.04em;margin:10px 0 4px;
+  }
+  .deep-body .deep-label:first-child{margin-top:0;}
+  .deep-body ul{margin:0;padding-left:16px;}
+  .deep-body li{margin:2px 0;}
+  .deep-ai{
+    margin-top:6px;padding:8px 10px;background:var(--surface-2);
+    border-radius:8px;border:1px solid var(--line-soft);
+  }
 
   .card-foot{
     display:flex;justify-content:space-between;align-items:center;
@@ -379,10 +406,61 @@
       : report.newsSourceLabel
         ? `<div class="news-via">via ${escapeHtml(report.newsSourceLabel)}</div>`
         : "";
+    const rangeNote = report.weekRange?.label
+      ? `<div class="range-flag">${escapeHtml(report.weekRange.label)}${
+          report.weekRange.low != null && report.weekRange.high != null
+            ? ` · ${escapeHtml(formatMoney(report.weekRange.low))}–${escapeHtml(formatMoney(report.weekRange.high))}`
+            : ""
+        }</div>`
+      : "";
+    const earningsNote = report.earnings?.text
+      ? `<div class="earnings-flag">${escapeHtml(report.earnings.text)}</div>`
+      : "";
 
     const blurb = report.description
       ? `<div class="blurb">${escapeHtml(report.description)}</div>`
       : "";
+
+    const peers = Array.isArray(report.peers) ? report.peers : [];
+    const peerHtml = peers.length
+      ? `<ul>${peers
+          .map((p) => {
+            const t = typeof p === "string" ? p : p.ticker || p.symbol;
+            return t ? `<li>${escapeHtml(String(t).toUpperCase())}</li>` : "";
+          })
+          .join("")}</ul>`
+      : `<div>No peer list cached yet.</div>`;
+
+    const src = report.deepDive?.sources || {};
+    const deepHtml = `<details class="deep-dive">
+      <summary>Deep dive</summary>
+      <div class="deep-body">
+        <div class="deep-label">Sources</div>
+        <ul>
+          <li>Price: ${escapeHtml(src.price || "—")}</li>
+          <li>Target: ${escapeHtml(src.target || "—")}</li>
+          <li>News: ${escapeHtml(src.news || (report.newsPending ? "pending" : "—"))}</li>
+          <li>Peers: ${escapeHtml(src.peers || "—")}</li>
+        </ul>
+        <div class="deep-label">52-week range</div>
+        <div>${
+          report.weekRange?.low != null && report.weekRange?.high != null
+            ? `${escapeHtml(formatMoney(report.weekRange.low))} – ${escapeHtml(formatMoney(report.weekRange.high))}${
+                report.weekRange.label ? ` · ${escapeHtml(report.weekRange.label)}` : ""
+              }`
+            : "Not enough history yet."
+        }</div>
+        ${
+          report.earnings?.text
+            ? `<div class="deep-label">Earnings</div><div>${escapeHtml(report.earnings.text)}</div>`
+            : ""
+        }
+        <div class="deep-label">Peers</div>
+        ${peerHtml}
+        <div class="deep-label">AI deep dive</div>
+        <div class="deep-ai">${escapeHtml(report.analysis?.deepDive || "A longer AI deep dive wasn't available for this name yet.")}</div>
+      </div>
+    </details>`;
 
     const tagHtml =
       tags.map((t) => `<span class="tag ${tagClass(lean)}">${escapeHtml(t)}</span>`).join("") +
@@ -403,12 +481,15 @@
         ${via}
       </div>
       ${asOf ? `<div class="as-of">as of ${escapeHtml(formatAsOf(asOf))}</div>` : ""}
+      ${rangeNote}
+      ${earningsNote}
       ${sparklineSvg(report.priceHistory, report.price, target, down)}
       <div class="target-line" title="Average of published analyst 12-month price targets — a research estimate, not a guarantee">
         <span class="dots">┈┈</span> Analyst target: <b>${formatMoney(target)}</b> · 12mo
       </div>
       <div class="tags">${tagHtml}</div>
       <div class="summary">${escapeHtml(report.analysis?.summary || "")}${newsNote}</div>
+      ${deepHtml}
       <div class="card-foot">
         ${trackHtml(report.trackRecord)}
         <button class="star${isStarred ? " active" : ""}" type="button" data-star="${escapeHtml(report.ticker)}" aria-label="Add to watchlist">${isStarred ? "★" : "☆"}</button>
@@ -471,7 +552,13 @@
               ? ` (${s.finnhubRateDelayTriggeredToday} delays)`
               : "")
           : null;
-      const usageBits = [twelve, alpha, finnhub].filter(Boolean).join(" · ");
+      const marketaux =
+        s.marketauxUsedToday != null && s.marketauxLimit != null
+          ? `${s.marketauxUsedToday}/${s.marketauxLimit} Marketaux`
+          : null;
+      const usageBits = [twelve, alpha, finnhub, marketaux]
+        .filter(Boolean)
+        .join(" · ");
       el.innerHTML = `<span class="dot"></span><span class="meta-line">Board last refreshed: ${escapeHtml(refreshed)}</span><span class="meta-line">New stock searches available today: ${escapeHtml(searches)}</span>${usageBits ? `<span class="meta-line">${escapeHtml(usageBits)}</span>` : ""}`;
     } catch (err) {
       console.error(err);

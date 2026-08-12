@@ -15,29 +15,91 @@ const {
   getAnalystTarget,
   getCombinedNews,
   getPeers,
-  AlphaVantageError,
 } = require("./dataFetch");
 const { analyzeStock } = require("./analyze");
 const { getTickerInfo } = require("../lib/tickerInfo");
+const { sourceLabel, formatSourceList } = require("../lib/dataSources");
 
 /** In-flight getStockReport promises keyed by `${ticker}_${mode}`. */
 const inFlight = new Map();
 
-function sourceLabel(source) {
-  if (source === "twelve_data") return "Twelve Data";
-  if (source === "alpha_vantage") return "Alpha Vantage";
-  if (source === "finnhub") return "Finnhub";
-  return null;
+const EARNINGS_SOON_DAYS = 21;
+
+function parseEarningsDate(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  // Alpha may return "2026-04-25" or "2026-04-25,2026-07-24"
+  const first = s.split(",")[0].trim();
+  const t = Date.parse(first);
+  if (Number.isNaN(t)) return null;
+  return new Date(t);
 }
 
-function newsSourceLabel(sources) {
-  const list = Array.isArray(sources) ? sources : [];
-  const hasAv = list.includes("alpha_vantage");
-  const hasFh = list.includes("finnhub");
-  if (hasAv && hasFh) return "Alpha Vantage + Finnhub";
-  if (hasAv) return "Alpha Vantage";
-  if (hasFh) return "Finnhub";
-  return null;
+function buildEarningsFlag(earningsDateRaw) {
+  const date = parseEarningsDate(earningsDateRaw);
+  if (!date) return null;
+  const now = new Date();
+  const diffDays = (date.getTime() - now.getTime()) / (24 * 60 * 60 * 1000);
+  if (diffDays < -1 || diffDays > EARNINGS_SOON_DAYS) return null;
+  const label = date.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return {
+    date: date.toISOString().slice(0, 10),
+    label,
+    text: `earnings expected ${label}`,
+  };
+}
+
+function computeWeekRange(price, priceHistory, overview) {
+  const history = Array.isArray(priceHistory)
+    ? priceHistory.map(Number).filter(Number.isFinite)
+    : [];
+  const high =
+    overview?.week52High != null && Number.isFinite(Number(overview.week52High))
+      ? Number(overview.week52High)
+      : history.length
+        ? Math.max(...history)
+        : null;
+  const low =
+    overview?.week52Low != null && Number.isFinite(Number(overview.week52Low))
+      ? Number(overview.week52Low)
+      : history.length
+        ? Math.min(...history)
+        : null;
+  const current = price != null && Number.isFinite(Number(price)) ? Number(price) : null;
+
+  if (high == null || low == null || current == null || high <= low) {
+    return {
+      high,
+      low,
+      position: null,
+      label: null,
+      fromOverview: Boolean(overview?.week52High != null || overview?.week52Low != null),
+    };
+  }
+
+  const pct = (current - low) / (high - low);
+  let label = "mid-range";
+  let position = "mid";
+  if (pct <= 0.2) {
+    label = "near 52-week low";
+    position = "low";
+  } else if (pct >= 0.8) {
+    label = "near 52-week high";
+    position = "high";
+  }
+
+  return {
+    high,
+    low,
+    pct,
+    position,
+    label,
+    fromOverview: Boolean(overview?.week52High != null || overview?.week52Low != null),
+  };
 }
 
 function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
@@ -51,11 +113,21 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     Boolean(rawData?.fundamentals?.newsPending) ||
     (!freshness.newsUpdatedAt && newsSources.length === 0);
   const priceSource = quote.source || null;
+  const targetSource = overview.analystTargetSource || null;
   const local = getTickerInfo(ticker);
   const companyName =
     local?.name || overview.name || quote.name || null;
   const sector = local?.sector || overview.sector || null;
   const description = local?.description || null;
+  const priceHistory = Array.isArray(quote.priceHistory)
+    ? quote.priceHistory
+    : Array.isArray(rawData?.priceHistory)
+      ? rawData.priceHistory
+      : [];
+  const price = quote.price?.current ?? null;
+  const weekRange = computeWeekRange(price, priceHistory, overview);
+  const earnings = buildEarningsFlag(overview.earningsDate);
+  const peers = Array.isArray(rawData?.peers) ? rawData.peers : [];
 
   return {
     ticker: String(ticker).toUpperCase(),
@@ -63,7 +135,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     name: companyName,
     companyName,
     description,
-    price: quote.price?.current ?? null,
+    price,
     change: quote.price?.change ?? null,
     changePercent: quote.price?.changePercent ?? null,
     indicators: quote.indicators || null,
@@ -78,20 +150,38 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     newsUpdatedAt: freshness.newsUpdatedAt || null,
     priceSource,
     priceSourceLabel: sourceLabel(priceSource),
+    targetSource,
+    targetSourceLabel: sourceLabel(targetSource),
     newsSources,
-    newsSourceLabel: newsSourceLabel(newsSources),
+    newsSourceLabel: formatSourceList(newsSources),
     newsPending,
-    priceHistory: Array.isArray(quote.priceHistory)
-      ? quote.priceHistory
-      : Array.isArray(rawData?.priceHistory)
-        ? rawData.priceHistory
-        : [],
+    weekRange,
+    earnings,
+    peers,
+    priceHistory,
+    deepDive: {
+      sources: {
+        price: sourceLabel(priceSource),
+        target: sourceLabel(targetSource),
+        news: formatSourceList(newsSources),
+        peers: peers.length ? sourceLabel("finnhub") : null,
+        analysis: sourceLabel("gemini"),
+      },
+      weekRange,
+      earnings,
+      peers,
+      newsMarketaux: rawData?.fundamentals?.newsMarketaux || null,
+      newsFinnhub: rawData?.fundamentals?.newsFinnhub || null,
+    },
     analysis: {
       lean: analysis?.lean || "neutral",
       risk: analysis?.risk || "medium",
       tags: Array.isArray(analysis?.tags) ? analysis.tags : [],
       summary:
         analysis?.summary || "Analysis wasn't available right now.",
+      deepDive:
+        analysis?.deepDive ||
+        "A longer AI deep dive wasn't available for this name yet.",
     },
   };
 }
@@ -106,6 +196,7 @@ function ensureRawShape(rawData) {
         ? base.fundamentals.news
         : [],
       newsFinnhub: base.fundamentals?.newsFinnhub || null,
+      newsMarketaux: base.fundamentals?.newsMarketaux || null,
       newsSources: Array.isArray(base.fundamentals?.newsSources)
         ? base.fundamentals.newsSources
         : [],
@@ -182,8 +273,9 @@ async function buildStockReport(ticker, mode, options = {}) {
     if (!target?.rateLimited) {
       overview.analystTargetPrice = target?.analystTargetPrice ?? null;
       overview.analystTargetSource = target?.source || null;
-      // Board tickers use lib/tickerInfo for name/sector/description — only
-      // keep API name/sector for tickers outside that static list.
+      if (target?.week52High != null) overview.week52High = target.week52High;
+      if (target?.week52Low != null) overview.week52Low = target.week52Low;
+      if (target?.earningsDate) overview.earningsDate = target.earningsDate;
       if (!local) {
         if (target?.name) overview.name = overview.name || target.name;
         if (target?.sector) overview.sector = overview.sector || target.sector;
@@ -207,18 +299,18 @@ async function buildStockReport(ticker, mode, options = {}) {
 
   if (!newsOk) {
     console.log(
-      `[getStockReport] news stale/missing for ${symbol} — fetching Alpha Vantage + Finnhub in parallel`
+      `[getStockReport] news stale/missing for ${symbol} — fetching registry news sources in parallel`
     );
     const combined = await getCombinedNews(symbol);
     rawData.fundamentals.news = combined.alpha?.news || [];
     rawData.fundamentals.newsFinnhub = combined.finnhub || null;
+    rawData.fundamentals.newsMarketaux = combined.marketaux || null;
     rawData.fundamentals.newsSources = combined.sources;
     rawData.fundamentals.newsPending = combined.pending;
     if (!combined.pending) {
       rawData.freshness.newsUpdatedAt = now();
       newsJustFetched = true;
     }
-    // If both failed, leave newsUpdatedAt unset so the next refresh retries.
     didFetch = true;
   } else {
     rawData.fundamentals.newsPending = false;
@@ -266,7 +358,7 @@ async function buildStockReport(ticker, mode, options = {}) {
 
 /**
  * Cache-first report builder with in-flight dedupe per ticker/mode.
- * options.skipPeers — skip Finnhub (used by board refresh).
+ * options.skipPeers — skip Finnhub peers when true.
  * Fetches only stale pieces (price / target / news) independently.
  */
 async function getStockReport(ticker, mode, options = {}) {

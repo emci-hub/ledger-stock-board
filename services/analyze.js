@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const axios = require("axios");
+const { incrementUsage, PROVIDERS } = require("./usage");
 
 const FALLBACK_MODEL = "gemini-flash-latest";
 
@@ -9,6 +10,8 @@ const FALLBACK = {
   risk: "medium",
   tags: [],
   summary: "Analysis wasn't available right now.",
+  deepDive:
+    "A longer AI deep dive wasn't available for this name yet. Check price, range, and news sources in the panel below when they load.",
 };
 
 function getGeminiKey() {
@@ -54,13 +57,17 @@ function buildPayload(ticker, mode, quoteData, fundamentalsData, peersData) {
     ? fundamentalsData.news
     : [];
   const newsFinnhub = fundamentalsData?.newsFinnhub || null;
+  const newsMarketaux = fundamentalsData?.newsMarketaux || null;
   const newsSources = Array.isArray(fundamentalsData?.newsSources)
     ? fundamentalsData.newsSources
     : [];
   const hasAlpha = newsSources.includes("alpha_vantage") || news.length > 0;
   const hasFinnhub = newsSources.includes("finnhub") || Boolean(newsFinnhub);
+  const hasMarketaux =
+    newsSources.includes("marketaux") || Boolean(newsMarketaux);
   const newsPending = Boolean(
-    fundamentalsData?.newsPending || (!hasAlpha && !hasFinnhub)
+    fundamentalsData?.newsPending ||
+      (!hasAlpha && !hasFinnhub && !hasMarketaux)
   );
 
   const newsAlphaVantage = hasAlpha
@@ -104,6 +111,9 @@ function buildPayload(ticker, mode, quoteData, fundamentalsData, peersData) {
       bollinger: indicators.bollinger || null,
     },
     analystTargetPrice: overview.analystTargetPrice ?? null,
+    week52High: overview.week52High ?? null,
+    week52Low: overview.week52Low ?? null,
+    earningsDate: overview.earningsDate || null,
     company: {
       name: overview.name || null,
       sector: overview.sector || null,
@@ -112,6 +122,15 @@ function buildPayload(ticker, mode, quoteData, fundamentalsData, peersData) {
     newsSources,
     newsAlphaVantage,
     newsFinnhub: hasFinnhub ? newsFinnhub : null,
+    newsMarketaux: hasMarketaux
+      ? {
+          sentimentScore: newsMarketaux.sentimentScore ?? null,
+          highlight: newsMarketaux.highlight || null,
+          articles: Array.isArray(newsMarketaux.articles)
+            ? newsMarketaux.articles.slice(0, 2)
+            : [],
+        }
+      : null,
     newsPending,
     peers,
   };
@@ -125,14 +144,16 @@ Respond with ONLY valid JSON matching this exact shape — no markdown, no code 
   "lean": "bullish" | "neutral" | "bearish",
   "risk": "low" | "medium" | "high",
   "tags": ["short phrase", "short phrase"],
-  "summary": "one or two plain-English sentences, no jargon, beginner-friendly"
+  "summary": "one or two plain-English sentences, no jargon, beginner-friendly",
+  "deepDive": "3-5 plain-English sentences for a Deep Dive panel — still beginner-friendly, no jargon, no buy/sell advice"
 }
 
 Rules:
 - "tags" must be an array of 1–3 short plain phrases.
-- "summary" may briefly note how this stock compares to the listed peers if useful.
+- "summary" is the short card blurb (1–2 sentences).
+- "deepDive" is a slightly longer explanation (3–5 sentences) covering price context, news tone, and peers when available. Keep it under ~120 words.
 - If newsPending is true, do not invent news sentiment; lean on price/indicators/target only.
-- If both newsAlphaVantage and newsFinnhub are present, briefly note in the summary whether the two news sources seem to agree or disagree.
+- If multiple news sources are present (newsAlphaVantage / newsFinnhub / newsMarketaux), briefly note whether they seem to agree or disagree in summary and/or deepDive.
 - If only one news source is present, use that one only.
 - Do not give buy/sell advice or trading instructions.
 
@@ -161,7 +182,6 @@ function parseAnalysisJson(text) {
       .trim();
   }
 
-  // If the model prepends prose, pull out the first JSON object.
   if (!cleaned.startsWith("{")) {
     const start = cleaned.indexOf("{");
     const end = cleaned.lastIndexOf("}");
@@ -187,22 +207,30 @@ function parseAnalysisJson(text) {
     ? parsed.tags.filter((t) => typeof t === "string" && t.trim()).slice(0, 3)
     : [];
 
+  const deepDive =
+    typeof parsed.deepDive === "string" && parsed.deepDive.trim()
+      ? parsed.deepDive.trim()
+      : FALLBACK.deepDive;
+
   return {
     lean,
     risk,
     tags,
     summary: parsed.summary.trim(),
+    deepDive,
   };
 }
 
 async function callGemini(model, prompt) {
+  await incrementUsage(PROVIDERS.GEMINI);
+
   const { data } = await axios.post(
     geminiUrl(model),
     {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: 0.2,
-        maxOutputTokens: 1024,
+        maxOutputTokens: 1536,
         responseMimeType: "application/json",
         thinkingConfig: { thinkingBudget: 0 },
       },

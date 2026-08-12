@@ -165,7 +165,7 @@ async function refreshBoard(mode = "long") {
         console.log(
           `[refreshBoard] ${ticker} (${m}) price+target+news all fresh (<24h) — skipping live fetch`
         );
-        const report = await getStockReport(ticker, m, { skipPeers: true });
+        const report = await getStockReport(ticker, m, { skipPeers: false });
         if (!report) {
           skipped += 1;
           continue;
@@ -195,7 +195,7 @@ async function refreshBoard(mode = "long") {
       }
 
       fetched += 1;
-      const report = await getStockReport(ticker, m, { skipPeers: true });
+      const report = await getStockReport(ticker, m, { skipPeers: false });
       if (!report) {
         console.warn(
           `[refreshBoard] No report for ${ticker} (${m}) — leaving out`

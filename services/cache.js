@@ -9,22 +9,108 @@ function isFresh(isoTimestamp) {
   return Date.now() - then < CACHE_TTL_MS;
 }
 
-async function getCachedStockRow(ticker, mode) {
+function emptyFreshness() {
+  return {
+    priceUpdatedAt: null,
+    targetUpdatedAt: null,
+    newsUpdatedAt: null,
+  };
+}
+
+function freshnessFromData(data) {
+  const f = data?.freshness || {};
+  // Legacy rows only had stock_cache.last_updated — treat as price timestamp.
+  return {
+    priceUpdatedAt: f.priceUpdatedAt || null,
+    targetUpdatedAt: f.targetUpdatedAt || null,
+    newsUpdatedAt: f.newsUpdatedAt || null,
+  };
+}
+
+function isPriceFresh(data) {
+  return Boolean(data?.quote) && isFresh(freshnessFromData(data).priceUpdatedAt);
+}
+
+function isTargetFresh(data) {
+  return isFresh(freshnessFromData(data).targetUpdatedAt);
+}
+
+function isNewsFresh(data) {
+  return isFresh(freshnessFromData(data).newsUpdatedAt);
+}
+
+/** Fully skippable only when price, target, and news are all under 24h. */
+function isFullyFresh(data) {
+  return isPriceFresh(data) && isTargetFresh(data) && isNewsFresh(data);
+}
+
+function latestFreshnessIso(data) {
+  const f = freshnessFromData(data);
+  const times = [f.priceUpdatedAt, f.targetUpdatedAt, f.newsUpdatedAt]
+    .filter(Boolean)
+    .map((t) => Date.parse(t))
+    .filter((n) => !Number.isNaN(n));
+  if (!times.length) return null;
+  return new Date(Math.max(...times)).toISOString();
+}
+
+/**
+ * Load cache row if present. Does not apply TTL — callers check per-field freshness.
+ */
+async function getStockCacheEntry(ticker, mode) {
   const row = await dbGet(
     `SELECT data_json, last_updated FROM stock_cache WHERE ticker = ? AND mode = ?`,
     [String(ticker).toUpperCase(), mode]
   );
 
-  if (!row || !isFresh(row.last_updated)) return null;
+  if (!row) return null;
 
   try {
+    const data = JSON.parse(row.data_json);
+    let freshness = freshnessFromData(data);
+
+    // Migrate legacy single-timestamp rows into per-field freshness once.
+    if (
+      !data.freshness &&
+      row.last_updated &&
+      data.quote
+    ) {
+      freshness = {
+        priceUpdatedAt: row.last_updated,
+        targetUpdatedAt: data?.fundamentals?.overview?.analystTargetPrice != null
+          ? row.last_updated
+          : null,
+        newsUpdatedAt:
+          Array.isArray(data?.fundamentals?.news) &&
+          data.fundamentals.news.length > 0
+            ? row.last_updated
+            : null,
+      };
+      data.freshness = freshness;
+    }
+
     return {
-      data: JSON.parse(row.data_json),
+      data,
       lastUpdated: row.last_updated,
+      freshness,
     };
   } catch {
     return null;
   }
+}
+
+/**
+ * Returns entry only when price is fresh (usable quote for display / free search gate).
+ * Prefer getStockCacheEntry + isFullyFresh for refresh skip logic.
+ */
+async function getCachedStockRow(ticker, mode) {
+  const entry = await getStockCacheEntry(ticker, mode);
+  if (!entry || !isPriceFresh(entry.data)) return null;
+  return {
+    data: entry.data,
+    lastUpdated: entry.freshness.priceUpdatedAt || entry.lastUpdated,
+    freshness: entry.freshness,
+  };
 }
 
 async function getCachedStock(ticker, mode) {
@@ -33,7 +119,11 @@ async function getCachedStock(ticker, mode) {
 }
 
 async function saveStockToCache(ticker, mode, data) {
-  const now = new Date().toISOString();
+  const freshness = freshnessFromData(data);
+  data.freshness = freshness;
+  const now =
+    latestFreshnessIso(data) || new Date().toISOString();
+
   await dbRun(
     `INSERT OR REPLACE INTO stock_cache (ticker, mode, data_json, last_updated)
      VALUES (?, ?, ?, ?)`,
@@ -73,6 +163,14 @@ async function saveSummaryToCache(ticker, mode, summary) {
 module.exports = {
   CACHE_TTL_MS,
   isFresh,
+  emptyFreshness,
+  freshnessFromData,
+  isPriceFresh,
+  isTargetFresh,
+  isNewsFresh,
+  isFullyFresh,
+  latestFreshnessIso,
+  getStockCacheEntry,
   getCachedStock,
   getCachedStockRow,
   saveStockToCache,

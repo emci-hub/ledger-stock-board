@@ -53,6 +53,7 @@ function buildPayload(ticker, mode, quoteData, fundamentalsData, peersData) {
   const news = Array.isArray(fundamentalsData?.news)
     ? fundamentalsData.news
     : [];
+  const newsPending = Boolean(fundamentalsData?.newsPending);
 
   const newsSentiment = news.map((article) => ({
     title: article.title || null,
@@ -99,6 +100,7 @@ function buildPayload(ticker, mode, quoteData, fundamentalsData, peersData) {
       peRatio: overview.peRatio ?? null,
     },
     newsSentiment,
+    newsPending,
     peers,
   };
 }
@@ -117,6 +119,7 @@ Respond with ONLY valid JSON matching this exact shape — no markdown, no code 
 Rules:
 - "tags" must be an array of 1–3 short plain phrases.
 - "summary" may briefly note how this stock compares to the listed peers if useful.
+- If newsPending is true, do not invent news sentiment; lean on price/indicators/target only.
 - Do not give buy/sell advice or trading instructions.
 
 Stock data:

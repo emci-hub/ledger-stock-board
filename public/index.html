@@ -124,16 +124,23 @@
   .card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;}
   .ticker-block .ticker{font-family:'Fraunces',serif;font-weight:600;font-size:19px;color:#F5F6F1;}
   .ticker-block .company{font-size:12px;color:var(--muted-dim);margin-top:1px;}
+  .ticker-block .blurb{
+    font-size:11px;line-height:1.4;color:var(--muted-dim);margin-top:4px;max-width:220px;
+  }
   .sector{
     font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);
     border:1px solid var(--line);border-radius:6px;padding:2px 6px;white-space:nowrap;
   }
 
-  .price-row{display:flex;align-items:baseline;gap:8px;margin:10px 0 2px;}
+  .price-row{display:flex;align-items:baseline;gap:8px;margin:10px 0 2px;flex-wrap:wrap;}
   .price{font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:600;font-variant-numeric:tabular-nums;color:#F5F6F1;}
   .delta{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;}
   .delta.up{color:var(--green);}
   .delta.down{color:var(--rust);}
+  .via-source{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+    margin-left:2px;
+  }
 
   .spark{display:block;margin:10px 0 2px;filter:drop-shadow(0 0 3px rgba(79,184,138,0.35));}
   .spark.down{filter:drop-shadow(0 0 3px rgba(226,115,90,0.35));}
@@ -153,6 +160,10 @@
   .tag.risk-high{background:var(--rust-bg);color:var(--rust);}
 
   .summary{font-size:13px;line-height:1.5;color:var(--muted);margin-bottom:11px;}
+  .news-pending{
+    display:inline-block;margin-top:6px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--gold);
+  }
 
   .card-foot{
     display:flex;justify-content:space-between;align-items:center;
@@ -355,6 +366,17 @@
     const tags = Array.isArray(report.analysis?.tags) ? report.analysis.tags.slice(0, 2) : [];
     const isStarred = starred.has(report.ticker);
     const target = report.analystTarget;
+    const asOf = report.priceUpdatedAt || report.lastUpdated;
+    const via = report.priceSourceLabel
+      ? `<span class="via-source">via ${escapeHtml(report.priceSourceLabel)}</span>`
+      : "";
+    const newsNote = report.newsPending
+      ? `<div class="news-pending">news: pending</div>`
+      : "";
+
+    const blurb = report.description
+      ? `<div class="blurb">${escapeHtml(report.description)}</div>`
+      : "";
 
     const tagHtml =
       tags.map((t) => `<span class="tag ${tagClass(lean)}">${escapeHtml(t)}</span>`).join("") +
@@ -364,21 +386,23 @@
       <div class="card-top">
         <div class="ticker-block">
           <div class="ticker">${escapeHtml(report.ticker)}</div>
-          <div class="company">${escapeHtml(report.name || report.ticker)}</div>
+          <div class="company">${escapeHtml(report.companyName || report.name || report.ticker)}</div>
+          ${blurb}
         </div>
         <div class="sector">${escapeHtml(shortSector(report.sector))}</div>
       </div>
       <div class="price-row">
         <span class="price">${formatMoney(report.price)}</span>
         <span class="delta ${deltaCls}">${formatPct(report.changePercent)}</span>
+        ${via}
       </div>
-      ${report.lastUpdated ? `<div class="as-of">as of ${escapeHtml(formatAsOf(report.lastUpdated))}</div>` : ""}
+      ${asOf ? `<div class="as-of">as of ${escapeHtml(formatAsOf(asOf))}</div>` : ""}
       ${sparklineSvg(report.priceHistory, report.price, target, down)}
       <div class="target-line" title="Average of published analyst 12-month price targets — a research estimate, not a guarantee">
         <span class="dots">┈┈</span> Analyst target: <b>${formatMoney(target)}</b> · 12mo
       </div>
       <div class="tags">${tagHtml}</div>
-      <div class="summary">${escapeHtml(report.analysis?.summary || "")}</div>
+      <div class="summary">${escapeHtml(report.analysis?.summary || "")}${newsNote}</div>
       <div class="card-foot">
         ${trackHtml(report.trackRecord)}
         <button class="star${isStarred ? " active" : ""}" type="button" data-star="${escapeHtml(report.ticker)}" aria-label="Add to watchlist">${isStarred ? "★" : "☆"}</button>
@@ -426,7 +450,16 @@
         : "not yet";
       const searches =
         s.newSearchesAvailableToday != null ? s.newSearchesAvailableToday : "—";
-      el.innerHTML = `<span class="dot"></span><span class="meta-line">Board last refreshed: ${escapeHtml(refreshed)}</span><span class="meta-line">New stock searches available today: ${escapeHtml(searches)}</span>`;
+      const twelve =
+        s.twelveDataUsedToday != null && s.twelveDataLimit != null
+          ? `${s.twelveDataUsedToday}/${s.twelveDataLimit} Twelve`
+          : null;
+      const alpha =
+        s.alphaVantageUsedToday != null && s.alphaVantageLimit != null
+          ? `${s.alphaVantageUsedToday}/${s.alphaVantageLimit} AV news`
+          : null;
+      const usageBits = [twelve, alpha].filter(Boolean).join(" · ");
+      el.innerHTML = `<span class="dot"></span><span class="meta-line">Board last refreshed: ${escapeHtml(refreshed)}</span><span class="meta-line">New stock searches available today: ${escapeHtml(searches)}</span>${usageBits ? `<span class="meta-line">${escapeHtml(usageBits)}</span>` : ""}`;
     } catch (err) {
       console.error(err);
       el.innerHTML = `<span class="dot"></span>status unavailable`;

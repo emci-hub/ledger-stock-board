@@ -17,12 +17,25 @@ const ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query";
 const FINNHUB_BASE = "https://finnhub.io/api/v1";
 const TWELVE_DATA_BASE = "https://api.twelvedata.com";
 
+/** Once Twelve Data rejects price_target as plan-gated, skip further TD target calls this process. */
+let twelvePriceTargetPlanBlocked = false;
+/** Once Alpha Vantage hits daily rate limit, skip further AV calls this process (preserve remaining attempts). */
+let alphaVantageRateLimited = false;
+
 class AlphaVantageError extends Error {
   constructor(code, message, resetsAt = null) {
     super(message);
     this.name = "AlphaVantageError";
     this.code = code;
     this.resetsAt = resetsAt;
+  }
+}
+
+class TwelveDataError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "TwelveDataError";
+    this.code = code;
   }
 }
 
@@ -42,6 +55,10 @@ function getTwelveKey() {
   const key = process.env.TWELVE_DATA_API_KEY;
   if (!key) throw new Error("TWELVE_DATA_API_KEY is not set in .env");
   return key;
+}
+
+function hasTwelveKey() {
+  return Boolean(process.env.TWELVE_DATA_API_KEY);
 }
 
 function num(value) {
@@ -69,10 +86,38 @@ function isRateLimitMessage(msg) {
   );
 }
 
+function isPlanRestrictedMessage(msg, data) {
+  const m = String(msg || "").toLowerCase();
+  const code = Number(data?.code);
+  return (
+    code === 403 ||
+    code === 402 ||
+    m.includes("upgrade") ||
+    m.includes("your current plan") ||
+    m.includes("your plan") ||
+    m.includes("not available") ||
+    m.includes("not included") ||
+    m.includes("subscribe") ||
+    m.includes("permission denied") ||
+    m.includes("ultra plan") ||
+    m.includes("pro plan") ||
+    m.includes("enterprise plan") ||
+    m.includes("higher plan")
+  );
+}
+
 /**
  * Sole Alpha Vantage HTTP entry point — always increments alpha_vantage usage.
  */
 async function callAlphaVantage(params) {
+  if (alphaVantageRateLimited) {
+    throw new AlphaVantageError(
+      "rate_limit",
+      "Alpha Vantage already rate-limited this process",
+      nextMidnightPacificIso()
+    );
+  }
+
   await incrementUsage(PROVIDERS.ALPHA);
 
   const { data } = await axios.get(ALPHA_VANTAGE_BASE, {
@@ -81,6 +126,7 @@ async function callAlphaVantage(params) {
 
   if (data?.Note || data?.Information) {
     const msg = data.Note || data.Information;
+    alphaVantageRateLimited = true;
     throw new AlphaVantageError("rate_limit", msg, nextMidnightPacificIso());
   }
 
@@ -110,16 +156,34 @@ async function callFinnhub(pathname, params = {}) {
 async function callTwelveData(pathname, params = {}) {
   await incrementUsage(PROVIDERS.TWELVE);
 
-  const { data } = await axios.get(`${TWELVE_DATA_BASE}${pathname}`, {
-    params: { ...params, apikey: getTwelveKey() },
-  });
+  let data;
+  try {
+    const res = await axios.get(`${TWELVE_DATA_BASE}${pathname}`, {
+      params: { ...params, apikey: getTwelveKey() },
+    });
+    data = res.data;
+  } catch (err) {
+    const status = err.response?.status;
+    const body = err.response?.data;
+    const msg = body?.message || err.message || "Twelve Data error";
+    if (status === 403 || status === 402 || isPlanRestrictedMessage(msg, body)) {
+      throw new TwelveDataError("plan_restricted", msg);
+    }
+    if (status === 429 || isRateLimitMessage(msg)) {
+      throw new AlphaVantageError("rate_limit", msg, nextMidnightPacificIso());
+    }
+    throw err;
+  }
 
-  if (data?.status === "error" || data?.code === 429) {
+  if (data?.status === "error" || data?.code === 429 || data?.code === 403) {
     const msg = data?.message || "Twelve Data error";
+    if (isPlanRestrictedMessage(msg, data)) {
+      throw new TwelveDataError("plan_restricted", msg);
+    }
     if (isRateLimitMessage(msg) || data?.code === 429) {
       throw new AlphaVantageError("rate_limit", msg, nextMidnightPacificIso());
     }
-    throw new Error(msg);
+    throw new TwelveDataError("error", msg);
   }
 
   return data;
@@ -222,7 +286,7 @@ function calculateIndicatorsFromCloses(closes) {
   };
 }
 
-function buildQuoteFromBars(symbol, mode, interval, bars, source) {
+function buildQuoteFromBars(symbol, mode, interval, bars, source, meta = null) {
   const latest = bars[bars.length - 1];
   const prev = bars.length > 1 ? bars[bars.length - 2] : null;
   const current = latest.close;
@@ -238,6 +302,7 @@ function buildQuoteFromBars(symbol, mode, interval, bars, source) {
     mode,
     interval,
     source,
+    name: meta?.name || null,
     price: {
       current,
       open: latest.open,
@@ -254,9 +319,6 @@ function buildQuoteFromBars(symbol, mode, interval, bars, source) {
   };
 }
 
-/**
- * Twelve Data price history — same consumer shape as Alpha Vantage path.
- */
 async function getPriceHistoryFromTwelveData(ticker, mode) {
   const symbol = String(ticker).toUpperCase();
   const interval = mode === "long" ? "1week" : "1day";
@@ -280,58 +342,68 @@ async function getPriceHistoryFromTwelveData(ticker, mode) {
     mode,
     mode === "long" ? "weekly" : "daily",
     bars,
-    "twelve_data"
+    "twelve_data",
+    data.meta || null
   );
 }
 
-/**
- * Current price + SMA/RSI/MACD/Bollinger.
- * Tries Alpha Vantage once; on rate_limit, falls back to Twelve Data.
- */
-async function getQuoteAndIndicators(ticker, mode) {
+async function getPriceHistoryFromAlpha(ticker, mode) {
   const symbol = String(ticker).toUpperCase();
   const interval = mode === "long" ? "weekly" : "daily";
   const timeSeriesFunction =
     mode === "long" ? "TIME_SERIES_WEEKLY" : "TIME_SERIES_DAILY";
 
-  try {
-    const timeSeriesData = await callAlphaVantage({
-      function: timeSeriesFunction,
-      symbol,
-    });
+  const timeSeriesData = await callAlphaVantage({
+    function: timeSeriesFunction,
+    symbol,
+  });
 
-    const bars = extractBarsFromAlpha(timeSeriesData, mode);
-    if (!bars.length) {
-      throw new AlphaVantageError(
-        "invalid_ticker",
-        `No time series data returned for ${symbol}`
+  const bars = extractBarsFromAlpha(timeSeriesData, mode);
+  if (!bars.length) {
+    throw new AlphaVantageError(
+      "invalid_ticker",
+      `No time series data returned for ${symbol}`
+    );
+  }
+
+  return buildQuoteFromBars(symbol, mode, interval, bars, "alpha_vantage");
+}
+
+/**
+ * Current price + SMA/RSI/MACD/Bollinger.
+ * Tries Twelve Data first; falls back to Alpha Vantage to preserve AV quota for news.
+ */
+async function getQuoteAndIndicators(ticker, mode) {
+  const symbol = String(ticker).toUpperCase();
+
+  if (hasTwelveKey()) {
+    try {
+      const quote = await getPriceHistoryFromTwelveData(symbol, mode);
+      console.log(
+        `[getQuoteAndIndicators] ${symbol} (${mode}) source=twelve_data`
       );
+      return quote;
+    } catch (err) {
+      if (err instanceof AlphaVantageError && err.code === "invalid_ticker") {
+        console.warn(
+          `[getQuoteAndIndicators] Twelve Data invalid for ${symbol} — trying Alpha Vantage`
+        );
+      } else {
+        console.warn(
+          `[getQuoteAndIndicators] Twelve Data failed for ${symbol} — trying Alpha Vantage:`,
+          err.message
+        );
+      }
     }
+  }
 
+  try {
+    const quote = await getPriceHistoryFromAlpha(symbol, mode);
     console.log(
       `[getQuoteAndIndicators] ${symbol} (${mode}) source=alpha_vantage`
     );
-    return buildQuoteFromBars(symbol, mode, interval, bars, "alpha_vantage");
+    return quote;
   } catch (err) {
-    if (err instanceof AlphaVantageError && err.code === "rate_limit") {
-      console.warn(
-        `[getQuoteAndIndicators] Alpha Vantage rate-limited for ${symbol} — trying Twelve Data`
-      );
-      try {
-        const quote = await getPriceHistoryFromTwelveData(symbol, mode);
-        console.log(
-          `[getQuoteAndIndicators] ${symbol} (${mode}) source=twelve_data`
-        );
-        return quote;
-      } catch (twelveErr) {
-        console.error(
-          `[getQuoteAndIndicators] Twelve Data fallback failed for ${symbol}:`,
-          twelveErr.message
-        );
-        throw err;
-      }
-    }
-
     if (err instanceof AlphaVantageError) throw err;
     console.error(
       `[getQuoteAndIndicators] Failed for ${ticker} (${mode}):`,
@@ -342,26 +414,120 @@ async function getQuoteAndIndicators(ticker, mode) {
 }
 
 /**
- * Company overview + news — two Alpha Vantage calls (sequential).
+ * Analyst target from Twelve Data /price_target (often plan-gated on free tier).
  */
-async function getFundamentalsAndNews(ticker) {
+async function getAnalystTargetFromTwelveData(ticker) {
+  const symbol = String(ticker).toUpperCase();
+  if (twelvePriceTargetPlanBlocked) {
+    throw new TwelveDataError(
+      "plan_restricted",
+      "Twelve Data price_target previously blocked for this process"
+    );
+  }
+
+  const data = await callTwelveData("/price_target", { symbol });
+  const average = num(data?.price_target?.average);
+  if (average == null) {
+    throw new TwelveDataError(
+      "unavailable",
+      `No price_target.average for ${symbol}`
+    );
+  }
+
+  return {
+    analystTargetPrice: average,
+    source: "twelve_data",
+    name: data?.meta?.name || null,
+  };
+}
+
+/**
+ * Analyst target from Alpha Vantage OVERVIEW (also returns name/sector extras).
+ */
+async function getAnalystTargetFromAlphaOverview(ticker) {
+  const symbol = String(ticker).toUpperCase();
+  const overview = await callAlphaVantage({ function: "OVERVIEW", symbol });
+
+  if (!overview || !overview.Symbol) {
+    throw new AlphaVantageError(
+      "invalid_ticker",
+      `No overview data returned for ${symbol}`
+    );
+  }
+
+  return {
+    analystTargetPrice: num(overview.AnalystTargetPrice),
+    source: "alpha_vantage",
+    name: overview.Name || null,
+    sector: overview.Sector || null,
+    industry: overview.Industry || null,
+    description: overview.Description || null,
+    marketCap: num(overview.MarketCapitalization),
+    peRatio: num(overview.PERatio),
+  };
+}
+
+/**
+ * Try Twelve Data price_target first; on plan/unavailable errors fall back to AV overview.
+ * Never throws for soft failures — returns null target instead.
+ */
+async function getAnalystTarget(ticker) {
+  const symbol = String(ticker).toUpperCase();
+
+  if (hasTwelveKey() && !twelvePriceTargetPlanBlocked) {
+    try {
+      const fromTwelve = await getAnalystTargetFromTwelveData(symbol);
+      console.log(`[getAnalystTarget] ${symbol} source=twelve_data`);
+      return fromTwelve;
+    } catch (err) {
+      if (err instanceof TwelveDataError && err.code === "plan_restricted") {
+        twelvePriceTargetPlanBlocked = true;
+        console.warn(
+          `[getAnalystTarget] Twelve Data price_target plan-restricted — using Alpha Vantage overview for ${symbol} (and later tickers this process)`
+        );
+      } else {
+        console.warn(
+          `[getAnalystTarget] Twelve Data failed for ${symbol} — falling back to Alpha Vantage:`,
+          err.message
+        );
+      }
+    }
+  }
+
+  try {
+    const fromAlpha = await getAnalystTargetFromAlphaOverview(symbol);
+    console.log(`[getAnalystTarget] ${symbol} source=alpha_vantage`);
+    return fromAlpha;
+  } catch (err) {
+    if (err instanceof AlphaVantageError && err.code === "rate_limit") {
+      console.warn(
+        `[getAnalystTarget] Alpha Vantage rate-limited for ${symbol} — target=null`
+      );
+      return {
+        analystTargetPrice: null,
+        source: null,
+        rateLimited: true,
+      };
+    }
+    console.error(`[getAnalystTarget] Both sources failed for ${symbol}:`, err.message);
+    return {
+      analystTargetPrice: null,
+      source: null,
+    };
+  }
+}
+
+/**
+ * Alpha Vantage NEWS_SENTIMENT only. Soft-fail: returns null on error (non-blocking).
+ */
+async function getNewsSentiment(ticker) {
   try {
     const symbol = String(ticker).toUpperCase();
-
-    const overview = await callAlphaVantage({ function: "OVERVIEW", symbol });
-    await sleep(1200);
     const newsData = await callAlphaVantage({
       function: "NEWS_SENTIMENT",
       tickers: symbol,
       limit: 50,
     });
-
-    if (!overview || !overview.Symbol) {
-      throw new AlphaVantageError(
-        "invalid_ticker",
-        `No overview data returned for ${symbol}`
-      );
-    }
 
     const articles = (newsData.feed || [])
       .slice()
@@ -391,36 +557,36 @@ async function getFundamentalsAndNews(ticker) {
         };
       });
 
-    return {
-      ticker: symbol,
-      overview: {
-        name: overview.Name || null,
-        description: overview.Description || null,
-        sector: overview.Sector || null,
-        industry: overview.Industry || null,
-        marketCap: num(overview.MarketCapitalization),
-        peRatio: num(overview.PERatio),
-        pegRatio: num(overview.PEGRatio),
-        eps: num(overview.EPS),
-        dividendYield: num(overview.DividendYield),
-        profitMargin: num(overview.ProfitMargin),
-        week52High: num(overview["52WeekHigh"]),
-        week52Low: num(overview["52WeekLow"]),
-        beta: num(overview.Beta),
-        analystTargetPrice: num(overview.AnalystTargetPrice),
-        analystRatingStrongBuy: num(overview.AnalystRatingStrongBuy),
-        analystRatingBuy: num(overview.AnalystRatingBuy),
-        analystRatingHold: num(overview.AnalystRatingHold),
-        analystRatingSell: num(overview.AnalystRatingSell),
-        analystRatingStrongSell: num(overview.AnalystRatingStrongSell),
-      },
-      news: articles,
-    };
+    return { ticker: symbol, news: articles };
   } catch (err) {
-    if (err instanceof AlphaVantageError) throw err;
-    console.error(`[getFundamentalsAndNews] Failed for ${ticker}:`, err.message);
+    console.error(`[getNewsSentiment] Failed for ${ticker}:`, err.message);
     return null;
   }
+}
+
+/**
+ * @deprecated Prefer getAnalystTarget + getNewsSentiment. Kept for compatibility.
+ */
+async function getFundamentalsAndNews(ticker) {
+  const target = await getAnalystTarget(ticker);
+  await sleep(1200);
+  const newsResult = await getNewsSentiment(ticker);
+
+  return {
+    ticker: String(ticker).toUpperCase(),
+    overview: {
+      name: target?.name || null,
+      description: target?.description || null,
+      sector: target?.sector || null,
+      industry: target?.industry || null,
+      marketCap: target?.marketCap ?? null,
+      peRatio: target?.peRatio ?? null,
+      analystTargetPrice: target?.analystTargetPrice ?? null,
+      analystTargetSource: target?.source || null,
+    },
+    news: newsResult?.news || [],
+    newsPending: !newsResult,
+  };
 }
 
 /**
@@ -458,9 +624,12 @@ module.exports = {
   callFinnhub,
   callTwelveData,
   getQuoteAndIndicators,
+  getAnalystTarget,
+  getNewsSentiment,
   getFundamentalsAndNews,
   getPeers,
   getPriceHistoryFromTwelveData,
   AlphaVantageError,
+  TwelveDataError,
   nextMidnightPacificIso,
 };

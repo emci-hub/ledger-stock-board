@@ -8,8 +8,10 @@ const cron = require("node-cron");
 const { initSchema, dbGet, dbAll, dbRun } = require("./db/schema");
 const { getStockReport, buildReport } = require("./services/getStockReport");
 const {
-  getCachedStockRow,
+  getStockCacheEntry,
   getCachedSummary,
+  isFullyFresh,
+  isPriceFresh,
 } = require("./services/cache");
 const {
   refreshBoard,
@@ -28,7 +30,11 @@ const { AlphaVantageError } = require("./services/dataFetch");
 const app = express();
 const PORT = 3000;
 const DAILY_AV_LIMIT = 25;
-const AV_CALLS_PER_SEARCH = 3;
+/** Alpha Vantage is mostly reserved for NEWS_SENTIMENT (~1 call / search when news is stale). */
+const AV_CALLS_PER_SEARCH_NEWS = 1;
+const DAILY_TWELVE_LIMIT = 800;
+/** Typical Twelve Data cost per search: time_series (+ optional price_target when plan allows). */
+const TWELVE_CALLS_PER_SEARCH = 1;
 
 app.use(cors());
 app.use(express.json());
@@ -43,17 +49,17 @@ function parseJsonSafe(text) {
 }
 
 async function reportFromCache(ticker, mode) {
-  const stockRow = await getCachedStockRow(ticker, mode);
+  const entry = await getStockCacheEntry(ticker, mode);
   const analysis = await getCachedSummary(ticker, mode);
-  if (!stockRow) return null;
+  if (!entry || !entry.data?.quote) return null;
 
   return {
     ...buildReport(
       ticker,
       mode,
-      stockRow.data,
+      entry.data,
       analysis,
-      stockRow.lastUpdated
+      entry.data?.freshness?.priceUpdatedAt || entry.lastUpdated
     ),
     trackRecord: await getTrackRecord(ticker),
   };
@@ -74,15 +80,29 @@ async function buildStatusPayload() {
   const twelveUsed = await getUsageToday(PROVIDERS.TWELVE);
   const finnhubUsed = await getUsageToday(PROVIDERS.FINNHUB);
   const alphaRemaining = Math.max(0, DAILY_AV_LIMIT - alphaUsed);
-  const avBudgetSearches = Math.floor(alphaRemaining / AV_CALLS_PER_SEARCH);
+  const twelveRemaining = Math.max(0, DAILY_TWELVE_LIMIT - twelveUsed);
   const twelveAvailable = Boolean(process.env.TWELVE_DATA_API_KEY);
-  const newSearchesAvailableToday =
-    avBudgetSearches > 0 ? avBudgetSearches : twelveAvailable ? 1 : 0;
+
+  // Price path is Twelve-first; AV is mainly news (+ rare price/target fallback).
+  const twelveBudgetSearches = twelveAvailable
+    ? Math.floor(twelveRemaining / TWELVE_CALLS_PER_SEARCH)
+    : 0;
+  const avNewsBudgetSearches = Math.floor(
+    alphaRemaining / AV_CALLS_PER_SEARCH_NEWS
+  );
+  // Searches can still succeed with news pending, so Twelve budget is the main gate.
+  // When Twelve is exhausted, allow a few AV-only price fallbacks if AV remains.
+  const newSearchesAvailableToday = twelveAvailable
+    ? twelveBudgetSearches
+    : avNewsBudgetSearches;
 
   return {
     alphaVantageUsedToday: alphaUsed,
     alphaVantageLimit: DAILY_AV_LIMIT,
+    alphaVantageRole: "news_primary_price_target_fallback",
     twelveDataUsedToday: twelveUsed,
+    twelveDataLimit: DAILY_TWELVE_LIMIT,
+    twelveDataRole: "price_indicators_target_primary",
     finnhubUsedToday: finnhubUsed,
     newSearchesAvailableToday,
     lastBoardRefresh: await getSetting("lastBoardRefresh"),
@@ -128,22 +148,26 @@ app.get("/api/search", async (req, res) => {
       return res.status(400).json({ error: "Query param 'ticker' is required." });
     }
 
-    const stockRow = await getCachedStockRow(ticker, mode);
+    const entry = await getStockCacheEntry(ticker, mode);
     const cachedSummary = await getCachedSummary(ticker, mode);
-    if (stockRow && cachedSummary) {
+    if (entry && isFullyFresh(entry.data) && cachedSummary) {
       return res.json({
         ...buildReport(
           ticker,
           mode,
-          stockRow.data,
+          entry.data,
           cachedSummary,
-          stockRow.lastUpdated
+          entry.data?.freshness?.priceUpdatedAt || entry.lastUpdated
         ),
         trackRecord: await getTrackRecord(ticker),
       });
     }
 
-    if (!stockRow && !searchPasswordOk(req.query.password)) {
+    // Password gate for live pulls; allow without password if we already have a fresh price cache.
+    if (
+      !(entry && isPriceFresh(entry.data)) &&
+      !searchPasswordOk(req.query.password)
+    ) {
       return res.status(401).json({ error: "locked" });
     }
 

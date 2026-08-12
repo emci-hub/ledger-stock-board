@@ -2,8 +2,9 @@ const { dbGet, dbAll, dbRun } = require("../db/schema");
 const { getStockReport } = require("../services/getStockReport");
 const {
   getCachedStock,
-  getCachedStockRow,
+  getStockCacheEntry,
   getCachedSummary,
+  isFullyFresh,
 } = require("../services/cache");
 const { setSetting } = require("../services/usage");
 const { AlphaVantageError } = require("../services/dataFetch");
@@ -33,7 +34,8 @@ function statusFromAnalysis(lean, risk) {
 
   if (l === "bearish" || r === "high") return "watch";
   if (l === "bullish" || (l === "neutral" && r === "low")) return "recommended";
-  return null;
+  // Neutral/medium and other middling outcomes still belong on the board as watch.
+  return "watch";
 }
 
 async function logRecommendation(ticker, price, lean) {
@@ -159,13 +161,14 @@ async function refreshBoard() {
 
   for (const ticker of BOARD_TICKERS) {
     try {
-      const stockFresh = await getCachedStockRow(ticker, "long");
+      const entry = await getStockCacheEntry(ticker, "long");
       const summaryFresh = await getCachedSummary(ticker, "long");
+      const fullyFresh = entry && isFullyFresh(entry.data);
 
-      if (stockFresh && summaryFresh) {
+      if (fullyFresh && summaryFresh) {
         cacheReused += 1;
         console.log(
-          `[refreshBoard] ${ticker} still fresh (<24h) — skipping live fetch`
+          `[refreshBoard] ${ticker} price+target+news all fresh (<24h) — skipping live fetch`
         );
         const report = await getStockReport(ticker, "long", { skipPeers: true });
         if (!report) {
@@ -188,6 +191,12 @@ async function refreshBoard() {
         else watch += 1;
         successes += 1;
         continue;
+      }
+
+      if (entry && !fullyFresh) {
+        console.log(
+          `[refreshBoard] ${ticker} partial stale — will refresh missing pieces only`
+        );
       }
 
       fetched += 1;

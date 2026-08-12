@@ -8,25 +8,14 @@ const {
 } = require("../services/cache");
 const { setSetting } = require("../services/usage");
 const { AlphaVantageError } = require("../services/dataFetch");
-
-/** Fixed universe of stable large-caps for the family board (long mode). */
-const BOARD_TICKERS = [
-  // Tech
-  "AAPL",
-  "MSFT",
-  // Healthcare
-  "JNJ",
-  "UNH",
-  // Consumer staples
-  "KO",
-  "PG",
-  // Finance
-  "JPM",
-  "V",
-];
+const { BOARD_TICKERS } = require("../lib/boardTickers");
 
 /** Neutral "roughly flat" band vs logged price (±3%). */
 const FLAT_BAND = 0.03;
+
+function normalizeMode(mode) {
+  return mode === "short" ? "short" : "long";
+}
 
 function statusFromAnalysis(lean, risk) {
   const l = String(lean || "").toLowerCase();
@@ -146,9 +135,15 @@ async function getTrackRecord(ticker) {
   return { building: false, hitRate, hits, resolvedCount };
 }
 
-async function refreshBoard() {
+/**
+ * Refresh board universe for a mode ("long" | "short").
+ * Updates stock/summary caches for that mode and rewrites board_picks from the analysis.
+ */
+async function refreshBoard(mode = "long") {
+  const m = normalizeMode(mode);
+
   console.log(
-    `[refreshBoard] Starting refresh for ${BOARD_TICKERS.length} tickers at ${new Date().toISOString()}`
+    `[refreshBoard] Starting ${m} refresh for ${BOARD_TICKERS.length} tickers at ${new Date().toISOString()}`
   );
 
   let recommended = 0;
@@ -161,16 +156,16 @@ async function refreshBoard() {
 
   for (const ticker of BOARD_TICKERS) {
     try {
-      const entry = await getStockCacheEntry(ticker, "long");
-      const summaryFresh = await getCachedSummary(ticker, "long");
+      const entry = await getStockCacheEntry(ticker, m);
+      const summaryFresh = await getCachedSummary(ticker, m);
       const fullyFresh = entry && isFullyFresh(entry.data);
 
       if (fullyFresh && summaryFresh) {
         cacheReused += 1;
         console.log(
-          `[refreshBoard] ${ticker} price+target+news all fresh (<24h) — skipping live fetch`
+          `[refreshBoard] ${ticker} (${m}) price+target+news all fresh (<24h) — skipping live fetch`
         );
-        const report = await getStockReport(ticker, "long", { skipPeers: true });
+        const report = await getStockReport(ticker, m, { skipPeers: true });
         if (!report) {
           skipped += 1;
           continue;
@@ -195,14 +190,16 @@ async function refreshBoard() {
 
       if (entry && !fullyFresh) {
         console.log(
-          `[refreshBoard] ${ticker} partial stale — will refresh missing pieces only`
+          `[refreshBoard] ${ticker} (${m}) partial stale — will refresh missing pieces only`
         );
       }
 
       fetched += 1;
-      const report = await getStockReport(ticker, "long", { skipPeers: true });
+      const report = await getStockReport(ticker, m, { skipPeers: true });
       if (!report) {
-        console.warn(`[refreshBoard] No report for ${ticker} — leaving out`);
+        console.warn(
+          `[refreshBoard] No report for ${ticker} (${m}) — leaving out`
+        );
         skipped += 1;
         continue;
       }
@@ -213,7 +210,7 @@ async function refreshBoard() {
 
       if (!status) {
         console.log(
-          `[refreshBoard] ${ticker} lean=${lean} risk=${risk} — no board status, leaving out`
+          `[refreshBoard] ${ticker} (${m}) lean=${lean} risk=${risk} — no board status, leaving out`
         );
         skipped += 1;
         continue;
@@ -236,13 +233,16 @@ async function refreshBoard() {
 
       successes += 1;
       console.log(
-        `[refreshBoard] ${ticker} → ${status} (lean=${lean}, risk=${risk})`
+        `[refreshBoard] ${ticker} (${m}) → ${status} (lean=${lean}, risk=${risk})`
       );
     } catch (err) {
       if (err instanceof AlphaVantageError && err.code === "rate_limit") {
         rateLimited = true;
       }
-      console.error(`[refreshBoard] Failed for ${ticker}:`, err.message);
+      console.error(
+        `[refreshBoard] Failed for ${ticker} (${m}):`,
+        err.message
+      );
       skipped += 1;
     }
   }
@@ -255,12 +255,14 @@ async function refreshBoard() {
   const finishedAt = new Date().toISOString();
   await setSetting("lastBoardRefresh", finishedAt);
   await setSetting("lastBoardRefreshStatus", boardRefreshStatus);
+  await setSetting("lastBoardRefreshMode", m);
 
   console.log(
-    `[refreshBoard] Done — recommended=${recommended}, watch=${watch}, skipped=${skipped}, fetched=${fetched}, cacheReused=${cacheReused}, status=${boardRefreshStatus}`
+    `[refreshBoard] Done (${m}) — recommended=${recommended}, watch=${watch}, skipped=${skipped}, fetched=${fetched}, cacheReused=${cacheReused}, status=${boardRefreshStatus}`
   );
 
   return {
+    mode: m,
     recommended,
     watch,
     skipped,

@@ -305,15 +305,17 @@ async function start() {
     console.log(`Ledger server listening on http://localhost:${PORT}`);
 
     cron.schedule("0 7 * * *", () => {
-      refreshBoard().catch((err) => {
+      (async () => {
+        // Warm both modes; long last so board_picks status reflects long-term lean.
+        await refreshBoard("short");
+        await refreshBoard("long");
+        await resolveOldRecommendations();
+      })().catch((err) => {
         console.error("[cron refreshBoard]", err.message);
-      });
-      resolveOldRecommendations().catch((err) => {
-        console.error("[cron resolveOldRecommendations]", err.message);
       });
     });
     console.log(
-      "[cron] Scheduled refreshBoard + resolveOldRecommendations daily at 07:00"
+      "[cron] Scheduled refreshBoard(short+long) + resolveOldRecommendations daily at 07:00"
     );
 
     dbGet(`SELECT COUNT(*) AS n FROM board_picks`)

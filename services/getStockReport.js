@@ -13,7 +13,7 @@ const {
 const {
   getQuoteAndIndicators,
   getAnalystTarget,
-  getNewsSentiment,
+  getCombinedNews,
   getPeers,
   AlphaVantageError,
 } = require("./dataFetch");
@@ -26,6 +26,17 @@ const inFlight = new Map();
 function sourceLabel(source) {
   if (source === "twelve_data") return "Twelve Data";
   if (source === "alpha_vantage") return "Alpha Vantage";
+  if (source === "finnhub") return "Finnhub";
+  return null;
+}
+
+function newsSourceLabel(sources) {
+  const list = Array.isArray(sources) ? sources : [];
+  const hasAv = list.includes("alpha_vantage");
+  const hasFh = list.includes("finnhub");
+  if (hasAv && hasFh) return "Alpha Vantage + Finnhub";
+  if (hasAv) return "Alpha Vantage";
+  if (hasFh) return "Finnhub";
   return null;
 }
 
@@ -33,8 +44,12 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
   const quote = rawData?.quote || {};
   const overview = rawData?.fundamentals?.overview || {};
   const freshness = freshnessFromData(rawData);
+  const newsSources = Array.isArray(rawData?.fundamentals?.newsSources)
+    ? rawData.fundamentals.newsSources
+    : [];
   const newsPending =
-    Boolean(rawData?.fundamentals?.newsPending) || !freshness.newsUpdatedAt;
+    Boolean(rawData?.fundamentals?.newsPending) ||
+    (!freshness.newsUpdatedAt && newsSources.length === 0);
   const priceSource = quote.source || null;
   const local = getTickerInfo(ticker);
   const companyName =
@@ -63,6 +78,8 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     newsUpdatedAt: freshness.newsUpdatedAt || null,
     priceSource,
     priceSourceLabel: sourceLabel(priceSource),
+    newsSources,
+    newsSourceLabel: newsSourceLabel(newsSources),
     newsPending,
     priceHistory: Array.isArray(quote.priceHistory)
       ? quote.priceHistory
@@ -87,6 +104,10 @@ function ensureRawShape(rawData) {
       overview: base.fundamentals?.overview || {},
       news: Array.isArray(base.fundamentals?.news)
         ? base.fundamentals.news
+        : [],
+      newsFinnhub: base.fundamentals?.newsFinnhub || null,
+      newsSources: Array.isArray(base.fundamentals?.newsSources)
+        ? base.fundamentals.newsSources
         : [],
       newsPending: Boolean(base.fundamentals?.newsPending),
     },
@@ -186,18 +207,18 @@ async function buildStockReport(ticker, mode, options = {}) {
 
   if (!newsOk) {
     console.log(
-      `[getStockReport] news stale/missing for ${symbol} — fetching Alpha Vantage NEWS_SENTIMENT`
+      `[getStockReport] news stale/missing for ${symbol} — fetching Alpha Vantage + Finnhub in parallel`
     );
-    const newsResult = await getNewsSentiment(symbol);
-    if (newsResult) {
-      rawData.fundamentals.news = newsResult.news;
-      rawData.fundamentals.newsPending = false;
+    const combined = await getCombinedNews(symbol);
+    rawData.fundamentals.news = combined.alpha?.news || [];
+    rawData.fundamentals.newsFinnhub = combined.finnhub || null;
+    rawData.fundamentals.newsSources = combined.sources;
+    rawData.fundamentals.newsPending = combined.pending;
+    if (!combined.pending) {
       rawData.freshness.newsUpdatedAt = now();
       newsJustFetched = true;
-    } else {
-      rawData.fundamentals.newsPending = true;
-      // Leave newsUpdatedAt unset so the next refresh retries news only.
     }
+    // If both failed, leave newsUpdatedAt unset so the next refresh retries.
     didFetch = true;
   } else {
     rawData.fundamentals.newsPending = false;

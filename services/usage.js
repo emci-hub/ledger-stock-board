@@ -3,6 +3,7 @@ const { dbGet, dbRun } = require("../db/schema");
 const PROVIDERS = {
   ALPHA: "alpha_vantage",
   FINNHUB: "finnhub",
+  FINNHUB_DELAY: "finnhub_rate_delay",
   TWELVE: "twelve_data",
 };
 

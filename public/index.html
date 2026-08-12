@@ -164,6 +164,10 @@
     display:inline-block;margin-top:6px;
     font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--gold);
   }
+  .news-via{
+    display:inline-block;margin-top:6px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+  }
 
   .card-foot{
     display:flex;justify-content:space-between;align-items:center;
@@ -372,7 +376,9 @@
       : "";
     const newsNote = report.newsPending
       ? `<div class="news-pending">news: pending</div>`
-      : "";
+      : report.newsSourceLabel
+        ? `<div class="news-via">via ${escapeHtml(report.newsSourceLabel)}</div>`
+        : "";
 
     const blurb = report.description
       ? `<div class="blurb">${escapeHtml(report.description)}</div>`
@@ -458,7 +464,14 @@
         s.alphaVantageUsedToday != null && s.alphaVantageLimit != null
           ? `${s.alphaVantageUsedToday}/${s.alphaVantageLimit} AV news`
           : null;
-      const usageBits = [twelve, alpha].filter(Boolean).join(" · ");
+      const finnhub =
+        s.finnhubUsedToday != null
+          ? `${s.finnhubUsedToday} Finnhub` +
+            (s.finnhubRateDelayTriggeredToday
+              ? ` (${s.finnhubRateDelayTriggeredToday} delays)`
+              : "")
+          : null;
+      const usageBits = [twelve, alpha, finnhub].filter(Boolean).join(" · ");
       el.innerHTML = `<span class="dot"></span><span class="meta-line">Board last refreshed: ${escapeHtml(refreshed)}</span><span class="meta-line">New stock searches available today: ${escapeHtml(searches)}</span>${usageBits ? `<span class="meta-line">${escapeHtml(usageBits)}</span>` : ""}`;
     } catch (err) {
       console.error(err);

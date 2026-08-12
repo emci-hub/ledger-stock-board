@@ -79,6 +79,7 @@ async function buildStatusPayload() {
   const alphaUsed = await getUsageToday(PROVIDERS.ALPHA);
   const twelveUsed = await getUsageToday(PROVIDERS.TWELVE);
   const finnhubUsed = await getUsageToday(PROVIDERS.FINNHUB);
+  const finnhubDelayTriggered = await getUsageToday(PROVIDERS.FINNHUB_DELAY);
   const alphaRemaining = Math.max(0, DAILY_AV_LIMIT - alphaUsed);
   const twelveRemaining = Math.max(0, DAILY_TWELVE_LIMIT - twelveUsed);
   const twelveAvailable = Boolean(process.env.TWELVE_DATA_API_KEY);
@@ -104,6 +105,10 @@ async function buildStatusPayload() {
     twelveDataLimit: DAILY_TWELVE_LIMIT,
     twelveDataRole: "price_indicators_target_primary",
     finnhubUsedToday: finnhubUsed,
+    finnhubLimitPerMinute: 60,
+    finnhubSoftCapPerMinute: 50,
+    finnhubRateDelayTriggeredToday: finnhubDelayTriggered,
+    finnhubRole: "news_sentiment_and_peers",
     newSearchesAvailableToday,
     lastBoardRefresh: await getSetting("lastBoardRefresh"),
     boardRefreshStatus: await getSetting("lastBoardRefreshStatus"),

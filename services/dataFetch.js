@@ -139,8 +139,52 @@ async function callAlphaVantage(params) {
 
 /**
  * Sole Finnhub HTTP entry point — always increments finnhub usage.
+ * Soft-caps at 50 calls / rolling 60s (Finnhub free limit is 60/min) by
+ * queuing callers with a short wait instead of risking 429s.
  */
+const FINNHUB_WINDOW_MS = 60_000;
+const FINNHUB_SOFT_LIMIT = 50;
+const finnhubCallTimestamps = [];
+let finnhubGate = Promise.resolve();
+
+async function acquireFinnhubSlot() {
+  let release;
+  const previous = finnhubGate;
+  finnhubGate = new Promise((resolve) => {
+    release = resolve;
+  });
+  await previous;
+
+  try {
+    for (;;) {
+      const now = Date.now();
+      while (
+        finnhubCallTimestamps.length &&
+        now - finnhubCallTimestamps[0] >= FINNHUB_WINDOW_MS
+      ) {
+        finnhubCallTimestamps.shift();
+      }
+
+      if (finnhubCallTimestamps.length < FINNHUB_SOFT_LIMIT) {
+        finnhubCallTimestamps.push(Date.now());
+        return;
+      }
+
+      const waitMs =
+        FINNHUB_WINDOW_MS - (now - finnhubCallTimestamps[0]) + 50;
+      console.warn(
+        `[callFinnhub] rate-limit delay ${waitMs}ms (${finnhubCallTimestamps.length}/${FINNHUB_SOFT_LIMIT} in 60s window)`
+      );
+      await incrementUsage(PROVIDERS.FINNHUB_DELAY);
+      await sleep(Math.max(waitMs, 100));
+    }
+  } finally {
+    release();
+  }
+}
+
 async function callFinnhub(pathname, params = {}) {
+  await acquireFinnhubSlot();
   await incrementUsage(PROVIDERS.FINNHUB);
 
   const { data } = await axios.get(`${FINNHUB_BASE}${pathname}`, {
@@ -557,7 +601,7 @@ async function getNewsSentiment(ticker) {
         };
       });
 
-    return { ticker: symbol, news: articles };
+    return { ticker: symbol, source: "alpha_vantage", news: articles };
   } catch (err) {
     console.error(`[getNewsSentiment] Failed for ${ticker}:`, err.message);
     return null;
@@ -565,12 +609,66 @@ async function getNewsSentiment(ticker) {
 }
 
 /**
- * @deprecated Prefer getAnalystTarget + getNewsSentiment. Kept for compatibility.
+ * Finnhub /news-sentiment — aggregate company news score (US tickers).
+ * Soft-fail: returns null on error (non-blocking). Independent of Alpha Vantage.
+ */
+async function getNewsFromFinnhub(ticker) {
+  try {
+    const symbol = String(ticker).toUpperCase();
+    const data = await callFinnhub("/news-sentiment", { symbol });
+
+    if (!data || typeof data !== "object") {
+      throw new Error("Finnhub news-sentiment returned empty body");
+    }
+
+    return {
+      ticker: symbol,
+      source: "finnhub",
+      companyNewsScore: num(data.companyNewsScore),
+      sectorAverageBullishPercent: num(data.sectorAverageBullishPercent),
+      sectorAverageNewsScore: num(data.sectorAverageNewsScore),
+      buzz: data.buzz || null,
+      sentiment: data.sentiment
+        ? {
+            bullishPercent: num(data.sentiment.bullishPercent),
+            bearishPercent: num(data.sentiment.bearishPercent),
+          }
+        : null,
+    };
+  } catch (err) {
+    console.error(`[getNewsFromFinnhub] Failed for ${ticker}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Fetch Alpha Vantage + Finnhub news in parallel; neither blocks the other.
+ */
+async function getCombinedNews(ticker) {
+  const [alpha, finnhub] = await Promise.all([
+    getNewsSentiment(ticker),
+    getNewsFromFinnhub(ticker),
+  ]);
+
+  const sources = [];
+  if (alpha) sources.push("alpha_vantage");
+  if (finnhub) sources.push("finnhub");
+
+  return {
+    alpha,
+    finnhub,
+    sources,
+    pending: sources.length === 0,
+  };
+}
+
+/**
+ * @deprecated Prefer getAnalystTarget + getCombinedNews. Kept for compatibility.
  */
 async function getFundamentalsAndNews(ticker) {
   const target = await getAnalystTarget(ticker);
   await sleep(1200);
-  const newsResult = await getNewsSentiment(ticker);
+  const combined = await getCombinedNews(ticker);
 
   return {
     ticker: String(ticker).toUpperCase(),
@@ -584,8 +682,10 @@ async function getFundamentalsAndNews(ticker) {
       analystTargetPrice: target?.analystTargetPrice ?? null,
       analystTargetSource: target?.source || null,
     },
-    news: newsResult?.news || [],
-    newsPending: !newsResult,
+    news: combined.alpha?.news || [],
+    newsFinnhub: combined.finnhub || null,
+    newsSources: combined.sources,
+    newsPending: combined.pending,
   };
 }
 
@@ -626,6 +726,8 @@ module.exports = {
   getQuoteAndIndicators,
   getAnalystTarget,
   getNewsSentiment,
+  getNewsFromFinnhub,
+  getCombinedNews,
   getFundamentalsAndNews,
   getPeers,
   getPriceHistoryFromTwelveData,

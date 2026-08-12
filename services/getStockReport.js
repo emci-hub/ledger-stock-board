@@ -17,6 +17,7 @@ const {
   getAnalystTarget,
   getCombinedNews,
   getPeers,
+  AlphaVantageError,
 } = require("./dataFetch");
 const { analyzeStock } = require("./analyze");
 const { logQuoteClose } = require("./priceHistoryLog");
@@ -313,7 +314,6 @@ async function loadSharedStockData(ticker, options = {}) {
           didFetch = true;
         }
       } catch (err) {
-        const { AlphaVantageError } = require("./dataFetch");
         if (
           err instanceof AlphaVantageError &&
           err.code === "rate_limit" &&

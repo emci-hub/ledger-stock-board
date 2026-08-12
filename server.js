@@ -108,6 +108,7 @@ async function buildStatusPayload() {
     twelveDataUsedToday: twelveUsed,
     twelveDataLimit: DAILY_TWELVE_LIMIT,
     twelveDataRole: "price_indicators_target_primary",
+    twelveDataConfigured: twelveAvailable,
     finnhubUsedToday: finnhubUsed,
     finnhubLimitPerMinute: DATA_SOURCES.finnhub.rateLimit.limit,
     finnhubSoftCapPerMinute: DATA_SOURCES.finnhub.rateLimit.softCap,

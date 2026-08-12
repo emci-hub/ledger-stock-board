@@ -23,6 +23,7 @@ const { analyzeStock } = require("./analyze");
 const { logQuoteClose } = require("./priceHistoryLog");
 const { getTickerInfo } = require("../lib/tickerInfo");
 const { sourceShortCode, formatSourceList } = require("../lib/dataSources");
+const { deriveDataCaveats } = require("../lib/dataCaveats");
 
 /** In-flight shared-data loads keyed by ticker only (mode is display-only). */
 const inFlight = new Map();
@@ -158,7 +159,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
       ? analysis.quip.trim()
       : null);
 
-  return {
+  const reportBase = {
     ticker: String(ticker).toUpperCase(),
     mode: displayMode,
     name: companyName,
@@ -214,6 +215,12 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
         "A longer AI deep dive wasn't available for this name yet.",
     },
   };
+
+  reportBase.caveats = deriveDataCaveats(reportBase, {
+    sharedIndicators: quote.indicators,
+  });
+
+  return reportBase;
 }
 
 function ensureRawShape(rawData) {

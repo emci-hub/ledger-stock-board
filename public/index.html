@@ -173,6 +173,22 @@
     margin:0 0 8px;
   }
   .earnings-flag{color:var(--gold);}
+  .caveat-row{
+    display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+    margin:0 0 8px;
+  }
+  .caveat-badge{
+    display:inline-flex;align-items:center;gap:4px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;
+    color:var(--muted-dim);background:transparent;
+    border:1px solid var(--line-soft);border-radius:999px;
+    padding:2px 8px;cursor:help;line-height:1.3;
+  }
+  .caveat-badge .caveat-icon{color:var(--muted);font-style:normal;}
+  .caveat-inline{
+    display:inline-flex;align-items:center;gap:4px;margin-left:6px;
+    vertical-align:middle;
+  }
   .deep-dive{
     margin:10px 0 4px;border-top:1px solid var(--line-soft);padding-top:8px;
   }
@@ -411,6 +427,25 @@
     </svg>`;
   }
 
+  function caveatsForPlace(report, place) {
+    const list = Array.isArray(report?.caveats) ? report.caveats : [];
+    return list.filter((c) => c && c.place === place);
+  }
+
+  function caveatBadgesHtml(caveats, { inline = false } = {}) {
+    if (!caveats || !caveats.length) return "";
+    const badges = caveats
+      .map((c) => {
+        const tip = escapeHtml(c.tooltip || c.label || "");
+        const label = escapeHtml(c.label || c.id || "Note");
+        const icon = escapeHtml(c.icon || "ⓘ");
+        return `<span class="caveat-badge" title="${tip}" aria-label="${tip}"><span class="caveat-icon" aria-hidden="true">${icon}</span>${label}</span>`;
+      })
+      .join("");
+    if (inline) return `<span class="caveat-inline">${badges}</span>`;
+    return `<div class="caveat-row">${badges}</div>`;
+  }
+
   function buildCardHtml(report, status) {
     if (!report) return "";
     const lean = report.analysis?.lean || "neutral";
@@ -426,9 +461,9 @@
     const via = report.priceSourceLabel
       ? `<span class="via-source">via ${escapeHtml(report.priceSourceLabel)}</span>`
       : "";
-    const newsNote = report.newsPending
-      ? `<div class="news-pending">news: pending</div>`
-      : report.newsSourceLabel
+    // News source line only when we have sources; missing news is a caveat badge.
+    const newsNote =
+      !report.newsPending && report.newsSourceLabel
         ? `<div class="news-via">via ${escapeHtml(report.newsSourceLabel)}</div>`
         : "";
     const rangeNote = report.weekRange?.label
@@ -436,8 +471,8 @@
           report.weekRange.low != null && report.weekRange.high != null
             ? ` · ${escapeHtml(formatMoney(report.weekRange.low))}–${escapeHtml(formatMoney(report.weekRange.high))}`
             : ""
-        }</div>`
-      : "";
+        }${caveatBadgesHtml(caveatsForPlace(report, "range"), { inline: true })}</div>`
+      : caveatBadgesHtml(caveatsForPlace(report, "range"));
     const earningsNote = report.earnings?.text
       ? `<div class="earnings-flag">${escapeHtml(report.earnings.text)}</div>`
       : "";
@@ -447,6 +482,7 @@
       : "";
 
     const peers = Array.isArray(report.peers) ? report.peers : [];
+    const peerCaveats = caveatBadgesHtml(caveatsForPlace(report, "peers"));
     const peerHtml = peers.length
       ? `<ul>${peers
           .map((p) => {
@@ -454,9 +490,15 @@
             return t ? `<li>${escapeHtml(String(t).toUpperCase())}</li>` : "";
           })
           .join("")}</ul>`
-      : `<div>No peer list cached yet.</div>`;
+      : peerCaveats || `<div class="caveat-row"></div>`;
 
     const src = report.deepDive?.sources || {};
+    const sparkCaveats = caveatBadgesHtml(caveatsForPlace(report, "sparkline"));
+    const targetCaveats = caveatBadgesHtml(caveatsForPlace(report, "target"), {
+      inline: true,
+    });
+    const summaryCaveats = caveatBadgesHtml(caveatsForPlace(report, "summary"));
+
     const deepHtml = `<details class="deep-dive">
       <summary>Deep dive</summary>
       <div class="deep-body">
@@ -464,7 +506,7 @@
         <ul>
           <li>Price: ${escapeHtml(src.price || "—")}</li>
           <li>Target: ${escapeHtml(src.target || "—")}</li>
-          <li>News: ${escapeHtml(src.news || (report.newsPending ? "pending" : "—"))}</li>
+          <li>News: ${escapeHtml(src.news || "—")}</li>
           <li>Peers: ${escapeHtml(src.peers || "—")}</li>
         </ul>
         <div class="deep-label">52-week range</div>
@@ -473,7 +515,7 @@
             ? `${escapeHtml(formatMoney(report.weekRange.low))} – ${escapeHtml(formatMoney(report.weekRange.high))}${
                 report.weekRange.label ? ` · ${escapeHtml(report.weekRange.label)}` : ""
               }`
-            : "Not enough history yet."
+            : caveatBadgesHtml(caveatsForPlace(report, "range")) || "—"
         }</div>
         ${
           report.earnings?.text
@@ -499,6 +541,13 @@
       tags.map((t) => `<span class="tag ${tagClass(lean)}">${escapeHtml(t)}</span>`).join("") +
       `<span class="tag ${riskInfo.cls}">${escapeHtml(riskInfo.label)}</span>`;
 
+    const targetLine =
+      target != null && Number.isFinite(Number(target))
+        ? `<div class="target-line" title="Average of published analyst 12-month price targets — a research estimate, not a guarantee">
+        <span class="dots">┈┈</span> Analyst target: <b>${formatMoney(target)}</b> · 12mo
+      </div>`
+        : `<div class="target-line">${targetCaveats}</div>`;
+
     return `<div class="card ${leanClass(report, status)}" data-ticker="${escapeHtml(report.ticker)}">
       <div class="card-top">
         <div class="ticker-block">
@@ -517,11 +566,11 @@
       ${rangeNote}
       ${earningsNote}
       ${sparklineSvg(report.priceHistory, report.price, target, down)}
-      <div class="target-line" title="Average of published analyst 12-month price targets — a research estimate, not a guarantee">
-        <span class="dots">┈┈</span> Analyst target: <b>${formatMoney(target)}</b> · 12mo
-      </div>
+      ${sparkCaveats}
+      ${targetLine}
       <div class="tags">${tagHtml}</div>
       <div class="summary">${escapeHtml(report.analysis?.summary || "")}${newsNote}</div>
+      ${summaryCaveats}
       ${deepHtml}
       ${lighterHtml}
       <div class="card-foot">

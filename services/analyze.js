@@ -203,7 +203,9 @@ Rules:
 - Each "tags" array: 1–3 short plain phrases.
 - Each "summary": 1–2 beginner-friendly sentences, no jargon.
 - Each "deepDive": 3–5 sentences covering price context, news tone, and peers when available; under ~120 words; no buy/sell advice.
-- If newsPending is true, do not invent news sentiment; lean on price/indicators/target only.
+- Do NOT apologize for or explain missing/unavailable data (no news, no peers, no analyst target, not enough history for a 200-day average, missing 52-week range, etc.). The UI shows those gaps as small badges separately. Write only genuine analysis from the data that IS present, and simply omit topics you cannot support.
+- You may still use real stock-specific reasoning that happens to mention a shorter history when it adds insight (e.g. a newer public company) — but never boilerplate "we don't have X" / "data isn't available" disclaimers.
+- If newsPending is true, do not invent news sentiment and do not say that news is missing — just skip news and lean on price/indicators/target.
 - If multiple news sources are present, briefly note whether they seem to agree or disagree.
 - "quip" must be about this company/ticker specifically (name, products, sector, or well-known traits) — light and tasteful, not mean-spirited, not financial advice, max ~20 words. Never a generic stock-market joke that could apply to any ticker.
 - Do not give buy/sell advice or trading instructions.

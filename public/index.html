@@ -196,6 +196,23 @@
     border-radius:8px;border:1px solid var(--line-soft);
   }
 
+  .lighter-side{
+    margin:8px 0 2px;border-top:1px dashed var(--line-soft);padding-top:6px;
+    opacity:0.85;
+  }
+  .lighter-side > summary{
+    cursor:pointer;list-style:none;font-size:11px;color:var(--muted-dim);
+    font-family:'IBM Plex Mono',monospace;user-select:none;
+  }
+  .lighter-side > summary::-webkit-details-marker{display:none;}
+  .lighter-side > summary::after{content:" ▾";}
+  .lighter-side[open] > summary::after{content:" ▴";}
+  .lighter-body{
+    margin-top:8px;font-size:12px;line-height:1.45;color:var(--muted);
+    font-style:italic;padding:6px 8px;
+    border-left:2px solid var(--line);
+  }
+
   .card-foot{
     display:flex;justify-content:space-between;align-items:center;
     border-top:1px solid var(--line-soft);padding-top:11px;margin-top:2px;
@@ -462,6 +479,14 @@
       </div>
     </details>`;
 
+    const quip = typeof report.quip === "string" ? report.quip.trim() : "";
+    const lighterHtml = quip
+      ? `<details class="lighter-side">
+          <summary>Lighter side</summary>
+          <div class="lighter-body">${escapeHtml(quip)}</div>
+        </details>`
+      : "";
+
     const tagHtml =
       tags.map((t) => `<span class="tag ${tagClass(lean)}">${escapeHtml(t)}</span>`).join("") +
       `<span class="tag ${riskInfo.cls}">${escapeHtml(riskInfo.label)}</span>`;
@@ -490,6 +515,7 @@
       <div class="tags">${tagHtml}</div>
       <div class="summary">${escapeHtml(report.analysis?.summary || "")}${newsNote}</div>
       ${deepHtml}
+      ${lighterHtml}
       <div class="card-foot">
         ${trackHtml(report.trackRecord)}
         <button class="star${isStarred ? " active" : ""}" type="button" data-star="${escapeHtml(report.ticker)}" aria-label="Add to watchlist">${isStarred ? "★" : "☆"}</button>

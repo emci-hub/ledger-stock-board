@@ -270,13 +270,9 @@ async function callTwelveData(pathname, params = {}) {
   return data;
 }
 
-function seriesKeyForMode(mode) {
-  return mode === "long" ? "Weekly Time Series" : "Time Series (Daily)";
-}
-
-/** Bars oldest→newest from Alpha Vantage daily/weekly time series. */
-function extractBarsFromAlpha(timeSeriesData, mode) {
-  const series = timeSeriesData?.[seriesKeyForMode(mode)];
+/** Bars oldest→newest from Alpha Vantage daily time series. */
+function extractBarsFromAlphaDaily(timeSeriesData) {
+  const series = timeSeriesData?.["Time Series (Daily)"];
   if (!series || typeof series !== "object") return [];
 
   return Object.keys(series)
@@ -367,7 +363,12 @@ function calculateIndicatorsFromCloses(closes) {
   };
 }
 
-function buildQuoteFromBars(symbol, mode, interval, bars, source, meta = null) {
+/** ~1–2 years of daily bars shared by short + long indicator windows. */
+const DAILY_HISTORY_BARS = 500;
+/** Recent window for short-term indicators (enough for SMA50). */
+const SHORT_WINDOW_BARS = 60;
+
+function buildQuoteFromBars(symbol, bars, source, meta = null) {
   const latest = bars[bars.length - 1];
   const prev = bars.length > 1 ? bars[bars.length - 2] : null;
   const current = latest.close;
@@ -377,11 +378,13 @@ function buildQuoteFromBars(symbol, mode, interval, bars, source, meta = null) {
   const changePercent =
     change != null && previousClose ? (change / previousClose) * 100 : null;
   const closes = bars.map((b) => b.close);
+  const shortCloses = closes.slice(-SHORT_WINDOW_BARS);
+  const indicatorsShort = calculateIndicatorsFromCloses(shortCloses);
+  const indicatorsLong = calculateIndicatorsFromCloses(closes);
 
   return {
     ticker: symbol,
-    mode,
-    interval,
+    interval: "daily",
     source,
     name: meta?.name || null,
     price: {
@@ -396,17 +399,20 @@ function buildQuoteFromBars(symbol, mode, interval, bars, source, meta = null) {
       latestTradingDay: latest.date || null,
     },
     priceHistory: closes.slice(-40),
-    indicators: calculateIndicatorsFromCloses(closes),
+    /** Shared history; UI/analysis pick short vs long from the same object. */
+    indicators: {
+      short: indicatorsShort,
+      long: indicatorsLong,
+    },
   };
 }
 
-async function getPriceHistoryFromTwelveData(ticker, mode) {
+async function getPriceHistoryFromTwelveData(ticker) {
   const symbol = String(ticker).toUpperCase();
-  const interval = mode === "long" ? "1week" : "1day";
   const data = await callTwelveData("/time_series", {
     symbol,
-    interval,
-    outputsize: 100,
+    interval: "1day",
+    outputsize: DAILY_HISTORY_BARS,
     order: "DESC",
   });
 
@@ -418,28 +424,18 @@ async function getPriceHistoryFromTwelveData(ticker, mode) {
     );
   }
 
-  return buildQuoteFromBars(
-    symbol,
-    mode,
-    mode === "long" ? "weekly" : "daily",
-    bars,
-    "twelve_data",
-    data.meta || null
-  );
+  return buildQuoteFromBars(symbol, bars, "twelve_data", data.meta || null);
 }
 
-async function getPriceHistoryFromAlpha(ticker, mode) {
+async function getPriceHistoryFromAlpha(ticker) {
   const symbol = String(ticker).toUpperCase();
-  const interval = mode === "long" ? "weekly" : "daily";
-  const timeSeriesFunction =
-    mode === "long" ? "TIME_SERIES_WEEKLY" : "TIME_SERIES_DAILY";
-
   const timeSeriesData = await callAlphaVantage({
-    function: timeSeriesFunction,
+    function: "TIME_SERIES_DAILY",
     symbol,
+    outputsize: "full",
   });
 
-  const bars = extractBarsFromAlpha(timeSeriesData, mode);
+  let bars = extractBarsFromAlphaDaily(timeSeriesData);
   if (!bars.length) {
     throw new AlphaVantageError(
       "invalid_ticker",
@@ -447,21 +443,26 @@ async function getPriceHistoryFromAlpha(ticker, mode) {
     );
   }
 
-  return buildQuoteFromBars(symbol, mode, interval, bars, "alpha_vantage");
+  if (bars.length > DAILY_HISTORY_BARS) {
+    bars = bars.slice(-DAILY_HISTORY_BARS);
+  }
+
+  return buildQuoteFromBars(symbol, bars, "alpha_vantage");
 }
 
 /**
- * Current price + SMA/RSI/MACD/Bollinger.
+ * One longer daily price history + short/long indicators from the same bars.
  * Tries Twelve Data first; falls back to Alpha Vantage to preserve AV quota for news.
+ * Optional second arg ignored (mode is no longer a separate fetch).
  */
-async function getQuoteAndIndicators(ticker, mode) {
+async function getQuoteAndIndicators(ticker, _mode) {
   const symbol = String(ticker).toUpperCase();
 
   if (hasTwelveKey()) {
     try {
-      const quote = await getPriceHistoryFromTwelveData(symbol, mode);
+      const quote = await getPriceHistoryFromTwelveData(symbol);
       console.log(
-        `[getQuoteAndIndicators] ${symbol} (${mode}) source=twelve_data`
+        `[getQuoteAndIndicators] ${symbol} source=twelve_data bars≈daily/${DAILY_HISTORY_BARS}`
       );
       return quote;
     } catch (err) {
@@ -479,17 +480,12 @@ async function getQuoteAndIndicators(ticker, mode) {
   }
 
   try {
-    const quote = await getPriceHistoryFromAlpha(symbol, mode);
-    console.log(
-      `[getQuoteAndIndicators] ${symbol} (${mode}) source=alpha_vantage`
-    );
+    const quote = await getPriceHistoryFromAlpha(symbol);
+    console.log(`[getQuoteAndIndicators] ${symbol} source=alpha_vantage`);
     return quote;
   } catch (err) {
     if (err instanceof AlphaVantageError) throw err;
-    console.error(
-      `[getQuoteAndIndicators] Failed for ${ticker} (${mode}):`,
-      err.message
-    );
+    console.error(`[getQuoteAndIndicators] Failed for ${ticker}:`, err.message);
     return null;
   }
 }

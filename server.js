@@ -15,6 +15,7 @@ const {
 } = require("./services/cache");
 const {
   refreshBoard,
+  cleanupStaleCache,
   resolveOldRecommendations,
   getTrackRecord,
 } = require("./jobs/refreshBoard");
@@ -234,9 +235,10 @@ app.get("/api/board", async (req, res) => {
 
 app.get("/api/recent", async (req, res) => {
   try {
+    const mode = normalizeMode(req.query.mode);
     const rows = await dbAll(
-      `SELECT ticker, mode, data_json, last_updated
-       FROM stock_cache
+      `SELECT ticker, data_json, last_updated
+       FROM stock_reports
        ORDER BY last_updated DESC
        LIMIT 10`
     );
@@ -245,9 +247,9 @@ app.get("/api/recent", async (req, res) => {
     for (const row of rows) {
       recent.push({
         ticker: row.ticker,
-        mode: row.mode,
+        mode,
         lastUpdated: row.last_updated,
-        report: await reportFromCache(row.ticker, row.mode),
+        report: await reportFromCache(row.ticker, mode),
         raw: parseJsonSafe(row.data_json),
       });
     }
@@ -317,16 +319,26 @@ async function start() {
 
     cron.schedule("0 7 * * *", () => {
       (async () => {
-        // Warm both modes; long last so board_picks status reflects long-term lean.
-        await refreshBoard("short");
-        await refreshBoard("long");
+        // One shared report per ticker (short + long takes in the same Gemini call).
+        await refreshBoard();
         await resolveOldRecommendations();
       })().catch((err) => {
         console.error("[cron refreshBoard]", err.message);
       });
     });
     console.log(
-      "[cron] Scheduled refreshBoard(short+long) + resolveOldRecommendations daily at 07:00"
+      "[cron] Scheduled refreshBoard (shared) + resolveOldRecommendations daily at 07:00"
+    );
+
+    cron.schedule("0 4 1 * *", () => {
+      (async () => {
+        await cleanupStaleCache();
+      })().catch((err) => {
+        console.error("[cron cleanupStaleCache]", err.message);
+      });
+    });
+    console.log(
+      "[cron] Scheduled cleanupStaleCache + joke pool top-up monthly (1st, 04:00)"
     );
 
     dbGet(`SELECT COUNT(*) AS n FROM board_picks`)

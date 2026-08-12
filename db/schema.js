@@ -35,6 +35,71 @@ async function dbRun(sql, args = []) {
   return dbExecute(sql, args);
 }
 
+function preferModeRank(mode) {
+  if (mode === "long") return 0;
+  if (mode === "short") return 1;
+  return 2;
+}
+
+/** One-time copy from legacy (ticker, mode) cache into ticker-keyed shared tables. */
+async function migrateLegacyModeCache() {
+  const legacyStock = await dbGet(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name='stock_cache'`
+  );
+  if (legacyStock) {
+    const rows = await dbAll(
+      `SELECT ticker, mode, data_json, last_updated FROM stock_cache`
+    );
+    const best = new Map();
+    for (const row of rows) {
+      const prev = best.get(row.ticker);
+      if (
+        !prev ||
+        preferModeRank(row.mode) < preferModeRank(prev.mode) ||
+        (preferModeRank(row.mode) === preferModeRank(prev.mode) &&
+          String(row.last_updated) > String(prev.last_updated))
+      ) {
+        best.set(row.ticker, row);
+      }
+    }
+    for (const row of best.values()) {
+      await dbRun(
+        `INSERT OR IGNORE INTO stock_reports (ticker, data_json, last_updated)
+         VALUES (?, ?, ?)`,
+        [row.ticker, row.data_json, row.last_updated]
+      );
+    }
+  }
+
+  const legacyAi = await dbGet(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name='ai_summaries'`
+  );
+  if (legacyAi) {
+    const rows = await dbAll(
+      `SELECT ticker, mode, summary_json, generated_at FROM ai_summaries`
+    );
+    const best = new Map();
+    for (const row of rows) {
+      const prev = best.get(row.ticker);
+      if (
+        !prev ||
+        preferModeRank(row.mode) < preferModeRank(prev.mode) ||
+        (preferModeRank(row.mode) === preferModeRank(prev.mode) &&
+          String(row.generated_at) > String(prev.generated_at))
+      ) {
+        best.set(row.ticker, row);
+      }
+    }
+    for (const row of best.values()) {
+      await dbRun(
+        `INSERT OR IGNORE INTO ai_reports (ticker, summary_json, generated_at)
+         VALUES (?, ?, ?)`,
+        [row.ticker, row.summary_json, row.generated_at]
+      );
+    }
+  }
+}
+
 async function initSchema() {
   if (initPromise) return initPromise;
 
@@ -42,9 +107,25 @@ async function initSchema() {
     getDb();
 
     await dbExecute(`
+      CREATE TABLE IF NOT EXISTS stock_reports (
+        ticker TEXT PRIMARY KEY,
+        data_json TEXT NOT NULL,
+        last_updated TEXT NOT NULL
+      )
+    `);
+
+    await dbExecute(`
+      CREATE TABLE IF NOT EXISTS ai_reports (
+        ticker TEXT PRIMARY KEY,
+        summary_json TEXT NOT NULL,
+        generated_at TEXT NOT NULL
+      )
+    `);
+
+    await dbExecute(`
       CREATE TABLE IF NOT EXISTS stock_cache (
         ticker TEXT NOT NULL,
-        mode TEXT NOT NULL CHECK (mode IN ('short', 'long')),
+        mode TEXT NOT NULL,
         data_json TEXT NOT NULL,
         last_updated TEXT NOT NULL,
         PRIMARY KEY (ticker, mode)
@@ -104,6 +185,30 @@ async function initSchema() {
         value TEXT NOT NULL
       )
     `);
+
+    await dbExecute(`
+      CREATE TABLE IF NOT EXISTS price_history_log (
+        ticker TEXT NOT NULL,
+        date TEXT NOT NULL,
+        close REAL NOT NULL,
+        recorded_at TEXT NOT NULL,
+        PRIMARY KEY (ticker, date)
+      )
+    `);
+
+    await dbExecute(`
+      CREATE TABLE IF NOT EXISTS joke_pool (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        joke_text TEXT NOT NULL UNIQUE,
+        fetched_at TEXT NOT NULL
+      )
+    `);
+
+    try {
+      await migrateLegacyModeCache();
+    } catch (err) {
+      console.warn("[db] Legacy cache migration skipped:", err.message);
+    }
 
     console.log("[db] Turso schema ready");
   })();

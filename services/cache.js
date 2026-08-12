@@ -2,11 +2,11 @@ const { dbGet, dbRun } = require("../db/schema");
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-function isFresh(isoTimestamp) {
+function isFresh(isoTimestamp, ttlMs = CACHE_TTL_MS) {
   if (!isoTimestamp) return false;
   const then = Date.parse(isoTimestamp);
   if (Number.isNaN(then)) return false;
-  return Date.now() - then < CACHE_TTL_MS;
+  return Date.now() - then < ttlMs;
 }
 
 function emptyFreshness() {
@@ -19,7 +19,6 @@ function emptyFreshness() {
 
 function freshnessFromData(data) {
   const f = data?.freshness || {};
-  // Legacy rows only had stock_cache.last_updated — treat as price timestamp.
   return {
     priceUpdatedAt: f.priceUpdatedAt || null,
     targetUpdatedAt: f.targetUpdatedAt || null,
@@ -55,12 +54,13 @@ function latestFreshnessIso(data) {
 }
 
 /**
- * Load cache row if present. Does not apply TTL — callers check per-field freshness.
+ * Load shared cache row by ticker. Mode is display-only — ignored for storage.
  */
-async function getStockCacheEntry(ticker, mode) {
+async function getStockCacheEntry(ticker, _mode) {
+  const symbol = String(ticker).toUpperCase();
   const row = await dbGet(
-    `SELECT data_json, last_updated FROM stock_cache WHERE ticker = ? AND mode = ?`,
-    [String(ticker).toUpperCase(), mode]
+    `SELECT data_json, last_updated FROM stock_reports WHERE ticker = ?`,
+    [symbol]
   );
 
   if (!row) return null;
@@ -69,17 +69,13 @@ async function getStockCacheEntry(ticker, mode) {
     const data = JSON.parse(row.data_json);
     let freshness = freshnessFromData(data);
 
-    // Migrate legacy single-timestamp rows into per-field freshness once.
-    if (
-      !data.freshness &&
-      row.last_updated &&
-      data.quote
-    ) {
+    if (!data.freshness && row.last_updated && data.quote) {
       freshness = {
         priceUpdatedAt: row.last_updated,
-        targetUpdatedAt: data?.fundamentals?.overview?.analystTargetPrice != null
-          ? row.last_updated
-          : null,
+        targetUpdatedAt:
+          data?.fundamentals?.overview?.analystTargetPrice != null
+            ? row.last_updated
+            : null,
         newsUpdatedAt:
           Array.isArray(data?.fundamentals?.news) &&
           data.fundamentals.news.length > 0
@@ -99,10 +95,6 @@ async function getStockCacheEntry(ticker, mode) {
   }
 }
 
-/**
- * Returns entry only when price is fresh (usable quote for display / free search gate).
- * Prefer getStockCacheEntry + isFullyFresh for refresh skip logic.
- */
 async function getCachedStockRow(ticker, mode) {
   const entry = await getStockCacheEntry(ticker, mode);
   if (!entry || !isPriceFresh(entry.data)) return null;
@@ -118,43 +110,89 @@ async function getCachedStock(ticker, mode) {
   return row ? row.data : null;
 }
 
-async function saveStockToCache(ticker, mode, data) {
+async function saveStockToCache(ticker, _mode, data) {
+  const symbol = String(ticker).toUpperCase();
   const freshness = freshnessFromData(data);
   data.freshness = freshness;
-  const now =
-    latestFreshnessIso(data) || new Date().toISOString();
+  const now = latestFreshnessIso(data) || new Date().toISOString();
 
   await dbRun(
-    `INSERT OR REPLACE INTO stock_cache (ticker, mode, data_json, last_updated)
-     VALUES (?, ?, ?, ?)`,
-    [String(ticker).toUpperCase(), mode, JSON.stringify(data), now]
+    `INSERT OR REPLACE INTO stock_reports (ticker, data_json, last_updated)
+     VALUES (?, ?, ?)`,
+    [symbol, JSON.stringify(data), now]
   );
   return now;
 }
 
-async function getCachedSummary(ticker, mode) {
+/**
+ * Normalize dual-mode analysis (short + long + quip). Legacy single takes become both modes.
+ */
+function normalizeDualAnalysis(parsed) {
+  if (!parsed || typeof parsed !== "object") return null;
+
+  if (parsed.short && parsed.long) {
+    return {
+      short: parsed.short,
+      long: parsed.long,
+      quip:
+        typeof parsed.quip === "string" && parsed.quip.trim()
+          ? parsed.quip.trim()
+          : null,
+    };
+  }
+
+  if (parsed.lean && parsed.summary) {
+    const take = {
+      lean: parsed.lean,
+      risk: parsed.risk || "medium",
+      tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+      summary: parsed.summary,
+      deepDive: parsed.deepDive || null,
+    };
+    return {
+      short: take,
+      long: take,
+      quip:
+        typeof parsed.quip === "string" && parsed.quip.trim()
+          ? parsed.quip.trim()
+          : null,
+    };
+  }
+
+  return null;
+}
+
+function pickAnalysisTake(dual, mode) {
+  const m = mode === "short" ? "short" : "long";
+  if (!dual) return null;
+  return dual[m] || dual.long || dual.short || null;
+}
+
+async function getCachedSummary(ticker, _mode) {
   const row = await dbGet(
-    `SELECT summary_json, generated_at FROM ai_summaries WHERE ticker = ? AND mode = ?`,
-    [String(ticker).toUpperCase(), mode]
+    `SELECT summary_json, generated_at FROM ai_reports WHERE ticker = ?`,
+    [String(ticker).toUpperCase()]
   );
 
-  if (!row || !isFresh(row.generated_at)) return null;
+  if (!row || !isFresh(row.generated_at)) {
+    return null;
+  }
 
   try {
-    return JSON.parse(row.summary_json);
+    return normalizeDualAnalysis(JSON.parse(row.summary_json));
   } catch {
     return null;
   }
 }
 
-async function saveSummaryToCache(ticker, mode, summary) {
+async function saveSummaryToCache(ticker, _mode, summary) {
+  const dual = normalizeDualAnalysis(summary) || summary;
   await dbRun(
-    `INSERT OR REPLACE INTO ai_summaries (ticker, mode, summary_json, generated_at)
-     VALUES (?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO ai_reports (ticker, summary_json, generated_at)
+     VALUES (?, ?, ?)`,
     [
       String(ticker).toUpperCase(),
-      mode,
-      JSON.stringify(summary),
+      JSON.stringify(dual),
       new Date().toISOString(),
     ]
   );
@@ -176,4 +214,6 @@ module.exports = {
   saveStockToCache,
   getCachedSummary,
   saveSummaryToCache,
+  normalizeDualAnalysis,
+  pickAnalysisTake,
 };

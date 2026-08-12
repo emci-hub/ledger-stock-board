@@ -8,14 +8,14 @@ const {
 } = require("../services/cache");
 const { setSetting } = require("../services/usage");
 const { AlphaVantageError } = require("../services/dataFetch");
+const { ensureJokePool } = require("../services/jokes");
 const { BOARD_TICKERS } = require("../lib/boardTickers");
 
 /** Neutral "roughly flat" band vs logged price (±3%). */
 const FLAT_BAND = 0.03;
 
-function normalizeMode(mode) {
-  return mode === "short" ? "short" : "long";
-}
+/** Stale off-board cache retention before cleanup. */
+const STALE_CACHE_DAYS = 30;
 
 function statusFromAnalysis(lean, risk) {
   const l = String(lean || "").toLowerCase();
@@ -42,7 +42,7 @@ async function logRecommendation(ticker, price, lean) {
 
 async function getCurrentPrice(ticker) {
   const symbol = String(ticker).toUpperCase();
-  const cached = await getCachedStock(symbol, "long");
+  const cached = await getCachedStock(symbol);
   if (cached?.quote?.price?.current != null) {
     return Number(cached.quote.price.current);
   }
@@ -136,14 +136,77 @@ async function getTrackRecord(ticker) {
 }
 
 /**
- * Refresh board universe for a mode ("long" | "short").
- * Updates stock/summary caches for that mode and rewrites board_picks from the analysis.
+ * Delete shared + legacy cache rows for tickers not on the board whose
+ * last_updated / generated_at is older than 30 days. Tops up JokeAPI pool.
  */
-async function refreshBoard(mode = "long") {
-  const m = normalizeMode(mode);
+async function cleanupStaleCache() {
+  const cutoff = new Date(
+    Date.now() - STALE_CACHE_DAYS * 24 * 60 * 60 * 1000
+  ).toISOString();
+  const board = BOARD_TICKERS.map((t) => String(t).toUpperCase());
+  if (!board.length) {
+    console.warn("[cleanupStaleCache] BOARD_TICKERS empty — refusing to delete");
+    return { deleted: 0, skipped: true };
+  }
+
+  const placeholders = board.map(() => "?").join(", ");
+  const targets = [
+    { table: "stock_reports", timeCol: "last_updated" },
+    { table: "ai_reports", timeCol: "generated_at" },
+    { table: "stock_cache", timeCol: "last_updated" },
+    { table: "ai_summaries", timeCol: "generated_at" },
+  ];
+
+  let deleted = 0;
+
+  for (const { table, timeCol } of targets) {
+    try {
+      const before = await dbGet(`SELECT COUNT(*) AS n FROM ${table}`);
+      await dbRun(
+        `DELETE FROM ${table}
+         WHERE ${timeCol} < ?
+           AND ticker NOT IN (${placeholders})`,
+        [cutoff, ...board]
+      );
+      const after = await dbGet(`SELECT COUNT(*) AS n FROM ${table}`);
+      const removed =
+        Number(before?.n || 0) - Number(after?.n || 0);
+      if (removed > 0) {
+        deleted += removed;
+        console.log(
+          `[cleanupStaleCache] ${table}: removed ${removed} row(s) older than ${STALE_CACHE_DAYS}d (off-board)`
+        );
+      } else {
+        console.log(`[cleanupStaleCache] ${table}: nothing to remove`);
+      }
+    } catch (err) {
+      console.warn(`[cleanupStaleCache] ${table}:`, err.message);
+    }
+  }
+
+  try {
+    await ensureJokePool(true);
+  } catch (err) {
+    console.warn("[cleanupStaleCache] ensureJokePool failed:", err.message);
+  }
+
+  const finishedAt = new Date().toISOString();
+  await setSetting("lastStaleCacheCleanup", finishedAt);
 
   console.log(
-    `[refreshBoard] Starting ${m} refresh for ${BOARD_TICKERS.length} tickers at ${new Date().toISOString()}`
+    `[cleanupStaleCache] Done — deleted≈${deleted} at ${finishedAt}`
+  );
+
+  return { deleted, finishedAt };
+}
+
+/**
+ * Refresh the board universe once per ticker (shared report).
+ * Mode arg is ignored — board_picks status always comes from the long take.
+ */
+async function refreshBoard(_mode) {
+  console.log(
+    `[refreshBoard] Starting shared refresh for ${BOARD_TICKERS.length} tickers at ${new Date().toISOString()}`
   );
 
   let recommended = 0;
@@ -156,16 +219,17 @@ async function refreshBoard(mode = "long") {
 
   for (const ticker of BOARD_TICKERS) {
     try {
-      const entry = await getStockCacheEntry(ticker, m);
-      const summaryFresh = await getCachedSummary(ticker, m);
+      const entry = await getStockCacheEntry(ticker);
+      const summaryFresh = await getCachedSummary(ticker);
       const fullyFresh = entry && isFullyFresh(entry.data);
 
       if (fullyFresh && summaryFresh) {
         cacheReused += 1;
         console.log(
-          `[refreshBoard] ${ticker} (${m}) price+target+news all fresh (<24h) — skipping live fetch`
+          `[refreshBoard] ${ticker} price+target+news all fresh (<24h) — skipping live fetch`
         );
-        const report = await getStockReport(ticker, m, { skipPeers: false });
+        // Display mode long so board status uses the long-term take.
+        const report = await getStockReport(ticker, "long", { skipPeers: false });
         if (!report) {
           skipped += 1;
           continue;
@@ -190,16 +254,14 @@ async function refreshBoard(mode = "long") {
 
       if (entry && !fullyFresh) {
         console.log(
-          `[refreshBoard] ${ticker} (${m}) partial stale — will refresh missing pieces only`
+          `[refreshBoard] ${ticker} partial stale — will refresh missing pieces only`
         );
       }
 
       fetched += 1;
-      const report = await getStockReport(ticker, m, { skipPeers: false });
+      const report = await getStockReport(ticker, "long", { skipPeers: false });
       if (!report) {
-        console.warn(
-          `[refreshBoard] No report for ${ticker} (${m}) — leaving out`
-        );
+        console.warn(`[refreshBoard] No report for ${ticker} — leaving out`);
         skipped += 1;
         continue;
       }
@@ -210,7 +272,7 @@ async function refreshBoard(mode = "long") {
 
       if (!status) {
         console.log(
-          `[refreshBoard] ${ticker} (${m}) lean=${lean} risk=${risk} — no board status, leaving out`
+          `[refreshBoard] ${ticker} lean=${lean} risk=${risk} — no board status, leaving out`
         );
         skipped += 1;
         continue;
@@ -233,16 +295,13 @@ async function refreshBoard(mode = "long") {
 
       successes += 1;
       console.log(
-        `[refreshBoard] ${ticker} (${m}) → ${status} (lean=${lean}, risk=${risk})`
+        `[refreshBoard] ${ticker} → ${status} (long lean=${lean}, risk=${risk})`
       );
     } catch (err) {
       if (err instanceof AlphaVantageError && err.code === "rate_limit") {
         rateLimited = true;
       }
-      console.error(
-        `[refreshBoard] Failed for ${ticker} (${m}):`,
-        err.message
-      );
+      console.error(`[refreshBoard] Failed for ${ticker}:`, err.message);
       skipped += 1;
     }
   }
@@ -255,14 +314,14 @@ async function refreshBoard(mode = "long") {
   const finishedAt = new Date().toISOString();
   await setSetting("lastBoardRefresh", finishedAt);
   await setSetting("lastBoardRefreshStatus", boardRefreshStatus);
-  await setSetting("lastBoardRefreshMode", m);
+  await setSetting("lastBoardRefreshMode", "long");
 
   console.log(
-    `[refreshBoard] Done (${m}) — recommended=${recommended}, watch=${watch}, skipped=${skipped}, fetched=${fetched}, cacheReused=${cacheReused}, status=${boardRefreshStatus}`
+    `[refreshBoard] Done — recommended=${recommended}, watch=${watch}, skipped=${skipped}, fetched=${fetched}, cacheReused=${cacheReused}, status=${boardRefreshStatus}`
   );
 
   return {
-    mode: m,
+    mode: "long",
     recommended,
     watch,
     skipped,
@@ -275,6 +334,7 @@ async function refreshBoard(mode = "long") {
 module.exports = {
   BOARD_TICKERS,
   refreshBoard,
+  cleanupStaleCache,
   statusFromAnalysis,
   logRecommendation,
   resolveOldRecommendations,

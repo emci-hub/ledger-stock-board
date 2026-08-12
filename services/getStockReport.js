@@ -9,6 +9,8 @@ const {
   isNewsFresh,
   emptyFreshness,
   freshnessFromData,
+  normalizeDualAnalysis,
+  pickAnalysisTake,
 } = require("./cache");
 const {
   getQuoteAndIndicators,
@@ -17,10 +19,11 @@ const {
   getPeers,
 } = require("./dataFetch");
 const { analyzeStock } = require("./analyze");
+const { logQuoteClose } = require("./priceHistoryLog");
 const { getTickerInfo } = require("../lib/tickerInfo");
 const { sourceLabel, formatSourceList } = require("../lib/dataSources");
 
-/** In-flight getStockReport promises keyed by `${ticker}_${mode}`. */
+/** In-flight shared-data loads keyed by ticker only (mode is display-only). */
 const inFlight = new Map();
 
 const EARNINGS_SOON_DAYS = 21;
@@ -102,7 +105,22 @@ function computeWeekRange(price, priceHistory, overview) {
   };
 }
 
+/** Pick short vs long indicator window for display; tolerate legacy flat indicators. */
+function pickIndicatorsForMode(quoteIndicators, mode) {
+  if (!quoteIndicators || typeof quoteIndicators !== "object") return null;
+  if (quoteIndicators.short || quoteIndicators.long) {
+    const m = mode === "short" ? "short" : "long";
+    return quoteIndicators[m] || quoteIndicators.long || quoteIndicators.short || null;
+  }
+  return quoteIndicators;
+}
+
+/**
+ * Build a display report for one mode over shared raw data + dual analysis.
+ * `analysis` may be dual `{ short, long, quip }` or a legacy single take.
+ */
 function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
+  const displayMode = mode === "short" ? "short" : "long";
   const quote = rawData?.quote || {};
   const overview = rawData?.fundamentals?.overview || {};
   const freshness = freshnessFromData(rawData);
@@ -129,16 +147,26 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
   const earnings = buildEarningsFlag(overview.earningsDate);
   const peers = Array.isArray(rawData?.peers) ? rawData.peers : [];
 
+  const dual = normalizeDualAnalysis(analysis);
+  const take = pickAnalysisTake(dual, displayMode);
+  const quip =
+    (dual && typeof dual.quip === "string" && dual.quip.trim()
+      ? dual.quip.trim()
+      : null) ||
+    (typeof analysis?.quip === "string" && analysis.quip.trim()
+      ? analysis.quip.trim()
+      : null);
+
   return {
     ticker: String(ticker).toUpperCase(),
-    mode,
+    mode: displayMode,
     name: companyName,
     companyName,
     description,
     price,
     change: quote.price?.change ?? null,
     changePercent: quote.price?.changePercent ?? null,
-    indicators: quote.indicators || null,
+    indicators: pickIndicatorsForMode(quote.indicators, displayMode),
     analystTarget: overview.analystTargetPrice ?? null,
     sector,
     lastUpdated:
@@ -159,6 +187,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     earnings,
     peers,
     priceHistory,
+    quip,
     deepDive: {
       sources: {
         price: sourceLabel(priceSource),
@@ -174,13 +203,13 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
       newsFinnhub: rawData?.fundamentals?.newsFinnhub || null,
     },
     analysis: {
-      lean: analysis?.lean || "neutral",
-      risk: analysis?.risk || "medium",
-      tags: Array.isArray(analysis?.tags) ? analysis.tags : [],
+      lean: take?.lean || "neutral",
+      risk: take?.risk || "medium",
+      tags: Array.isArray(take?.tags) ? take.tags : [],
       summary:
-        analysis?.summary || "Analysis wasn't available right now.",
+        take?.summary || "Analysis wasn't available right now.",
       deepDive:
-        analysis?.deepDive ||
+        take?.deepDive ||
         "A longer AI deep dive wasn't available for this name yet.",
     },
   };
@@ -210,91 +239,116 @@ function ensureRawShape(rawData) {
   };
 }
 
-async function buildStockReport(ticker, mode, options = {}) {
+/**
+ * Load/refresh shared stock data + dual AI analysis (one Gemini call).
+ * Mode is not used for fetching or storage.
+ * options.skipPeers — skip Finnhub peers when true.
+ * options.newsOnly — refresh news (and re-analyze if needed); skip price/target/peers.
+ */
+async function loadSharedStockData(ticker, options = {}) {
   const symbol = String(ticker).toUpperCase();
   const skipPeers = Boolean(options.skipPeers);
+  const newsOnly = Boolean(options.newsOnly);
 
-  const entry = await getStockCacheEntry(symbol, mode);
+  const entry = await getStockCacheEntry(symbol);
   let rawData = ensureRawShape(entry?.data);
-  let analysis = await getCachedSummary(symbol, mode);
+  let analysis = await getCachedSummary(symbol);
 
   const priceOk = isPriceFresh(rawData);
   const targetOk = isTargetFresh(rawData);
   const newsOk = isNewsFresh(rawData);
   const fullyFresh = isFullyFresh(rawData);
 
-  if (fullyFresh && analysis) {
+  if (fullyFresh && analysis && !newsOnly) {
     console.log(
-      `[getStockReport] full cache hit for ${symbol} (${mode}) — no live API calls`
+      `[getStockReport] full cache hit for ${symbol} — no live API calls`
     );
-    return buildReport(
-      symbol,
-      mode,
+    return {
       rawData,
       analysis,
-      rawData.freshness.priceUpdatedAt
-    );
+      lastUpdated: rawData.freshness.priceUpdatedAt,
+    };
   }
 
   let didFetch = false;
   let newsJustFetched = false;
   const now = () => new Date().toISOString();
 
-  if (!priceOk) {
-    console.log(
-      `[getStockReport] price stale/missing for ${symbol} (${mode}) — fetching`
-    );
-    const quote = await getQuoteAndIndicators(symbol, mode);
-    if (!quote && !rawData.quote) {
+  if (!newsOnly) {
+    if (!priceOk) {
+      console.log(
+        `[getStockReport] price stale/missing for ${symbol} — fetching`
+      );
+      const quote = await getQuoteAndIndicators(symbol);
+      if (!quote && !rawData.quote) {
+        console.error(
+          `[getStockReport] Missing quote/indicators for ${symbol}`
+        );
+        return null;
+      }
+      if (quote) {
+        rawData.quote = quote;
+        rawData.freshness.priceUpdatedAt = now();
+        if (quote.name && !rawData.fundamentals.overview.name) {
+          rawData.fundamentals.overview.name = quote.name;
+        }
+        try {
+          await logQuoteClose(quote);
+        } catch (err) {
+          console.warn(
+            `[getStockReport] logQuoteClose failed for ${symbol}:`,
+            err.message
+          );
+        }
+        didFetch = true;
+      }
+    } else {
+      console.log(`[getStockReport] price fresh for ${symbol}`);
+    }
+
+    if (!targetOk) {
+      console.log(
+        `[getStockReport] target stale/missing for ${symbol} — fetching`
+      );
+      const target = await getAnalystTarget(symbol);
+      const overview = rawData.fundamentals.overview;
+      const local = getTickerInfo(symbol);
+      if (!target?.rateLimited) {
+        overview.analystTargetPrice = target?.analystTargetPrice ?? null;
+        overview.analystTargetSource = target?.source || null;
+        if (target?.week52High != null) overview.week52High = target.week52High;
+        if (target?.week52Low != null) overview.week52Low = target.week52Low;
+        if (target?.earningsDate) overview.earningsDate = target.earningsDate;
+        if (!local) {
+          if (target?.name) overview.name = overview.name || target.name;
+          if (target?.sector) overview.sector = overview.sector || target.sector;
+          if (target?.industry) {
+            overview.industry = overview.industry || target.industry;
+          }
+          if (target?.description) {
+            overview.description = overview.description || target.description;
+          }
+        }
+        if (target?.peRatio != null) overview.peRatio = target.peRatio;
+        if (target?.marketCap != null) overview.marketCap = target.marketCap;
+        rawData.freshness.targetUpdatedAt = now();
+      } else if (target?.analystTargetPrice != null) {
+        overview.analystTargetPrice = target.analystTargetPrice;
+        overview.analystTargetSource = target.source || null;
+        rawData.freshness.targetUpdatedAt = now();
+      }
+      didFetch = true;
+    } else {
+      console.log(`[getStockReport] target fresh for ${symbol}`);
+    }
+  } else {
+    console.log(`[getStockReport] newsOnly for ${symbol} — skipping price/target`);
+    if (!rawData.quote) {
       console.error(
-        `[getStockReport] Missing quote/indicators for ${symbol} (${mode})`
+        `[getStockReport] newsOnly requested but no cached quote for ${symbol}`
       );
       return null;
     }
-    if (quote) {
-      rawData.quote = quote;
-      rawData.freshness.priceUpdatedAt = now();
-      if (quote.name && !rawData.fundamentals.overview.name) {
-        rawData.fundamentals.overview.name = quote.name;
-      }
-      didFetch = true;
-    }
-  } else {
-    console.log(`[getStockReport] price fresh for ${symbol} (${mode})`);
-  }
-
-  if (!targetOk) {
-    console.log(
-      `[getStockReport] target stale/missing for ${symbol} — fetching`
-    );
-    const target = await getAnalystTarget(symbol);
-    const overview = rawData.fundamentals.overview;
-    const local = getTickerInfo(symbol);
-    if (!target?.rateLimited) {
-      overview.analystTargetPrice = target?.analystTargetPrice ?? null;
-      overview.analystTargetSource = target?.source || null;
-      if (target?.week52High != null) overview.week52High = target.week52High;
-      if (target?.week52Low != null) overview.week52Low = target.week52Low;
-      if (target?.earningsDate) overview.earningsDate = target.earningsDate;
-      if (!local) {
-        if (target?.name) overview.name = overview.name || target.name;
-        if (target?.sector) overview.sector = overview.sector || target.sector;
-        if (target?.industry) overview.industry = overview.industry || target.industry;
-        if (target?.description) {
-          overview.description = overview.description || target.description;
-        }
-      }
-      if (target?.peRatio != null) overview.peRatio = target.peRatio;
-      if (target?.marketCap != null) overview.marketCap = target.marketCap;
-      rawData.freshness.targetUpdatedAt = now();
-    } else if (target?.analystTargetPrice != null) {
-      overview.analystTargetPrice = target.analystTargetPrice;
-      overview.analystTargetSource = target.source || null;
-      rawData.freshness.targetUpdatedAt = now();
-    }
-    didFetch = true;
-  } else {
-    console.log(`[getStockReport] target fresh for ${symbol}`);
   }
 
   if (!newsOk) {
@@ -317,15 +371,19 @@ async function buildStockReport(ticker, mode, options = {}) {
     console.log(`[getStockReport] news fresh for ${symbol}`);
   }
 
-  if (!skipPeers && (!rawData.peers || !rawData.peers.length)) {
-    rawData.peers = (await getPeers(symbol)) || [];
-    didFetch = true;
-  } else if (skipPeers && !Array.isArray(rawData.peers)) {
+  if (!newsOnly) {
+    if (!skipPeers && (!rawData.peers || !rawData.peers.length)) {
+      rawData.peers = (await getPeers(symbol)) || [];
+      didFetch = true;
+    } else if (skipPeers && !Array.isArray(rawData.peers)) {
+      rawData.peers = [];
+    }
+  } else if (!Array.isArray(rawData.peers)) {
     rawData.peers = [];
   }
 
   if (didFetch || !entry) {
-    await saveStockToCache(symbol, mode, rawData);
+    await saveStockToCache(symbol, null, rawData);
   }
 
   const shouldAnalyze =
@@ -333,48 +391,56 @@ async function buildStockReport(ticker, mode, options = {}) {
 
   if (shouldAnalyze) {
     console.log(
-      `[getStockReport] summary ${analysis ? "refresh" : "miss"} for ${symbol} (${mode}) — calling Gemini once`
+      `[getStockReport] summary ${analysis ? "refresh" : "miss"} for ${symbol} — calling Gemini once (dual+quip)`
     );
     analysis = await analyzeStock(
       symbol,
-      mode,
       rawData.quote,
       rawData.fundamentals,
       rawData.peers || []
     );
-    await saveSummaryToCache(symbol, mode, analysis);
+    await saveSummaryToCache(symbol, null, analysis);
   } else {
-    console.log(`[getStockReport] summary cache hit for ${symbol} (${mode})`);
+    console.log(`[getStockReport] summary cache hit for ${symbol}`);
   }
 
-  return buildReport(
-    symbol,
-    mode,
+  return {
     rawData,
     analysis,
-    rawData.freshness.priceUpdatedAt
-  );
+    lastUpdated: rawData.freshness.priceUpdatedAt,
+  };
 }
 
 /**
- * Cache-first report builder with in-flight dedupe per ticker/mode.
+ * Cache-first report builder with in-flight dedupe per ticker.
+ * Mode is display-only: picks short/long take + indicators from the shared report.
  * options.skipPeers — skip Finnhub peers when true.
- * Fetches only stale pieces (price / target / news) independently.
+ * options.newsOnly — only refresh news (+ re-analyze if needed).
  */
 async function getStockReport(ticker, mode, options = {}) {
-  const key = `${String(ticker).toUpperCase()}_${mode}`;
+  const symbol = String(ticker).toUpperCase();
+  const displayMode = mode === "short" ? "short" : "long";
 
-  if (inFlight.has(key)) {
-    console.log(`[getStockReport] joining in-flight request for ${key}`);
-    return inFlight.get(key);
+  let promise = inFlight.get(symbol);
+  if (promise) {
+    console.log(`[getStockReport] joining in-flight request for ${symbol}`);
+  } else {
+    promise = loadSharedStockData(symbol, options).finally(() => {
+      inFlight.delete(symbol);
+    });
+    inFlight.set(symbol, promise);
   }
 
-  const promise = buildStockReport(ticker, mode, options).finally(() => {
-    inFlight.delete(key);
-  });
+  const loaded = await promise;
+  if (!loaded) return null;
 
-  inFlight.set(key, promise);
-  return promise;
+  return buildReport(
+    symbol,
+    displayMode,
+    loaded.rawData,
+    loaded.analysis,
+    loaded.lastUpdated
+  );
 }
 
 module.exports = { getStockReport, buildReport };

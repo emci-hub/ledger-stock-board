@@ -1,4 +1,10 @@
-const { getDb } = require("../db/schema");
+const { dbGet, dbRun } = require("../db/schema");
+
+const PROVIDERS = {
+  ALPHA: "alpha_vantage",
+  FINNHUB: "finnhub",
+  TWELVE: "twelve_data",
+};
 
 function getPacificDateString(date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -16,27 +22,53 @@ function nextMidnightPacificIso() {
   return new Date(now.getTime() + (next.getTime() - ptNow.getTime())).toISOString();
 }
 
-/** Increment today's Pacific-date Alpha Vantage usage counter by 1. */
-function incrementApiUsage() {
+async function incrementUsage(provider) {
   const date = getPacificDateString();
-  const db = getDb();
-  db.prepare(
-    `INSERT INTO api_usage (date, count) VALUES (?, 1)
-     ON CONFLICT(date) DO UPDATE SET count = count + 1`
-  ).run(date);
+  await dbRun(
+    `INSERT INTO api_usage (date, provider, count) VALUES (?, ?, 1)
+     ON CONFLICT(date, provider) DO UPDATE SET count = count + 1`,
+    [date, provider]
+  );
 }
 
-function getApiUsageToday() {
+async function getUsageToday(provider) {
   const date = getPacificDateString();
-  const row = getDb()
-    .prepare(`SELECT count FROM api_usage WHERE date = ?`)
-    .get(date);
+  const row = await dbGet(
+    `SELECT count FROM api_usage WHERE date = ? AND provider = ?`,
+    [date, provider]
+  );
   return Number(row?.count || 0);
 }
 
+async function getApiUsageToday() {
+  return getUsageToday(PROVIDERS.ALPHA);
+}
+
+async function incrementApiUsage() {
+  return incrementUsage(PROVIDERS.ALPHA);
+}
+
+async function getSetting(key) {
+  const row = await dbGet(`SELECT value FROM app_settings WHERE key = ?`, [key]);
+  return row ? row.value : null;
+}
+
+async function setSetting(key, value) {
+  await dbRun(
+    `INSERT INTO app_settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [key, String(value)]
+  );
+}
+
 module.exports = {
-  incrementApiUsage,
+  PROVIDERS,
+  incrementUsage,
+  getUsageToday,
   getApiUsageToday,
+  incrementApiUsage,
   getPacificDateString,
   nextMidnightPacificIso,
+  getSetting,
+  setSetting,
 };

@@ -7,10 +7,15 @@ const {
   RSI,
   BollingerBands,
 } = require("technicalindicators");
-const { incrementApiUsage } = require("./usage");
+const {
+  incrementUsage,
+  PROVIDERS,
+  nextMidnightPacificIso,
+} = require("./usage");
 
 const ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query";
 const FINNHUB_BASE = "https://finnhub.io/api/v1";
+const TWELVE_DATA_BASE = "https://api.twelvedata.com";
 
 class AlphaVantageError extends Error {
   constructor(code, message, resetsAt = null) {
@@ -33,6 +38,12 @@ function getFinnhubKey() {
   return key;
 }
 
+function getTwelveKey() {
+  const key = process.env.TWELVE_DATA_API_KEY;
+  if (!key) throw new Error("TWELVE_DATA_API_KEY is not set in .env");
+  return key;
+}
+
 function num(value) {
   if (value == null || value === "") return null;
   const n = Number(String(value).replace("%", ""));
@@ -41,16 +52,6 @@ function num(value) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function nextMidnightPacificIso() {
-  const now = new Date();
-  const ptNow = new Date(
-    now.toLocaleString("en-US", { timeZone: "America/Los_Angeles" })
-  );
-  const next = new Date(ptNow);
-  next.setHours(24, 0, 0, 0);
-  return new Date(now.getTime() + (next.getTime() - ptNow.getTime())).toISOString();
 }
 
 function isRateLimitMessage(msg) {
@@ -62,12 +63,17 @@ function isRateLimitMessage(msg) {
     m.includes("per day") ||
     m.includes("per minute") ||
     m.includes("call frequency") ||
-    m.includes("thank you for using alpha vantage")
+    m.includes("thank you for using alpha vantage") ||
+    m.includes("api credits") ||
+    m.includes("run out of")
   );
 }
 
-async function alphaVantageGet(params) {
-  incrementApiUsage();
+/**
+ * Sole Alpha Vantage HTTP entry point — always increments alpha_vantage usage.
+ */
+async function callAlphaVantage(params) {
+  await incrementUsage(PROVIDERS.ALPHA);
 
   const { data } = await axios.get(ALPHA_VANTAGE_BASE, {
     params: { ...params, apikey: getAlphaKey() },
@@ -75,9 +81,6 @@ async function alphaVantageGet(params) {
 
   if (data?.Note || data?.Information) {
     const msg = data.Note || data.Information;
-    if (isRateLimitMessage(msg)) {
-      throw new AlphaVantageError("rate_limit", msg, nextMidnightPacificIso());
-    }
     throw new AlphaVantageError("rate_limit", msg, nextMidnightPacificIso());
   }
 
@@ -88,12 +91,46 @@ async function alphaVantageGet(params) {
   return data;
 }
 
+/**
+ * Sole Finnhub HTTP entry point — always increments finnhub usage.
+ */
+async function callFinnhub(pathname, params = {}) {
+  await incrementUsage(PROVIDERS.FINNHUB);
+
+  const { data } = await axios.get(`${FINNHUB_BASE}${pathname}`, {
+    params: { ...params, token: getFinnhubKey() },
+  });
+
+  return data;
+}
+
+/**
+ * Sole Twelve Data HTTP entry point — always increments twelve_data usage.
+ */
+async function callTwelveData(pathname, params = {}) {
+  await incrementUsage(PROVIDERS.TWELVE);
+
+  const { data } = await axios.get(`${TWELVE_DATA_BASE}${pathname}`, {
+    params: { ...params, apikey: getTwelveKey() },
+  });
+
+  if (data?.status === "error" || data?.code === 429) {
+    const msg = data?.message || "Twelve Data error";
+    if (isRateLimitMessage(msg) || data?.code === 429) {
+      throw new AlphaVantageError("rate_limit", msg, nextMidnightPacificIso());
+    }
+    throw new Error(msg);
+  }
+
+  return data;
+}
+
 function seriesKeyForMode(mode) {
   return mode === "long" ? "Weekly Time Series" : "Time Series (Daily)";
 }
 
 /** Bars oldest→newest from Alpha Vantage daily/weekly time series. */
-function extractBars(timeSeriesData, mode) {
+function extractBarsFromAlpha(timeSeriesData, mode) {
   const series = timeSeriesData?.[seriesKeyForMode(mode)];
   if (!series || typeof series !== "object") return [];
 
@@ -110,6 +147,23 @@ function extractBars(timeSeriesData, mode) {
         volume: num(row["5. volume"]),
       };
     })
+    .filter((b) => b.close != null);
+}
+
+/** Bars oldest→newest from Twelve Data time_series response. */
+function extractBarsFromTwelve(twelveData) {
+  const values = Array.isArray(twelveData?.values) ? twelveData.values : [];
+  return values
+    .slice()
+    .reverse()
+    .map((row) => ({
+      date: row.datetime || null,
+      open: num(row.open),
+      high: num(row.high),
+      low: num(row.low),
+      close: num(row.close),
+      volume: num(row.volume),
+    }))
     .filter((b) => b.close != null);
 }
 
@@ -168,23 +222,85 @@ function calculateIndicatorsFromCloses(closes) {
   };
 }
 
+function buildQuoteFromBars(symbol, mode, interval, bars, source) {
+  const latest = bars[bars.length - 1];
+  const prev = bars.length > 1 ? bars[bars.length - 2] : null;
+  const current = latest.close;
+  const previousClose = prev?.close ?? null;
+  const change =
+    current != null && previousClose != null ? current - previousClose : null;
+  const changePercent =
+    change != null && previousClose ? (change / previousClose) * 100 : null;
+  const closes = bars.map((b) => b.close);
+
+  return {
+    ticker: symbol,
+    mode,
+    interval,
+    source,
+    price: {
+      current,
+      open: latest.open,
+      high: latest.high,
+      low: latest.low,
+      volume: latest.volume,
+      previousClose,
+      change,
+      changePercent,
+      latestTradingDay: latest.date || null,
+    },
+    priceHistory: closes.slice(-40),
+    indicators: calculateIndicatorsFromCloses(closes),
+  };
+}
+
 /**
- * Current price + SMA/RSI/MACD/Bollinger from ONE Alpha Vantage time-series call.
- * Indicators are computed locally via technicalindicators.
+ * Twelve Data price history — same consumer shape as Alpha Vantage path.
+ */
+async function getPriceHistoryFromTwelveData(ticker, mode) {
+  const symbol = String(ticker).toUpperCase();
+  const interval = mode === "long" ? "1week" : "1day";
+  const data = await callTwelveData("/time_series", {
+    symbol,
+    interval,
+    outputsize: 100,
+    order: "DESC",
+  });
+
+  const bars = extractBarsFromTwelve(data);
+  if (!bars.length) {
+    throw new AlphaVantageError(
+      "invalid_ticker",
+      `No Twelve Data time series for ${symbol}`
+    );
+  }
+
+  return buildQuoteFromBars(
+    symbol,
+    mode,
+    mode === "long" ? "weekly" : "daily",
+    bars,
+    "twelve_data"
+  );
+}
+
+/**
+ * Current price + SMA/RSI/MACD/Bollinger.
+ * Tries Alpha Vantage once; on rate_limit, falls back to Twelve Data.
  */
 async function getQuoteAndIndicators(ticker, mode) {
-  try {
-    const symbol = String(ticker).toUpperCase();
-    const interval = mode === "long" ? "weekly" : "daily";
-    const timeSeriesFunction =
-      mode === "long" ? "TIME_SERIES_WEEKLY" : "TIME_SERIES_DAILY";
+  const symbol = String(ticker).toUpperCase();
+  const interval = mode === "long" ? "weekly" : "daily";
+  const timeSeriesFunction =
+    mode === "long" ? "TIME_SERIES_WEEKLY" : "TIME_SERIES_DAILY";
 
-    const timeSeriesData = await alphaVantageGet({
+  try {
+    const timeSeriesData = await callAlphaVantage({
       function: timeSeriesFunction,
       symbol,
     });
 
-    const bars = extractBars(timeSeriesData, mode);
+    const bars = extractBarsFromAlpha(timeSeriesData, mode);
     if (!bars.length) {
       throw new AlphaVantageError(
         "invalid_ticker",
@@ -192,37 +308,30 @@ async function getQuoteAndIndicators(ticker, mode) {
       );
     }
 
-    const latest = bars[bars.length - 1];
-    const prev = bars.length > 1 ? bars[bars.length - 2] : null;
-    const current = latest.close;
-    const previousClose = prev?.close ?? null;
-    const change =
-      current != null && previousClose != null ? current - previousClose : null;
-    const changePercent =
-      change != null && previousClose ? (change / previousClose) * 100 : null;
-
-    const closes = bars.map((b) => b.close);
-    const indicators = calculateIndicatorsFromCloses(closes);
-
-    return {
-      ticker: symbol,
-      mode,
-      interval,
-      price: {
-        current,
-        open: latest.open,
-        high: latest.high,
-        low: latest.low,
-        volume: latest.volume,
-        previousClose,
-        change,
-        changePercent,
-        latestTradingDay: latest.date || null,
-      },
-      priceHistory: closes.slice(-40),
-      indicators,
-    };
+    console.log(
+      `[getQuoteAndIndicators] ${symbol} (${mode}) source=alpha_vantage`
+    );
+    return buildQuoteFromBars(symbol, mode, interval, bars, "alpha_vantage");
   } catch (err) {
+    if (err instanceof AlphaVantageError && err.code === "rate_limit") {
+      console.warn(
+        `[getQuoteAndIndicators] Alpha Vantage rate-limited for ${symbol} — trying Twelve Data`
+      );
+      try {
+        const quote = await getPriceHistoryFromTwelveData(symbol, mode);
+        console.log(
+          `[getQuoteAndIndicators] ${symbol} (${mode}) source=twelve_data`
+        );
+        return quote;
+      } catch (twelveErr) {
+        console.error(
+          `[getQuoteAndIndicators] Twelve Data fallback failed for ${symbol}:`,
+          twelveErr.message
+        );
+        throw err;
+      }
+    }
+
     if (err instanceof AlphaVantageError) throw err;
     console.error(
       `[getQuoteAndIndicators] Failed for ${ticker} (${mode}):`,
@@ -233,16 +342,15 @@ async function getQuoteAndIndicators(ticker, mode) {
 }
 
 /**
- * Company overview (incl. analyst target price) + 5 most recent news articles with sentiment.
- * Two Alpha Vantage calls (sequential).
+ * Company overview + news — two Alpha Vantage calls (sequential).
  */
 async function getFundamentalsAndNews(ticker) {
   try {
     const symbol = String(ticker).toUpperCase();
 
-    const overview = await alphaVantageGet({ function: "OVERVIEW", symbol });
+    const overview = await callAlphaVantage({ function: "OVERVIEW", symbol });
     await sleep(1200);
-    const newsData = await alphaVantageGet({
+    const newsData = await callAlphaVantage({
       function: "NEWS_SENTIMENT",
       tickers: symbol,
       limit: 50,
@@ -321,9 +429,7 @@ async function getFundamentalsAndNews(ticker) {
 async function getPeers(ticker) {
   try {
     const symbol = String(ticker).toUpperCase();
-    const { data } = await axios.get(`${FINNHUB_BASE}/stock/peers`, {
-      params: { symbol, token: getFinnhubKey() },
-    });
+    const data = await callFinnhub("/stock/peers", { symbol });
 
     if (!Array.isArray(data)) {
       throw new Error("Finnhub peers response was not an array");
@@ -348,9 +454,13 @@ async function getPeers(ticker) {
 }
 
 module.exports = {
+  callAlphaVantage,
+  callFinnhub,
+  callTwelveData,
   getQuoteAndIndicators,
   getFundamentalsAndNews,
   getPeers,
+  getPriceHistoryFromTwelveData,
   AlphaVantageError,
   nextMidnightPacificIso,
 };

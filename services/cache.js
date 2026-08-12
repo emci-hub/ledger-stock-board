@@ -1,4 +1,4 @@
-const { getDb } = require("../db/schema");
+const { dbGet, dbRun } = require("../db/schema");
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -9,43 +9,44 @@ function isFresh(isoTimestamp) {
   return Date.now() - then < CACHE_TTL_MS;
 }
 
-function getCachedStock(ticker, mode) {
-  const db = getDb();
-  const row = db
-    .prepare(
-      `SELECT data_json, last_updated FROM stock_cache WHERE ticker = ? AND mode = ?`
-    )
-    .get(String(ticker).toUpperCase(), mode);
+async function getCachedStockRow(ticker, mode) {
+  const row = await dbGet(
+    `SELECT data_json, last_updated FROM stock_cache WHERE ticker = ? AND mode = ?`,
+    [String(ticker).toUpperCase(), mode]
+  );
 
   if (!row || !isFresh(row.last_updated)) return null;
 
   try {
-    return JSON.parse(row.data_json);
+    return {
+      data: JSON.parse(row.data_json),
+      lastUpdated: row.last_updated,
+    };
   } catch {
     return null;
   }
 }
 
-function saveStockToCache(ticker, mode, data) {
-  const db = getDb();
-  db.prepare(
-    `INSERT OR REPLACE INTO stock_cache (ticker, mode, data_json, last_updated)
-     VALUES (?, ?, ?, ?)`
-  ).run(
-    String(ticker).toUpperCase(),
-    mode,
-    JSON.stringify(data),
-    new Date().toISOString()
-  );
+async function getCachedStock(ticker, mode) {
+  const row = await getCachedStockRow(ticker, mode);
+  return row ? row.data : null;
 }
 
-function getCachedSummary(ticker, mode) {
-  const db = getDb();
-  const row = db
-    .prepare(
-      `SELECT summary_json, generated_at FROM ai_summaries WHERE ticker = ? AND mode = ?`
-    )
-    .get(String(ticker).toUpperCase(), mode);
+async function saveStockToCache(ticker, mode, data) {
+  const now = new Date().toISOString();
+  await dbRun(
+    `INSERT OR REPLACE INTO stock_cache (ticker, mode, data_json, last_updated)
+     VALUES (?, ?, ?, ?)`,
+    [String(ticker).toUpperCase(), mode, JSON.stringify(data), now]
+  );
+  return now;
+}
+
+async function getCachedSummary(ticker, mode) {
+  const row = await dbGet(
+    `SELECT summary_json, generated_at FROM ai_summaries WHERE ticker = ? AND mode = ?`,
+    [String(ticker).toUpperCase(), mode]
+  );
 
   if (!row || !isFresh(row.generated_at)) return null;
 
@@ -56,21 +57,24 @@ function getCachedSummary(ticker, mode) {
   }
 }
 
-function saveSummaryToCache(ticker, mode, summary) {
-  const db = getDb();
-  db.prepare(
+async function saveSummaryToCache(ticker, mode, summary) {
+  await dbRun(
     `INSERT OR REPLACE INTO ai_summaries (ticker, mode, summary_json, generated_at)
-     VALUES (?, ?, ?, ?)`
-  ).run(
-    String(ticker).toUpperCase(),
-    mode,
-    JSON.stringify(summary),
-    new Date().toISOString()
+     VALUES (?, ?, ?, ?)`,
+    [
+      String(ticker).toUpperCase(),
+      mode,
+      JSON.stringify(summary),
+      new Date().toISOString(),
+    ]
   );
 }
 
 module.exports = {
+  CACHE_TTL_MS,
+  isFresh,
   getCachedStock,
+  getCachedStockRow,
   saveStockToCache,
   getCachedSummary,
   saveSummaryToCache,

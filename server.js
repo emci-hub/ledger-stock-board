@@ -5,20 +5,30 @@ const express = require("express");
 const cors = require("cors");
 const cron = require("node-cron");
 
-const { getDb } = require("./db/schema");
+const { initSchema, dbGet, dbAll, dbRun } = require("./db/schema");
 const { getStockReport, buildReport } = require("./services/getStockReport");
-const { getCachedStock, getCachedSummary } = require("./services/cache");
+const {
+  getCachedStockRow,
+  getCachedSummary,
+} = require("./services/cache");
 const {
   refreshBoard,
   resolveOldRecommendations,
   getTrackRecord,
 } = require("./jobs/refreshBoard");
-const { getApiUsageToday, nextMidnightPacificIso } = require("./services/usage");
+const {
+  getApiUsageToday,
+  getUsageToday,
+  nextMidnightPacificIso,
+  getSetting,
+  PROVIDERS,
+} = require("./services/usage");
 const { AlphaVantageError } = require("./services/dataFetch");
 
 const app = express();
 const PORT = 3000;
 const DAILY_AV_LIMIT = 25;
+const AV_CALLS_PER_SEARCH = 3;
 
 app.use(cors());
 app.use(express.json());
@@ -32,14 +42,20 @@ function parseJsonSafe(text) {
   }
 }
 
-function reportFromCache(ticker, mode) {
-  const raw = getCachedStock(ticker, mode);
-  const analysis = getCachedSummary(ticker, mode);
-  if (!raw) return null;
+async function reportFromCache(ticker, mode) {
+  const stockRow = await getCachedStockRow(ticker, mode);
+  const analysis = await getCachedSummary(ticker, mode);
+  if (!stockRow) return null;
 
   return {
-    ...buildReport(ticker, mode, raw, analysis),
-    trackRecord: getTrackRecord(ticker),
+    ...buildReport(
+      ticker,
+      mode,
+      stockRow.data,
+      analysis,
+      stockRow.lastUpdated
+    ),
+    trackRecord: await getTrackRecord(ticker),
   };
 }
 
@@ -53,11 +69,36 @@ function searchPasswordOk(provided) {
   return String(provided || "") === expected;
 }
 
-// GET /api/usage
-app.get("/api/usage", (req, res) => {
+async function buildStatusPayload() {
+  const alphaUsed = await getUsageToday(PROVIDERS.ALPHA);
+  const twelveUsed = await getUsageToday(PROVIDERS.TWELVE);
+  const finnhubUsed = await getUsageToday(PROVIDERS.FINNHUB);
+  const alphaRemaining = Math.max(0, DAILY_AV_LIMIT - alphaUsed);
+  const avBudgetSearches = Math.floor(alphaRemaining / AV_CALLS_PER_SEARCH);
+  const twelveAvailable = Boolean(process.env.TWELVE_DATA_API_KEY);
+  const newSearchesAvailableToday =
+    avBudgetSearches > 0 ? avBudgetSearches : twelveAvailable ? 1 : 0;
+
+  return {
+    alphaVantageUsedToday: alphaUsed,
+    alphaVantageLimit: DAILY_AV_LIMIT,
+    twelveDataUsedToday: twelveUsed,
+    finnhubUsedToday: finnhubUsed,
+    newSearchesAvailableToday,
+    lastBoardRefresh: await getSetting("lastBoardRefresh"),
+    boardRefreshStatus: await getSetting("lastBoardRefreshStatus"),
+    resetsAt: nextMidnightPacificIso(),
+  };
+}
+
+app.get("/healthz", (req, res) => {
+  res.json({ status: "ok", time: new Date().toISOString() });
+});
+
+app.get("/api/usage", async (req, res) => {
   try {
     return res.json({
-      used: getApiUsageToday(),
+      used: await getApiUsageToday(),
       limit: DAILY_AV_LIMIT,
       resetsAt: nextMidnightPacificIso(),
     });
@@ -67,7 +108,15 @@ app.get("/api/usage", (req, res) => {
   }
 });
 
-// GET /api/search?ticker=XXX&mode=long&password=
+app.get("/api/status", async (req, res) => {
+  try {
+    return res.json(await buildStatusPayload());
+  } catch (err) {
+    console.error("[GET /api/status]", err.message);
+    return res.status(500).json({ error: "Failed to load status." });
+  }
+});
+
 app.get("/api/search", async (req, res) => {
   try {
     const ticker = String(req.query.ticker || "")
@@ -79,18 +128,22 @@ app.get("/api/search", async (req, res) => {
       return res.status(400).json({ error: "Query param 'ticker' is required." });
     }
 
-    // Always try cache first — no password required on hit
-    const cachedStock = getCachedStock(ticker, mode);
-    const cachedSummary = getCachedSummary(ticker, mode);
-    if (cachedStock && cachedSummary) {
+    const stockRow = await getCachedStockRow(ticker, mode);
+    const cachedSummary = await getCachedSummary(ticker, mode);
+    if (stockRow && cachedSummary) {
       return res.json({
-        ...buildReport(ticker, mode, cachedStock, cachedSummary),
-        trackRecord: getTrackRecord(ticker),
+        ...buildReport(
+          ticker,
+          mode,
+          stockRow.data,
+          cachedSummary,
+          stockRow.lastUpdated
+        ),
+        trackRecord: await getTrackRecord(ticker),
       });
     }
 
-    // Fresh Alpha Vantage pull needed when stock cache is missing
-    if (!cachedStock && !searchPasswordOk(req.query.password)) {
+    if (!stockRow && !searchPasswordOk(req.query.password)) {
       return res.status(401).json({ error: "locked" });
     }
 
@@ -99,14 +152,17 @@ app.get("/api/search", async (req, res) => {
       return res.status(404).json({ error: "invalid_ticker" });
     }
 
-    return res.json({ ...report, trackRecord: getTrackRecord(ticker) });
+    return res.json({
+      ...report,
+      trackRecord: await getTrackRecord(ticker),
+    });
   } catch (err) {
     if (err instanceof AlphaVantageError) {
       if (err.code === "rate_limit") {
         return res.status(429).json({
           error: "rate_limit",
           resetsAt: err.resetsAt || nextMidnightPacificIso(),
-          used: getApiUsageToday(),
+          used: await getApiUsageToday(),
           limit: DAILY_AV_LIMIT,
         });
       }
@@ -119,21 +175,20 @@ app.get("/api/search", async (req, res) => {
   }
 });
 
-// GET /api/board?mode=long — board_picks + cached report data
-app.get("/api/board", (req, res) => {
+app.get("/api/board", async (req, res) => {
   try {
     const mode = normalizeMode(req.query.mode);
-    const db = getDb();
-    const picks = db
-      .prepare(
-        `SELECT ticker, status, added_at, sector FROM board_picks ORDER BY added_at DESC`
-      )
-      .all();
+    const picks = await dbAll(
+      `SELECT ticker, status, added_at, sector FROM board_picks ORDER BY added_at DESC`
+    );
 
-    const board = picks.map((pick) => ({
-      ...pick,
-      report: reportFromCache(pick.ticker, mode),
-    }));
+    const board = [];
+    for (const pick of picks) {
+      board.push({
+        ...pick,
+        report: await reportFromCache(pick.ticker, mode),
+      });
+    }
 
     return res.json(board);
   } catch (err) {
@@ -142,30 +197,25 @@ app.get("/api/board", (req, res) => {
   }
 });
 
-// GET /api/recent — 10 most recently updated stock_cache rows
-app.get("/api/recent", (req, res) => {
+app.get("/api/recent", async (req, res) => {
   try {
-    const db = getDb();
-    const rows = db
-      .prepare(
-        `SELECT ticker, mode, data_json, last_updated
-         FROM stock_cache
-         ORDER BY last_updated DESC
-         LIMIT 10`
-      )
-      .all();
+    const rows = await dbAll(
+      `SELECT ticker, mode, data_json, last_updated
+       FROM stock_cache
+       ORDER BY last_updated DESC
+       LIMIT 10`
+    );
 
-    const recent = rows.map((row) => {
-      const raw = parseJsonSafe(row.data_json);
-      const report = reportFromCache(row.ticker, row.mode);
-      return {
+    const recent = [];
+    for (const row of rows) {
+      recent.push({
         ticker: row.ticker,
         mode: row.mode,
         lastUpdated: row.last_updated,
-        report,
-        raw,
-      };
-    });
+        report: await reportFromCache(row.ticker, row.mode),
+        raw: parseJsonSafe(row.data_json),
+      });
+    }
 
     return res.json(recent);
   } catch (err) {
@@ -174,8 +224,7 @@ app.get("/api/recent", (req, res) => {
   }
 });
 
-// POST /api/watchlist — body { ticker }
-app.post("/api/watchlist", (req, res) => {
+app.post("/api/watchlist", async (req, res) => {
   try {
     const ticker = String(req.body?.ticker || "")
       .trim()
@@ -185,14 +234,15 @@ app.post("/api/watchlist", (req, res) => {
       return res.status(400).json({ error: "Body field 'ticker' is required." });
     }
 
-    const db = getDb();
-    db.prepare(
-      `INSERT OR REPLACE INTO watchlist (ticker, starred_at) VALUES (?, ?)`
-    ).run(ticker, new Date().toISOString());
+    const starredAt = new Date().toISOString();
+    await dbRun(
+      `INSERT OR REPLACE INTO watchlist (ticker, starred_at) VALUES (?, ?)`,
+      [ticker, starredAt]
+    );
 
     return res.status(201).json({
       ticker,
-      starredAt: new Date().toISOString(),
+      starredAt,
       message: `${ticker} added to watchlist.`,
     });
   } catch (err) {
@@ -201,22 +251,21 @@ app.post("/api/watchlist", (req, res) => {
   }
 });
 
-// GET /api/watchlist — starred tickers + cached data
-app.get("/api/watchlist", (req, res) => {
+app.get("/api/watchlist", async (req, res) => {
   try {
     const mode = normalizeMode(req.query.mode);
-    const db = getDb();
-    const rows = db
-      .prepare(
-        `SELECT ticker, starred_at FROM watchlist ORDER BY starred_at DESC`
-      )
-      .all();
+    const rows = await dbAll(
+      `SELECT ticker, starred_at FROM watchlist ORDER BY starred_at DESC`
+    );
 
-    const watchlist = rows.map((row) => ({
-      ticker: row.ticker,
-      starredAt: row.starred_at,
-      report: reportFromCache(row.ticker, mode),
-    }));
+    const watchlist = [];
+    for (const row of rows) {
+      watchlist.push({
+        ticker: row.ticker,
+        starredAt: row.starred_at,
+        report: await reportFromCache(row.ticker, mode),
+      });
+    }
 
     return res.json(watchlist);
   } catch (err) {
@@ -225,36 +274,42 @@ app.get("/api/watchlist", (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Ledger server listening on http://localhost:${PORT}`);
+async function start() {
+  await initSchema();
 
-  cron.schedule("0 7 * * *", () => {
-    refreshBoard().catch((err) => {
-      console.error("[cron refreshBoard]", err.message);
-    });
-    resolveOldRecommendations().catch((err) => {
-      console.error("[cron resolveOldRecommendations]", err.message);
-    });
-  });
-  console.log(
-    "[cron] Scheduled refreshBoard + resolveOldRecommendations daily at 07:00"
-  );
+  app.listen(PORT, () => {
+    console.log(`Ledger server listening on http://localhost:${PORT}`);
 
-  try {
-    const count = getDb()
-      .prepare(`SELECT COUNT(*) AS n FROM board_picks`)
-      .get().n;
-    if (count === 0) {
-      console.log("[startup] board_picks empty — running refreshBoard once");
+    cron.schedule("0 7 * * *", () => {
       refreshBoard().catch((err) => {
-        console.error("[startup refreshBoard]", err.message);
+        console.error("[cron refreshBoard]", err.message);
       });
-    } else {
-      console.log(
-        `[startup] board_picks already has ${count} row(s) — skip refresh`
-      );
-    }
-  } catch (err) {
-    console.error("[startup] Could not check board_picks:", err.message);
-  }
+      resolveOldRecommendations().catch((err) => {
+        console.error("[cron resolveOldRecommendations]", err.message);
+      });
+    });
+    console.log(
+      "[cron] Scheduled refreshBoard + resolveOldRecommendations daily at 07:00"
+    );
+
+    dbGet(`SELECT COUNT(*) AS n FROM board_picks`)
+      .then((row) => {
+        const count = Number(row?.n || 0);
+        if (count === 0) {
+          console.log("[startup] board_picks empty — running refreshBoard once");
+          return refreshBoard();
+        }
+        console.log(
+          `[startup] board_picks already has ${count} row(s) — skip refresh`
+        );
+      })
+      .catch((err) => {
+        console.error("[startup] Could not check board_picks:", err.message);
+      });
+  });
+}
+
+start().catch((err) => {
+  console.error("[startup] Failed to start server:", err.message);
+  process.exit(1);
 });

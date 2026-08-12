@@ -1,5 +1,5 @@
 const {
-  getCachedStock,
+  getCachedStockRow,
   saveStockToCache,
   getCachedSummary,
   saveSummaryToCache,
@@ -12,7 +12,10 @@ const {
 } = require("./dataFetch");
 const { analyzeStock } = require("./analyze");
 
-function buildReport(ticker, mode, rawData, analysis) {
+/** In-flight getStockReport promises keyed by `${ticker}_${mode}`. */
+const inFlight = new Map();
+
+function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
   const quote = rawData?.quote || {};
   const overview = rawData?.fundamentals?.overview || {};
 
@@ -26,6 +29,7 @@ function buildReport(ticker, mode, rawData, analysis) {
     indicators: quote.indicators || null,
     analystTarget: overview.analystTargetPrice ?? null,
     sector: overview.sector || null,
+    lastUpdated: lastUpdated || null,
     priceHistory: Array.isArray(quote.priceHistory)
       ? quote.priceHistory
       : Array.isArray(rawData?.priceHistory)
@@ -41,47 +45,40 @@ function buildReport(ticker, mode, rawData, analysis) {
   };
 }
 
-/**
- * Full stock report: cache → fetch missing pieces only → return.
- * Fresh stock_cache + ai_summaries (same ticker/mode, <24h) skips all live APIs.
- * Propagates AlphaVantageError (rate_limit / invalid_ticker).
- */
-async function getStockReport(ticker, mode) {
+async function buildStockReport(ticker, mode, options = {}) {
   const symbol = String(ticker).toUpperCase();
+  const skipPeers = Boolean(options.skipPeers);
 
-  let rawData = getCachedStock(symbol, mode);
-  let analysis = getCachedSummary(symbol, mode);
+  const stockRow = await getCachedStockRow(symbol, mode);
+  let rawData = stockRow ? stockRow.data : null;
+  let lastUpdated = stockRow ? stockRow.lastUpdated : null;
+  let analysis = await getCachedSummary(symbol, mode);
 
   if (rawData && analysis) {
     console.log(
       `[getStockReport] cache hit for ${symbol} (${mode}) — no live API calls`
     );
-    return buildReport(symbol, mode, rawData, analysis);
+    return buildReport(symbol, mode, rawData, analysis, lastUpdated);
   }
 
   if (!rawData) {
     console.log(
       `[getStockReport] stock cache miss for ${symbol} (${mode}) — fetching market data`
     );
-    try {
-      const quote = await getQuoteAndIndicators(symbol, mode);
-      await new Promise((r) => setTimeout(r, 1200));
-      const fundamentals = await getFundamentalsAndNews(symbol);
-      const peers = await getPeers(symbol);
+    const quote = await getQuoteAndIndicators(symbol, mode);
+    await new Promise((r) => setTimeout(r, 1200));
+    const fundamentals = await getFundamentalsAndNews(symbol);
+    const peers = skipPeers ? [] : await getPeers(symbol);
 
-      if (!quote) {
-        console.error(
-          `[getStockReport] Missing quote/indicators for ${symbol} (${mode})`
-        );
-        return null;
-      }
-
-      rawData = { quote, fundamentals, peers };
-      saveStockToCache(symbol, mode, rawData);
-    } catch (err) {
-      if (err instanceof AlphaVantageError) throw err;
-      throw err;
+    if (!quote) {
+      console.error(
+        `[getStockReport] Missing quote/indicators for ${symbol} (${mode})`
+      );
+      return null;
     }
+
+    rawData = { quote, fundamentals, peers };
+    lastUpdated = await saveStockToCache(symbol, mode, rawData);
   } else {
     console.log(`[getStockReport] stock cache hit for ${symbol} (${mode})`);
   }
@@ -95,14 +92,34 @@ async function getStockReport(ticker, mode) {
       mode,
       rawData.quote,
       rawData.fundamentals,
-      rawData.peers
+      rawData.peers || []
     );
-    saveSummaryToCache(symbol, mode, analysis);
+    await saveSummaryToCache(symbol, mode, analysis);
   } else {
     console.log(`[getStockReport] summary cache hit for ${symbol} (${mode})`);
   }
 
-  return buildReport(symbol, mode, rawData, analysis);
+  return buildReport(symbol, mode, rawData, analysis, lastUpdated);
+}
+
+/**
+ * Cache-first report builder with in-flight dedupe per ticker/mode.
+ * options.skipPeers — skip Finnhub (used by board refresh).
+ */
+async function getStockReport(ticker, mode, options = {}) {
+  const key = `${String(ticker).toUpperCase()}_${mode}`;
+
+  if (inFlight.has(key)) {
+    console.log(`[getStockReport] joining in-flight request for ${key}`);
+    return inFlight.get(key);
+  }
+
+  const promise = buildStockReport(ticker, mode, options).finally(() => {
+    inFlight.delete(key);
+  });
+
+  inFlight.set(key, promise);
+  return promise;
 }
 
 module.exports = { getStockReport, buildReport };

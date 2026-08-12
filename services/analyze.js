@@ -4,6 +4,7 @@ const axios = require("axios");
 const { incrementUsage, PROVIDERS } = require("./usage");
 const { getFallbackJoke } = require("./jokes");
 const { computeNewsAgreement } = require("../lib/newsAgreement");
+const { makeTag, normalizeLabel, normalizeLabelList } = require("../lib/indicatorTags");
 
 const FALLBACK_MODEL = "gemini-flash-latest";
 
@@ -20,6 +21,69 @@ const FALLBACK = {
   short: { ...TAKE_FALLBACK },
   long: { ...TAKE_FALLBACK },
   quip: null,
+};
+
+const LABEL_SCHEMA_HINT = `{ "plain": string, "technical": string, "explanation": string }`;
+
+/** Gemini responseSchema (OpenAPI-ish) enforcing structured labels. */
+const GEMINI_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    short: {
+      type: "OBJECT",
+      properties: {
+        lean: { type: "STRING" },
+        risk: { type: "STRING" },
+        tags: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              plain: { type: "STRING" },
+              technical: { type: "STRING" },
+              explanation: { type: "STRING" },
+            },
+            required: ["plain", "technical", "explanation"],
+          },
+        },
+        summary: { type: "STRING" },
+        deepDive: { type: "STRING" },
+      },
+      required: ["lean", "risk", "tags", "summary", "deepDive"],
+    },
+    long: {
+      type: "OBJECT",
+      properties: {
+        lean: { type: "STRING" },
+        risk: { type: "STRING" },
+        tags: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              plain: { type: "STRING" },
+              technical: { type: "STRING" },
+              explanation: { type: "STRING" },
+            },
+            required: ["plain", "technical", "explanation"],
+          },
+        },
+        summary: { type: "STRING" },
+        deepDive: { type: "STRING" },
+      },
+      required: ["lean", "risk", "tags", "summary", "deepDive"],
+    },
+    quip: {
+      type: "OBJECT",
+      properties: {
+        plain: { type: "STRING" },
+        technical: { type: "STRING" },
+        explanation: { type: "STRING" },
+      },
+      required: ["plain", "technical", "explanation"],
+    },
+  },
+  required: ["short", "long", "quip"],
 };
 
 function getGeminiKey() {
@@ -188,23 +252,30 @@ Respond with ONLY valid JSON matching this exact shape — no markdown, no code 
   "short": {
     "lean": "bullish" | "neutral" | "bearish",
     "risk": "low" | "medium" | "high",
-    "tags": ["short phrase", "short phrase"],
+    "tags": [ ${LABEL_SCHEMA_HINT}, ${LABEL_SCHEMA_HINT} ],
     "summary": "one or two plain-English sentences for the short-term view",
     "deepDive": "3-5 plain-English sentences for short-term Deep Dive"
   },
   "long": {
     "lean": "bullish" | "neutral" | "bearish",
     "risk": "low" | "medium" | "high",
-    "tags": ["short phrase", "short phrase"],
+    "tags": [ ${LABEL_SCHEMA_HINT}, ${LABEL_SCHEMA_HINT} ],
     "summary": "one or two plain-English sentences for the long-term view",
     "deepDive": "3-5 plain-English sentences for long-term Deep Dive"
   },
-  "quip": "one short, light, genuinely stock-relevant quip or pun about THIS specific company"
+  "quip": ${LABEL_SCHEMA_HINT}
 }
 
-Rules:
+STRICT LABEL RULES (tags AND quip):
+- Every tag and the quip MUST be an object with ALL three keys: plain, technical, explanation — never a bare string.
+- "plain": beginner-friendly phrase shown by default (no stock jargon).
+- "technical": the real market term (e.g. "Positive MACD signal", "RSI overbought").
+- "explanation": one simple sentence connecting the plain phrase to the technical term.
+- Inventing new phrasings is fine — the three-field shape makes them compliant automatically.
+
+Other rules:
 - "short" and "long" may differ when the data supports it; do not force them to match.
-- Each "tags" array: 1–3 short plain phrases.
+- Each "tags" array: 1–3 label objects.
 - Each "summary": 1–2 beginner-friendly sentences, no jargon.
 - Each "deepDive": 3–5 sentences covering price context, news tone, and peers when available; under ~120 words; no buy/sell advice.
 - Do NOT apologize for or explain missing/unavailable data (no news, no peers, no analyst target, not enough history for a 200-day average, missing 52-week range, etc.). The UI shows those gaps as small badges separately. Write only genuine analysis from the data that IS present, and simply omit topics you cannot support.
@@ -214,7 +285,7 @@ Rules:
   - status "agree": both point the same way. Factor that as ADDED CONFIDENCE in lean and summary — say something like "both news sources point the same way" or "the two news feeds agree".
   - status "disagree": sources genuinely conflict. Do NOT silently pick one. Set lean toward "neutral" / cautious, and say plainly that signals are mixed (e.g. "mixed signals in recent news right now").
   - status "single" or "none": only one feed or neither — no agreement claim; just use what you have.
-- "quip" must be about this company/ticker specifically (name, products, sector, or well-known traits) — light and tasteful, not mean-spirited, not financial advice, max ~20 words. Never a generic stock-market joke that could apply to any ticker.
+- "quip.plain" must be about this company/ticker specifically (name, products, sector, or well-known traits) — light and tasteful, not mean-spirited, not financial advice, max ~20 words. Never a generic stock-market joke that could apply to any ticker. "quip.technical" can be a short label like "Company pun"; "quip.explanation" one sentence why it fits.
 - Do not give buy/sell advice or trading instructions.
 
 Stock data:
@@ -239,9 +310,7 @@ function parseTake(raw) {
   if (!["low", "medium", "high"].includes(risk)) return null;
   if (typeof raw.summary !== "string" || !raw.summary.trim()) return null;
 
-  const tags = Array.isArray(raw.tags)
-    ? raw.tags.filter((t) => typeof t === "string" && t.trim()).slice(0, 3)
-    : [];
+  const tags = normalizeLabelList(raw.tags, 3);
 
   const deepDive =
     typeof raw.deepDive === "string" && raw.deepDive.trim()
@@ -257,8 +326,34 @@ function parseTake(raw) {
   };
 }
 
+function parseQuip(raw) {
+  if (raw == null) return null;
+  if (typeof raw === "string" && raw.trim()) {
+    return makeTag(
+      raw.trim(),
+      "Light aside",
+      "A playful one-liner about this company — not part of the analysis."
+    );
+  }
+  const label = normalizeLabel(raw);
+  if (!label || !label.plain) return null;
+  if (!label.technical) label.technical = "Company quip";
+  if (!label.explanation) {
+    label.explanation =
+      "A playful one-liner about this company — not part of the analysis.";
+  }
+  return label;
+}
+
 function mentionsMixedNews(take) {
-  const text = `${take?.summary || ""} ${(take?.tags || []).join(" ")} ${take?.deepDive || ""}`.toLowerCase();
+  const tagText = (take?.tags || [])
+    .map((t) =>
+      typeof t === "string"
+        ? t
+        : `${t.plain || ""} ${t.technical || ""} ${t.explanation || ""}`
+    )
+    .join(" ");
+  const text = `${take?.summary || ""} ${tagText} ${take?.deepDive || ""}`.toLowerCase();
   return (
     text.includes("mixed") ||
     text.includes("disagree") ||
@@ -315,19 +410,13 @@ function parseAnalysisJson(text) {
   if (parsed.short || parsed.long) {
     const short = parseTake(parsed.short) || { ...TAKE_FALLBACK };
     const long = parseTake(parsed.long) || { ...TAKE_FALLBACK };
-    const quip =
-      typeof parsed.quip === "string" && parsed.quip.trim()
-        ? parsed.quip.trim()
-        : null;
+    const quip = parseQuip(parsed.quip);
     return { short, long, quip };
   }
 
   const take = parseTake(parsed);
   if (!take) return null;
-  const quip =
-    typeof parsed.quip === "string" && parsed.quip.trim()
-      ? parsed.quip.trim()
-      : null;
+  const quip = parseQuip(parsed.quip);
   return { short: take, long: take, quip };
 }
 
@@ -359,6 +448,7 @@ async function callGemini(model, prompt, { useThinkingConfig = false } = {}) {
     temperature: 0.35,
     maxOutputTokens: 2048,
     responseMimeType: "application/json",
+    responseSchema: GEMINI_RESPONSE_SCHEMA,
   };
 
   // thinkingBudget: 0 causes INVALID_ARGUMENT on several Gemini 2.5 models
@@ -491,7 +581,7 @@ async function analyzeStock(
     );
     if (!parsed) {
       console.error(`[analyzeStock] Failed to parse Gemini JSON for ${ticker}`);
-      const quip = await getFallbackJoke();
+      const quip = parseQuip(await getFallbackJoke());
       return {
         short: { ...TAKE_FALLBACK },
         long: { ...TAKE_FALLBACK },
@@ -500,7 +590,7 @@ async function analyzeStock(
     }
 
     if (!parsed.quip) {
-      parsed.quip = await getFallbackJoke();
+      parsed.quip = parseQuip(await getFallbackJoke());
     }
 
     return parsed;
@@ -509,7 +599,7 @@ async function analyzeStock(
       `[analyzeStock] Failed for ${ticker}:`,
       formatGeminiError(err)
     );
-    const quip = await getFallbackJoke();
+    const quip = parseQuip(await getFallbackJoke());
     return {
       short: { ...TAKE_FALLBACK },
       long: { ...TAKE_FALLBACK },

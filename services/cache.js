@@ -142,32 +142,39 @@ async function saveStockToCache(ticker, _mode, data) {
 function normalizeDualAnalysis(parsed) {
   if (!parsed || typeof parsed !== "object") return null;
 
+  const { normalizeLabel, normalizeLabelList } = require("../lib/indicatorTags");
+
+  function normalizeTake(take) {
+    if (!take || typeof take !== "object") return null;
+    return {
+      lean: take.lean || "neutral",
+      risk: take.risk || "medium",
+      tags: normalizeLabelList(take.tags, 3),
+      summary: take.summary,
+      deepDive: take.deepDive || null,
+    };
+  }
+
   if (parsed.short && parsed.long) {
     return {
-      short: parsed.short,
-      long: parsed.long,
-      quip:
-        typeof parsed.quip === "string" && parsed.quip.trim()
-          ? parsed.quip.trim()
-          : null,
+      short: normalizeTake(parsed.short),
+      long: normalizeTake(parsed.long),
+      quip: normalizeLabel(parsed.quip),
     };
   }
 
   if (parsed.lean && parsed.summary) {
-    const take = {
+    const take = normalizeTake({
       lean: parsed.lean,
       risk: parsed.risk || "medium",
       tags: Array.isArray(parsed.tags) ? parsed.tags : [],
       summary: parsed.summary,
       deepDive: parsed.deepDive || null,
-    };
+    });
     return {
       short: take,
       long: take,
-      quip:
-        typeof parsed.quip === "string" && parsed.quip.trim()
-          ? parsed.quip.trim()
-          : null,
+      quip: normalizeLabel(parsed.quip),
     };
   }
 

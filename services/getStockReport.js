@@ -25,6 +25,13 @@ const { getTickerInfo } = require("../lib/tickerInfo");
 const { sourceShortCode, formatSourceList } = require("../lib/dataSources");
 const { deriveDataCaveats } = require("../lib/dataCaveats");
 const { computeNewsAgreement } = require("../lib/newsAgreement");
+const {
+  buildTag,
+  riskTag,
+  buildIndicatorTags,
+  normalizeLabel,
+  normalizeLabelList,
+} = require("../lib/indicatorTags");
 
 /** In-flight shared-data loads keyed by ticker only (mode is display-only). */
 const inFlight = new Map();
@@ -154,12 +161,43 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
   const dual = normalizeDualAnalysis(analysis);
   const take = pickAnalysisTake(dual, displayMode);
   const quip =
-    (dual && typeof dual.quip === "string" && dual.quip.trim()
-      ? dual.quip.trim()
-      : null) ||
-    (typeof analysis?.quip === "string" && analysis.quip.trim()
-      ? analysis.quip.trim()
-      : null);
+    normalizeLabel(dual?.quip) ||
+    normalizeLabel(analysis?.quip) ||
+    null;
+
+  const indicatorsForMode = pickIndicatorsForMode(quote.indicators, displayMode);
+  const riskLevel = take?.risk || "medium";
+  const aiTags = normalizeLabelList(take?.tags, 3);
+  const indicatorTags = buildIndicatorTags(indicatorsForMode, {
+    price,
+    mode: displayMode,
+  });
+  // Prefer AI tags first, then our fixed indicator-derived tags (dedupe by technical).
+  const mergedTags = [];
+  const seen = new Set();
+  for (const t of [...aiTags, ...indicatorTags]) {
+    if (!t) continue;
+    const key = String(t.technical || t.plain).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    mergedTags.push(t);
+  }
+
+  const newsAgreeTag =
+    newsAgreement?.status === "agree"
+      ? buildTag("news_agree")
+      : newsAgreement?.status === "disagree"
+        ? buildTag("news_disagree")
+        : null;
+
+  let weekRangeOut = weekRange;
+  if (weekRange?.label === "near 52-week high") {
+    weekRangeOut = { ...weekRange, labelTag: buildTag("week52_near_high") };
+  } else if (weekRange?.label === "near 52-week low") {
+    weekRangeOut = { ...weekRange, labelTag: buildTag("week52_near_low") };
+  } else if (weekRange) {
+    weekRangeOut = { ...weekRange, labelTag: buildTag("week52_range") };
+  }
 
   const reportBase = {
     ticker: String(ticker).toUpperCase(),
@@ -170,7 +208,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     price,
     change: quote.price?.change ?? null,
     changePercent: quote.price?.changePercent ?? null,
-    indicators: pickIndicatorsForMode(quote.indicators, displayMode),
+    indicators: indicatorsForMode,
     analystTarget: overview.analystTargetPrice ?? null,
     sector,
     lastUpdated:
@@ -188,11 +226,19 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     newsSourceLabel: formatSourceList(newsSources),
     newsPending,
     newsAgreement,
-    weekRange,
+    weekRange: weekRangeOut,
     earnings,
     peers,
     priceHistory,
     quip,
+    labels: {
+      analystTarget: buildTag("analyst_target"),
+      week52Range: buildTag("week52_range"),
+      peers: buildTag("peers"),
+      risk: riskTag(riskLevel),
+      newsAgreement: newsAgreeTag,
+      complete: buildTag("complete"),
+    },
     deepDive: {
       sources: {
         price: sourceShortCode(priceSource),
@@ -201,7 +247,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
         peers: peers.length ? sourceShortCode("finnhub") : null,
         analysis: sourceShortCode("gemini"),
       },
-      weekRange,
+      weekRange: weekRangeOut,
       earnings,
       peers,
       newsMarketaux: rawData?.fundamentals?.newsMarketaux || null,
@@ -209,8 +255,9 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     },
     analysis: {
       lean: take?.lean || "neutral",
-      risk: take?.risk || "medium",
-      tags: Array.isArray(take?.tags) ? take.tags : [],
+      risk: riskLevel,
+      riskTag: riskTag(riskLevel),
+      tags: mergedTags.slice(0, 5),
       summary:
         take?.summary || "Analysis wasn't available right now.",
       deepDive:

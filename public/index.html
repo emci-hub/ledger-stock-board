@@ -183,7 +183,7 @@
     font-weight:400;font-family:'IBM Plex Mono',monospace;
   }
   .gloss.open .gloss-detail{display:block;}
-  .gloss-detail .grown-ups{color:var(--muted);}
+  .gloss-detail .gloss-tech{color:var(--muted);display:block;margin-bottom:2px;}
   .tag .gloss-detail{padding:2px 0 0;}
   .target-line .gloss,.deep-label .gloss{display:inline-flex;}
   .deep-label .gloss-main{color:var(--muted);}
@@ -358,8 +358,6 @@
 <script>
   let currentMode = "long";
   const starred = new Set();
-  /** Shared glossary from /api/status — add terms in lib/glossary.js only. */
-  let glossaryEntries = [];
 
   function escapeHtml(value) {
     return String(value ?? "")
@@ -369,107 +367,49 @@
       .replace(/"/g, "&quot;");
   }
 
-  function matchGlossary(text) {
-    const raw = String(text || "").trim();
-    if (!raw || !glossaryEntries.length) return null;
-    const t = raw.toLowerCase();
-    let best = null;
-    let bestLen = 0;
-    for (const entry of glossaryEntries) {
-      const candidates = [
-        entry.id,
-        entry.technicalTerm,
-        entry.plainLabel,
-        ...(Array.isArray(entry.aliases) ? entry.aliases : []),
-      ]
-        .filter(Boolean)
-        .map((s) => String(s).toLowerCase());
-      for (const c of candidates) {
-        if (t === c || t.includes(c) || c.includes(t)) {
-          if (c.length > bestLen) {
-            best = entry;
-            bestLen = c.length;
-          }
-        }
-      }
+  /** Normalize any label into { plain, technical, explanation }. */
+  function asLabel(value) {
+    if (value == null) return null;
+    if (typeof value === "string") {
+      const t = value.trim();
+      return t ? { plain: t, technical: t, explanation: "" } : null;
     }
-    return best;
-  }
-
-  function glossaryById(id) {
-    if (!id) return null;
-    return glossaryEntries.find((e) => e.id === id) || null;
+    if (typeof value === "object") {
+      const plain = String(value.plain ?? value.plainLabel ?? value.label ?? "").trim();
+      const technical = String(value.technical ?? value.technicalTerm ?? plain).trim();
+      const explanation = String(value.explanation ?? "").trim();
+      if (!plain && !technical) return null;
+      return { plain: plain || technical, technical: technical || plain, explanation };
+    }
+    return null;
   }
 
   /**
-   * Plain label by default; chevron expands technical term + explanation.
-   * Driven only by the shared glossary — never hardcode jargon per component.
+   * Plain text by default; chevron expands technical + explanation.
+   * Same UI for Gemini tags and our fixed indicator tags.
    */
-  function glossaryLabelHtml(textOrId, { asTagClass = "", forceId = null } = {}) {
-    const entry = forceId
-      ? glossaryById(forceId)
-      : glossaryById(textOrId) || matchGlossary(textOrId);
-    if (!entry) {
-      const plain = escapeHtml(textOrId);
+  function labelHtml(value, { asTagClass = "" } = {}) {
+    const entry = asLabel(value);
+    if (!entry) return "";
+    const plain = escapeHtml(entry.plain);
+    const tech = escapeHtml(entry.technical);
+    const explain = escapeHtml(entry.explanation);
+    const canReveal = Boolean(entry.technical || entry.explanation);
+    if (!canReveal) {
       if (asTagClass) return `<span class="tag ${asTagClass}">${plain}</span>`;
       return plain;
     }
-    const plain = escapeHtml(entry.plainLabel);
-    const tech = escapeHtml(entry.technicalTerm);
-    const explain = escapeHtml(entry.explanation);
-    const detail = `<span class="gloss-detail"><span class="grown-ups">Grown-ups call this ${tech}.</span> ${explain}</span>`;
-    const inner = `<span class="gloss" data-gloss="${escapeHtml(entry.id)}"><button type="button" class="gloss-main" aria-expanded="false"><span class="gloss-label">${plain}</span><span class="gloss-chevron" aria-hidden="true">▸</span></button>${detail}</span>`;
+    const detailBits = [];
+    if (entry.technical && entry.technical !== entry.plain) {
+      detailBits.push(`<span class="gloss-tech">${tech}</span>`);
+    } else if (entry.technical) {
+      detailBits.push(`<span class="gloss-tech">${tech}</span>`);
+    }
+    if (entry.explanation) detailBits.push(explain);
+    const detail = `<span class="gloss-detail">${detailBits.join(" ")}</span>`;
+    const inner = `<span class="gloss"><button type="button" class="gloss-main" aria-expanded="false"><span class="gloss-label">${plain}</span><span class="gloss-chevron" aria-hidden="true">▸</span></button>${detail}</span>`;
     if (asTagClass) return `<span class="tag ${asTagClass}">${inner}</span>`;
     return inner;
-  }
-
-  /** Wrap known glossary terms inside free prose (summary / deep dive). */
-  function glossifyProse(text) {
-    const raw = String(text || "");
-    if (!raw || !glossaryEntries.length) return escapeHtml(raw);
-
-    const needles = [];
-    for (const entry of glossaryEntries) {
-      const terms = [entry.technicalTerm, ...(entry.aliases || [])]
-        .filter(Boolean)
-        .map((s) => String(s).trim())
-        .filter((s) => s.length >= 3);
-      for (const term of terms) {
-        needles.push({ term, entry, len: term.length });
-      }
-    }
-    needles.sort((a, b) => b.len - a.len);
-
-    const lower = raw.toLowerCase();
-    const hits = [];
-    const used = [];
-    for (const n of needles) {
-      let from = 0;
-      const needle = n.term.toLowerCase();
-      while (from < lower.length) {
-        const idx = lower.indexOf(needle, from);
-        if (idx === -1) break;
-        const end = idx + needle.length;
-        const overlaps = used.some((r) => !(end <= r.start || idx >= r.end));
-        if (!overlaps) {
-          hits.push({ start: idx, end, entry: n.entry });
-          used.push({ start: idx, end });
-        }
-        from = idx + 1;
-      }
-    }
-    hits.sort((a, b) => a.start - b.start);
-    if (!hits.length) return escapeHtml(raw);
-
-    let out = "";
-    let cursor = 0;
-    for (const h of hits) {
-      out += escapeHtml(raw.slice(cursor, h.start));
-      out += glossaryLabelHtml(h.entry.id, { forceId: h.entry.id });
-      cursor = h.end;
-    }
-    out += escapeHtml(raw.slice(cursor));
-    return out;
   }
 
   function formatMoney(n) {
@@ -509,10 +449,10 @@
     return "lean-pos";
   }
 
-  function riskTag(risk) {
-    if (risk === "low") return { cls: "risk-low", glossId: "risk_low" };
-    if (risk === "high") return { cls: "risk-high", glossId: "risk_high" };
-    return { cls: "risk-med", glossId: "risk_medium" };
+  function riskClass(risk) {
+    if (risk === "low") return "risk-low";
+    if (risk === "high") return "risk-high";
+    return "risk-med";
   }
 
   function tagClass(lean) {
@@ -587,8 +527,7 @@
     const pct = Number(report.changePercent);
     const down = Number.isFinite(pct) ? pct < 0 : false;
     const deltaCls = down ? "down" : "up";
-    const riskInfo = riskTag(risk);
-    const tags = Array.isArray(report.analysis?.tags) ? report.analysis.tags.slice(0, 2) : [];
+    const tags = Array.isArray(report.analysis?.tags) ? report.analysis.tags.slice(0, 4) : [];
     const isStarred = starred.has(report.ticker);
     const target = report.analystTarget;
     const asOf = report.priceUpdatedAt || report.lastUpdated;
@@ -600,8 +539,13 @@
       !report.newsPending && report.newsSourceLabel
         ? `<div class="news-via">via ${escapeHtml(report.newsSourceLabel)}</div>`
         : "";
-    const rangeNote = report.weekRange?.label
-      ? `<div class="range-flag">${glossifyProse(report.weekRange.label)}${
+    const rangeFlagLabel = report.weekRange?.labelTag
+      ? labelHtml(report.weekRange.labelTag)
+      : report.weekRange?.label
+        ? escapeHtml(report.weekRange.label)
+        : "";
+    const rangeNote = rangeFlagLabel
+      ? `<div class="range-flag">${rangeFlagLabel}${
           report.weekRange.low != null && report.weekRange.high != null
             ? ` · ${escapeHtml(formatMoney(report.weekRange.low))}–${escapeHtml(formatMoney(report.weekRange.high))}`
             : ""
@@ -632,11 +576,10 @@
       inline: true,
     });
     const summaryCaveats = caveatBadgesHtml(caveatsForPlace(report, "summary"));
-    const rangeLabel = glossaryLabelHtml("week52_range", { forceId: "week52_range" });
-    const peersLabel = glossaryLabelHtml("peers", { forceId: "peers" });
-    const targetLabel = glossaryLabelHtml("analyst_target", {
-      forceId: "analyst_target",
-    });
+    const labels = report.labels || {};
+    const rangeLabel = labelHtml(labels.week52Range);
+    const peersLabel = labelHtml(labels.peers);
+    const targetLabel = labelHtml(labels.analystTarget);
 
     const deepHtml = `<details class="deep-dive">
       <summary>Deep dive</summary>
@@ -648,11 +591,15 @@
           <li>News: ${escapeHtml(src.news || "—")}</li>
           <li>Peers: ${escapeHtml(src.peers || "—")}</li>
         </ul>
-        <div class="deep-label">${rangeLabel}</div>
+        <div class="deep-label">${rangeLabel || "Range"}</div>
         <div>${
           report.weekRange?.low != null && report.weekRange?.high != null
             ? `${escapeHtml(formatMoney(report.weekRange.low))} – ${escapeHtml(formatMoney(report.weekRange.high))}${
-                report.weekRange.label ? ` · ${escapeHtml(report.weekRange.label)}` : ""
+                report.weekRange.labelTag
+                  ? ` · ${labelHtml(report.weekRange.labelTag)}`
+                  : report.weekRange.label
+                    ? ` · ${escapeHtml(report.weekRange.label)}`
+                    : ""
               }`
             : caveatBadgesHtml(caveatsForPlace(report, "range")) || "—"
         }</div>
@@ -661,55 +608,47 @@
             ? `<div class="deep-label">Earnings</div><div>${escapeHtml(report.earnings.text)}</div>`
             : ""
         }
-        <div class="deep-label">${peersLabel}</div>
+        <div class="deep-label">${peersLabel || "Peers"}</div>
         ${peerHtml}
         <div class="deep-label">AI deep dive</div>
-        <div class="deep-ai">${glossifyProse(report.analysis?.deepDive || "A longer AI deep dive wasn't available for this name yet.")}</div>
+        <div class="deep-ai">${escapeHtml(report.analysis?.deepDive || "A longer AI deep dive wasn't available for this name yet.")}</div>
       </div>
     </details>`;
 
-    const quip = typeof report.quip === "string" ? report.quip.trim() : "";
-    const lighterHtml = quip
+    const quipLabel = asLabel(report.quip);
+    const lighterHtml = quipLabel?.plain
       ? `<details class="lighter-side">
           <summary>Lighter side</summary>
-          <div class="lighter-body">${escapeHtml(quip)}</div>
+          <div class="lighter-body">${labelHtml(quipLabel)}</div>
         </details>`
       : "";
 
     const completeBadge =
       report.fullyAnalyzed === true ||
       (Array.isArray(report.caveats) && report.caveats.length === 0)
-        ? `<span class="tag complete" title="All usual data checks passed for this card">Complete</span>`
+        ? labelHtml(labels.complete || { plain: "Complete", technical: "Fully analyzed", explanation: "All the usual data checks for this card passed." }, { asTagClass: "complete" })
         : "";
 
-    const newsAgreeBadge =
-      report.newsAgreement?.status === "agree"
-        ? glossaryLabelHtml("news_agree", {
-            forceId: "news_agree",
-            asTagClass: tagClass(lean),
-          })
-        : report.newsAgreement?.status === "disagree"
-          ? glossaryLabelHtml("news_disagree", {
-              forceId: "news_disagree",
-              asTagClass: "watch",
-            })
-          : "";
+    const newsAgreeBadge = labels.newsAgreement
+      ? labelHtml(labels.newsAgreement, {
+          asTagClass:
+            report.newsAgreement?.status === "disagree" ? "watch" : tagClass(lean),
+        })
+      : "";
+
+    const riskLabel =
+      report.analysis?.riskTag || labels.risk || { plain: risk, technical: risk, explanation: "" };
 
     const tagHtml =
-      tags
-        .map((t) => glossaryLabelHtml(t, { asTagClass: tagClass(lean) }))
-        .join("") +
-      glossaryLabelHtml(riskInfo.glossId, {
-        forceId: riskInfo.glossId,
-        asTagClass: riskInfo.cls,
-      }) +
+      tags.map((t) => labelHtml(t, { asTagClass: tagClass(lean) })).join("") +
+      labelHtml(riskLabel, { asTagClass: riskClass(risk) }) +
       newsAgreeBadge +
       completeBadge;
 
     const targetLine =
       target != null && Number.isFinite(Number(target))
         ? `<div class="target-line">
-        <span class="dots">┈┈</span> ${targetLabel}: <b>${formatMoney(target)}</b> · 12mo
+        <span class="dots">┈┈</span> ${targetLabel || "Target"}: <b>${formatMoney(target)}</b> · 12mo
       </div>`
         : `<div class="target-line">${targetCaveats}</div>`;
 
@@ -734,7 +673,7 @@
       ${sparkCaveats}
       ${targetLine}
       <div class="tags">${tagHtml}</div>
-      <div class="summary">${glossifyProse(report.analysis?.summary || "")}${newsNote}</div>
+      <div class="summary">${escapeHtml(report.analysis?.summary || "")}${newsNote}</div>
       ${summaryCaveats}
       ${deepHtml}
       ${lighterHtml}
@@ -788,7 +727,6 @@
         s.newSearchesAvailableToday != null ? s.newSearchesAvailableToday : "—";
 
       const legend = Array.isArray(s.sourcesLegend) ? s.sourcesLegend : [];
-      if (Array.isArray(s.glossary)) glossaryEntries = s.glossary;
       const shortOf = (id, fallback) => {
         const hit = legend.find((x) => x.id === id);
         return hit?.shortCode || fallback;
@@ -1010,10 +948,9 @@
     starTicker(btn.dataset.star, btn);
   });
 
-  loadStatus().then(() => {
-    loadBoard();
-    loadRecent();
-  });
+  loadStatus();
+  loadBoard();
+  loadRecent();
 </script>
 </body>
 </html>

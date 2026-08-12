@@ -539,7 +539,7 @@ async function analyzeStock(
         // Retry once with an even leaner payload shape (no thinkingConfig already).
         // If the model rejected nested JSON mime + large prompt, try without mime type.
         console.warn(
-          `[analyzeStock] INVALID_ARGUMENT on ${primaryModel} — retrying without responseMimeType`
+          `[analyzeStock] INVALID_ARGUMENT on ${primaryModel} — retrying without responseSchema/mime`
         );
         await incrementUsage(PROVIDERS.GEMINI);
         const { data: retryData } = await axios.post(
@@ -549,6 +549,7 @@ async function analyzeStock(
             generationConfig: {
               temperature: 0.35,
               maxOutputTokens: 2048,
+              responseMimeType: "application/json",
             },
           },
           {

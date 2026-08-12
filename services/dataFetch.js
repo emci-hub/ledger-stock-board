@@ -466,6 +466,14 @@ async function getQuoteAndIndicators(ticker, _mode) {
       );
       return quote;
     } catch (err) {
+      // Do not fall through to AV on Twelve rate limits — AV is reserved for news
+      // and is often already exhausted; falling through blanks the board.
+      if (err instanceof AlphaVantageError && err.code === "rate_limit") {
+        console.error(
+          `[getQuoteAndIndicators] Twelve Data rate-limited for ${symbol} — not falling back to Alpha Vantage`
+        );
+        throw err;
+      }
       if (err instanceof AlphaVantageError && err.code === "invalid_ticker") {
         console.warn(
           `[getQuoteAndIndicators] Twelve Data invalid for ${symbol} — trying Alpha Vantage`
@@ -477,6 +485,10 @@ async function getQuoteAndIndicators(ticker, _mode) {
         );
       }
     }
+  } else {
+    console.warn(
+      `[getQuoteAndIndicators] TWELVE_DATA_API_KEY missing — price fetch will use Alpha Vantage for ${symbol}`
+    );
   }
 
   try {

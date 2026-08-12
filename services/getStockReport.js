@@ -288,28 +288,43 @@ async function loadSharedStockData(ticker, options = {}) {
       console.log(
         `[getStockReport] price stale/missing for ${symbol} — fetching`
       );
-      const quote = await getQuoteAndIndicators(symbol);
-      if (!quote && !rawData.quote) {
-        console.error(
-          `[getStockReport] Missing quote/indicators for ${symbol}`
-        );
-        return null;
-      }
-      if (quote) {
-        rawData.quote = quote;
-        rawData.freshness.priceUpdatedAt = now();
-        if (quote.name && !rawData.fundamentals.overview.name) {
-          rawData.fundamentals.overview.name = quote.name;
-        }
-        try {
-          await logQuoteClose(quote);
-        } catch (err) {
-          console.warn(
-            `[getStockReport] logQuoteClose failed for ${symbol}:`,
-            err.message
+      try {
+        const quote = await getQuoteAndIndicators(symbol);
+        if (!quote && !rawData.quote) {
+          console.error(
+            `[getStockReport] Missing quote/indicators for ${symbol}`
           );
+          return null;
         }
-        didFetch = true;
+        if (quote) {
+          rawData.quote = quote;
+          rawData.freshness.priceUpdatedAt = now();
+          if (quote.name && !rawData.fundamentals.overview.name) {
+            rawData.fundamentals.overview.name = quote.name;
+          }
+          try {
+            await logQuoteClose(quote);
+          } catch (err) {
+            console.warn(
+              `[getStockReport] logQuoteClose failed for ${symbol}:`,
+              err.message
+            );
+          }
+          didFetch = true;
+        }
+      } catch (err) {
+        const { AlphaVantageError } = require("./dataFetch");
+        if (
+          err instanceof AlphaVantageError &&
+          err.code === "rate_limit" &&
+          rawData.quote
+        ) {
+          console.warn(
+            `[getStockReport] price refetch rate-limited for ${symbol} — keeping cached quote and continuing`
+          );
+        } else {
+          throw err;
+        }
       }
     } else {
       console.log(`[getStockReport] price fresh for ${symbol}`);

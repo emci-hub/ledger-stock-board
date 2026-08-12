@@ -343,10 +343,10 @@ async function start() {
       "[cron] Scheduled cleanupStaleCache + joke pool top-up monthly (1st, 04:00)"
     );
 
-    // One-shot heal after shared-fetch merge: drop fallback ai_reports + flat
-    // pre-merge price rows, then refreshBoard so Gemini/shared indicators rebuild.
+    // One-shot heal after shared-fetch merge: drop fallback ai_reports, mark flat
+    // prices stale (keep quotes), restore any wiped quotes from legacy cache, then refresh.
     (async () => {
-      const healKey = "sharedCacheHeal_v1";
+      const healKey = "sharedCacheHeal_v2";
       const already = await getSetting(healKey);
       if (already) {
         console.log(`[startup] ${healKey} already done at ${already}`);
@@ -360,13 +360,16 @@ async function start() {
       }
 
       console.log(
-        "[startup] Running shared-cache heal (invalidate fallbacks + flat prices, then refreshBoard)"
+        "[startup] Running shared-cache heal v2 (invalidate fallbacks, restore quotes, refreshBoard)"
+      );
+      console.log(
+        `[startup] twelve_data key present=${hasSourceKey("twelve_data")} marketaux=${hasSourceKey("marketaux")} gemini=${hasSourceKey("gemini")}`
       );
       const result = await invalidateBoardStaleCaches();
       await refreshBoard();
       await setSetting(healKey, new Date().toISOString());
       console.log(
-        `[startup] shared-cache heal complete — aiDeleted=${result.aiDeleted}, priceInvalidated=${result.priceInvalidated}`
+        `[startup] shared-cache heal v2 complete — aiDeleted=${result.aiDeleted}, priceInvalidated=${result.priceInvalidated}, quotesRestored=${result.quotesRestored}`
       );
     })().catch((err) => {
       console.error("[startup] shared-cache heal failed:", err.message);

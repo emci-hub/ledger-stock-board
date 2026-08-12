@@ -18,12 +18,8 @@ function isFallbackSummaryJson(summaryJson) {
         ? parsed.quip.trim()
         : null;
 
-    if (summary.includes("wasn't available")) return true;
-    // Dual/legacy rows with no usable take text
+    if (summary.toLowerCase().includes("wasn't available")) return true;
     if (!summary.trim()) return true;
-    // Failed dual path often left quip null + fallback wording already covered;
-    // also treat explicit FALLBACK deepDive + empty tags as failed when quip missing
-    // and summary is the canned fallback.
     if (!quip && summary === FALLBACK_SUMMARY) return true;
     return false;
   } catch {
@@ -36,14 +32,57 @@ function hasSharedIndicatorShape(data) {
   return Boolean(ind && ind.short && ind.long);
 }
 
+function preferModeRank(mode) {
+  if (mode === "long") return 0;
+  if (mode === "short") return 1;
+  return 2;
+}
+
+/** Restore quote from legacy stock_cache when shared row was wiped. */
+async function restoreQuoteFromLegacy(ticker, data) {
+  try {
+    const rows = await dbAll(
+      `SELECT mode, data_json, last_updated FROM stock_cache WHERE ticker = ?`,
+      [ticker]
+    );
+    if (!rows.length) return false;
+
+    rows.sort(
+      (a, b) =>
+        preferModeRank(a.mode) - preferModeRank(b.mode) ||
+        String(b.last_updated).localeCompare(String(a.last_updated))
+    );
+
+    for (const row of rows) {
+      try {
+        const legacy = JSON.parse(row.data_json);
+        if (legacy?.quote?.price?.current != null) {
+          data.quote = legacy.quote;
+          if (!data.freshness) data.freshness = {};
+          // Keep displayable quote but force rebuild under shared shape.
+          data.freshness.priceUpdatedAt = null;
+          return true;
+        }
+      } catch {
+        /* try next */
+      }
+    }
+  } catch {
+    /* legacy table may not exist */
+  }
+  return false;
+}
+
 /**
- * Clear failed Gemini fallbacks and pre-merge flat price rows for board tickers
- * so the next refreshBoard rebuilds shared indicators + dual+quip analysis.
+ * Clear failed Gemini fallbacks for board tickers.
+ * Mark flat pre-merge price rows stale WITHOUT wiping the quote (keeps board visible).
+ * Restore quotes from legacy stock_cache if a prior heal nulled them.
  */
 async function invalidateBoardStaleCaches(tickers = BOARD_TICKERS) {
   const board = tickers.map((t) => String(t).toUpperCase());
   let aiDeleted = 0;
   let priceInvalidated = 0;
+  let quotesRestored = 0;
 
   for (const ticker of board) {
     const ai = await dbGet(
@@ -53,10 +92,11 @@ async function invalidateBoardStaleCaches(tickers = BOARD_TICKERS) {
     if (ai && isFallbackSummaryJson(ai.summary_json)) {
       await dbRun(`DELETE FROM ai_reports WHERE ticker = ?`, [ticker]);
       aiDeleted += 1;
-      console.log(`[invalidateBoardStaleCaches] deleted fallback ai_reports for ${ticker}`);
+      console.log(
+        `[invalidateBoardStaleCaches] deleted fallback ai_reports for ${ticker}`
+      );
     }
 
-    // Also clear legacy mode-keyed fallbacks if present
     try {
       const legacy = await dbAll(
         `SELECT mode, summary_json FROM ai_summaries WHERE ticker = ?`,
@@ -71,7 +111,7 @@ async function invalidateBoardStaleCaches(tickers = BOARD_TICKERS) {
         }
       }
     } catch {
-      /* legacy table optional */
+      /* optional */
     }
 
     const stock = await dbGet(
@@ -84,34 +124,57 @@ async function invalidateBoardStaleCaches(tickers = BOARD_TICKERS) {
     try {
       data = JSON.parse(stock.data_json);
     } catch {
-      await dbRun(`DELETE FROM stock_reports WHERE ticker = ?`, [ticker]);
-      priceInvalidated += 1;
       continue;
     }
 
-    if (!hasSharedIndicatorShape(data)) {
-      // Keep news/target/peers; force price refetch under shared {short,long} shape.
-      if (data.freshness) data.freshness.priceUpdatedAt = null;
-      else data.freshness = { priceUpdatedAt: null, targetUpdatedAt: null, newsUpdatedAt: null };
-      // Drop flat quote so isPriceFresh cannot treat it as usable shared history.
-      data.quote = null;
+    let changed = false;
 
+    if (!data.quote || data.quote.price?.current == null) {
+      const restored = await restoreQuoteFromLegacy(ticker, data);
+      if (restored) {
+        quotesRestored += 1;
+        changed = true;
+        console.log(
+          `[invalidateBoardStaleCaches] restored quote from legacy stock_cache for ${ticker}`
+        );
+      }
+    }
+
+    if (data.quote && !hasSharedIndicatorShape(data)) {
+      if (!data.freshness) {
+        data.freshness = {
+          priceUpdatedAt: null,
+          targetUpdatedAt: null,
+          newsUpdatedAt: null,
+        };
+      } else {
+        data.freshness.priceUpdatedAt = null;
+      }
+      // Keep quote for display; isPriceFresh requires shared short/long shape so refresh rebuilds.
+      priceInvalidated += 1;
+      changed = true;
+      console.log(
+        `[invalidateBoardStaleCaches] marked flat price stale (kept quote) for ${ticker}`
+      );
+    }
+
+    if (changed) {
       await dbRun(
         `INSERT OR REPLACE INTO stock_reports (ticker, data_json, last_updated)
          VALUES (?, ?, ?)`,
-        [ticker, JSON.stringify(data), stock.last_updated || new Date().toISOString()]
-      );
-      priceInvalidated += 1;
-      console.log(
-        `[invalidateBoardStaleCaches] cleared flat pre-merge price cache for ${ticker}`
+        [
+          ticker,
+          JSON.stringify(data),
+          stock.last_updated || new Date().toISOString(),
+        ]
       );
     }
   }
 
   console.log(
-    `[invalidateBoardStaleCaches] Done — aiDeleted=${aiDeleted}, priceInvalidated=${priceInvalidated}`
+    `[invalidateBoardStaleCaches] Done — aiDeleted=${aiDeleted}, priceInvalidated=${priceInvalidated}, quotesRestored=${quotesRestored}`
   );
-  return { aiDeleted, priceInvalidated };
+  return { aiDeleted, priceInvalidated, quotesRestored };
 }
 
 module.exports = {

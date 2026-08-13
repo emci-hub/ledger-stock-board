@@ -67,6 +67,7 @@ async function retryMorningFailures(options = {}) {
     try {
       const report = await getStockReport(ticker, "long", {
         skipPeers: false,
+        forceRefresh: true,
         ...(options.smartRefresh ? { smartRefresh: true } : {}),
       });
       if (!report) {

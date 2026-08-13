@@ -1,6 +1,10 @@
 const { dbGet, dbRun } = require("../db/schema");
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+/** Analyst targets change slowly — refresh at most every 3 days (was 24h). */
+const TARGET_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+/** Earnings calendar — refresh weekly unless date is past. */
+const EARNINGS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const FALLBACK_SUMMARY_SNIPPET = "wasn't available";
 
@@ -16,6 +20,7 @@ function emptyFreshness() {
     priceUpdatedAt: null,
     targetUpdatedAt: null,
     newsUpdatedAt: null,
+    earningsUpdatedAt: null,
   };
 }
 
@@ -25,6 +30,7 @@ function freshnessFromData(data) {
     priceUpdatedAt: f.priceUpdatedAt || null,
     targetUpdatedAt: f.targetUpdatedAt || null,
     newsUpdatedAt: f.newsUpdatedAt || null,
+    earningsUpdatedAt: f.earningsUpdatedAt || null,
   };
 }
 
@@ -43,21 +49,48 @@ function isPriceFresh(data) {
 }
 
 function isTargetFresh(data) {
-  return isFresh(freshnessFromData(data).targetUpdatedAt);
+  return isFresh(freshnessFromData(data).targetUpdatedAt, TARGET_TTL_MS);
 }
 
 function isNewsFresh(data) {
   return isFresh(freshnessFromData(data).newsUpdatedAt);
 }
 
-/** Fully skippable only when price, target, and news are all under 24h. */
+function isEarningsDatePast(earningsDate) {
+  if (!earningsDate) return true;
+  const first = String(earningsDate).split(",")[0].trim();
+  const t = Date.parse(first);
+  if (Number.isNaN(t)) return true;
+  const day = new Date(t);
+  day.setHours(23, 59, 59, 999);
+  return day.getTime() < Date.now();
+}
+
+function isEarningsFresh(data) {
+  const overview = data?.fundamentals?.overview || {};
+  const date = overview.earningsDate;
+  if (!date || isEarningsDatePast(date)) return false;
+  return isFresh(freshnessFromData(data).earningsUpdatedAt, EARNINGS_TTL_MS);
+}
+
+/** Fully skippable only when price, target, news, and earnings are all fresh. */
 function isFullyFresh(data) {
-  return isPriceFresh(data) && isTargetFresh(data) && isNewsFresh(data);
+  return (
+    isPriceFresh(data) &&
+    isTargetFresh(data) &&
+    isNewsFresh(data) &&
+    isEarningsFresh(data)
+  );
 }
 
 function latestFreshnessIso(data) {
   const f = freshnessFromData(data);
-  const times = [f.priceUpdatedAt, f.targetUpdatedAt, f.newsUpdatedAt]
+  const times = [
+    f.priceUpdatedAt,
+    f.targetUpdatedAt,
+    f.newsUpdatedAt,
+    f.earningsUpdatedAt,
+  ]
     .filter(Boolean)
     .map((t) => Date.parse(t))
     .filter((n) => !Number.isNaN(n));
@@ -243,6 +276,8 @@ async function saveSummaryToCache(ticker, _mode, summary) {
 
 module.exports = {
   CACHE_TTL_MS,
+  TARGET_TTL_MS,
+  EARNINGS_TTL_MS,
   isFresh,
   emptyFreshness,
   freshnessFromData,
@@ -250,6 +285,8 @@ module.exports = {
   isPriceFresh,
   isTargetFresh,
   isNewsFresh,
+  isEarningsFresh,
+  isEarningsDatePast,
   isFullyFresh,
   latestFreshnessIso,
   getStockCacheEntry,

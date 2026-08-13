@@ -29,7 +29,8 @@ const {
   PROVIDERS,
 } = require("./services/usage");
 const { AlphaVantageError } = require("./services/dataFetch");
-const { DATA_SOURCES, hasSourceKey, sourcesLegend } = require("./lib/dataSources");
+const { DATA_SOURCES, hasSourceKey, sourcesLegend, sourceRole } = require("./lib/dataSources");
+const { getLastCapabilityProbe } = require("./jobs/capabilityProbe");
 
 const app = express();
 const PORT = 3000;
@@ -104,25 +105,33 @@ async function buildStatusPayload() {
   return {
     alphaVantageUsedToday: alphaUsed,
     alphaVantageLimit: DAILY_AV_LIMIT,
-    alphaVantageRole: "news_primary_price_target_fallback",
+    alphaVantageRole:
+      sourceRole("alpha_vantage") || "analyst_target_specialist_news_fallback",
     twelveDataUsedToday: twelveUsed,
     twelveDataLimit: DAILY_TWELVE_LIMIT,
-    twelveDataRole: "price_indicators_target_primary",
+    twelveDataRole:
+      sourceRole("twelve_data") || "price_indicators_discovery_primary",
     twelveDataConfigured: twelveAvailable,
     finnhubUsedToday: finnhubUsed,
     finnhubLimitPerMinute: DATA_SOURCES.finnhub.rateLimit.limit,
     finnhubSoftCapPerMinute: DATA_SOURCES.finnhub.rateLimit.softCap,
     finnhubRateDelayTriggeredToday: finnhubDelayTriggered,
-    finnhubRole: "news_sentiment_and_peers",
+    finnhubRole: sourceRole("finnhub") || "peers_and_earnings_primary",
     marketauxUsedToday: marketauxUsed,
     marketauxLimit: DAILY_MARKETAUX_LIMIT,
-    marketauxRole: "news_sentiment",
+    marketauxRole: sourceRole("marketaux") || "news_primary",
     marketauxConfigured: hasSourceKey("marketaux"),
     geminiUsedToday: geminiUsed,
+    geminiLimit: null,
+    geminiRole: sourceRole("gemini") || "synthesis_only",
+    geminiLimitNote:
+      "Free-tier daily limit unclear externally — tracked empirically via api_usage",
     newSearchesAvailableToday,
     sourcesLegend: sourcesLegend(),
     lastBoardRefresh: await getSetting("lastBoardRefresh"),
     boardRefreshStatus: await getSetting("lastBoardRefreshStatus"),
+    lastCapabilityProbe: await getLastCapabilityProbe(),
+    lastCapabilityProbeAt: await getSetting("lastCapabilityProbeAt"),
     resetsAt: nextMidnightPacificIso(),
   };
 }
@@ -342,7 +351,7 @@ async function start() {
       });
     });
     console.log(
-      "[cron] Scheduled cleanupStaleCache + joke pool top-up monthly (1st, 04:00)"
+      "[cron] Scheduled cleanupStaleCache + joke pool + capabilityProbe monthly (1st, 04:00)"
     );
 
     // One-shot heal after shared-fetch merge: drop fallback ai_reports, mark flat

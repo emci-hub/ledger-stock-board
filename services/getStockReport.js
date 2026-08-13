@@ -7,6 +7,7 @@ const {
   isPriceFresh,
   isTargetFresh,
   isNewsFresh,
+  isEarningsFresh,
   emptyFreshness,
   freshnessFromData,
   normalizeDualAnalysis,
@@ -17,6 +18,7 @@ const {
   getAnalystTarget,
   getCombinedNews,
   getPeers,
+  getEarningsDateFromFinnhub,
   AlphaVantageError,
 } = require("./dataFetch");
 const { analyzeStock } = require("./analyze");
@@ -400,7 +402,6 @@ async function loadSharedStockData(ticker, options = {}) {
         overview.analystTargetSource = target?.source || null;
         if (target?.week52High != null) overview.week52High = target.week52High;
         if (target?.week52Low != null) overview.week52Low = target.week52Low;
-        if (target?.earningsDate) overview.earningsDate = target.earningsDate;
         if (!local) {
           if (target?.name) overview.name = overview.name || target.name;
           if (target?.sector) overview.sector = overview.sector || target.sector;
@@ -423,8 +424,25 @@ async function loadSharedStockData(ticker, options = {}) {
     } else {
       console.log(`[getStockReport] target fresh for ${symbol}`);
     }
+
+    if (!isEarningsFresh(rawData)) {
+      console.log(
+        `[getStockReport] earnings stale/missing for ${symbol} — Finnhub calendar`
+      );
+      const earnings = await getEarningsDateFromFinnhub(symbol);
+      if (earnings) {
+        const overview = rawData.fundamentals.overview;
+        overview.earningsDate = earnings.earningsDate || null;
+        overview.earningsSource = earnings.source || "finnhub";
+        if (earnings.hour) overview.earningsHour = earnings.hour;
+        rawData.freshness.earningsUpdatedAt = now();
+      }
+      didFetch = true;
+    } else {
+      console.log(`[getStockReport] earnings fresh for ${symbol}`);
+    }
   } else {
-    console.log(`[getStockReport] newsOnly for ${symbol} — skipping price/target`);
+    console.log(`[getStockReport] newsOnly for ${symbol} — skipping price/target/earnings`);
     if (!rawData.quote) {
       console.error(
         `[getStockReport] newsOnly requested but no cached quote for ${symbol}`
@@ -435,7 +453,7 @@ async function loadSharedStockData(ticker, options = {}) {
 
   if (!newsOk) {
     console.log(
-      `[getStockReport] news stale/missing for ${symbol} — fetching registry news sources in parallel`
+      `[getStockReport] news stale/missing for ${symbol} — Marketaux primary, AV fallback-only`
     );
     const combined = await getCombinedNews(symbol);
     rawData.fundamentals.news = combined.alpha?.news || [];

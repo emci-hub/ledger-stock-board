@@ -749,7 +749,7 @@
           : null;
       const alpha =
         s.alphaVantageUsedToday != null && s.alphaVantageLimit != null
-          ? `${s.alphaVantageUsedToday}/${s.alphaVantageLimit} ${shortOf("alpha_vantage", "AV")} news`
+          ? `${s.alphaVantageUsedToday}/${s.alphaVantageLimit} ${shortOf("alpha_vantage", "AV")} target`
           : null;
       const finnhub =
         s.finnhubUsedToday != null
@@ -762,7 +762,11 @@
         s.marketauxUsedToday != null && s.marketauxLimit != null
           ? `${s.marketauxUsedToday}/${s.marketauxLimit} ${shortOf("marketaux", "MX")}`
           : null;
-      const usageBits = [twelve, alpha, finnhub, marketaux]
+      const gemini =
+        s.geminiUsedToday != null
+          ? `${s.geminiUsedToday} ${shortOf("gemini", "AI")}`
+          : null;
+      const usageBits = [twelve, alpha, finnhub, marketaux, gemini]
         .filter(Boolean)
         .join(" · ");
       el.innerHTML = `<span class="dot"></span><span class="meta-line">Board last refreshed: ${escapeHtml(refreshed)}</span><span class="meta-line">New stock searches available today: ${escapeHtml(searches)}</span>${usageBits ? `<span class="meta-line">${escapeHtml(usageBits)}</span>` : ""}`;

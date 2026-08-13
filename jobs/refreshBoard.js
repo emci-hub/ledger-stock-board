@@ -10,6 +10,7 @@ const { setSetting } = require("../services/usage");
 const { AlphaVantageError } = require("../services/dataFetch");
 const { ensureJokePool } = require("../services/jokes");
 const { BOARD_TICKERS } = require("../lib/boardTickers");
+const { runCapabilityProbe } = require("./capabilityProbe");
 
 /** Neutral "roughly flat" band vs logged price (±3%). */
 const FLAT_BAND = 0.03;
@@ -190,6 +191,13 @@ async function cleanupStaleCache() {
     console.warn("[cleanupStaleCache] ensureJokePool failed:", err.message);
   }
 
+  let capabilityProbe = null;
+  try {
+    capabilityProbe = await runCapabilityProbe();
+  } catch (err) {
+    console.warn("[cleanupStaleCache] capabilityProbe failed:", err.message);
+  }
+
   const finishedAt = new Date().toISOString();
   await setSetting("lastStaleCacheCleanup", finishedAt);
 
@@ -197,7 +205,7 @@ async function cleanupStaleCache() {
     `[cleanupStaleCache] Done — deleted≈${deleted} at ${finishedAt}`
   );
 
-  return { deleted, finishedAt };
+  return { deleted, finishedAt, capabilityProbe };
 }
 
 /**
@@ -226,7 +234,7 @@ async function refreshBoard(_mode) {
       if (fullyFresh && summaryFresh) {
         cacheReused += 1;
         console.log(
-          `[refreshBoard] ${ticker} price+target+news all fresh (<24h) — skipping live fetch`
+          `[refreshBoard] ${ticker} price+target+news+earnings fresh — skipping live fetch`
         );
         // Display mode long so board status uses the long-term take.
         const report = await getStockReport(ticker, "long", { skipPeers: false });

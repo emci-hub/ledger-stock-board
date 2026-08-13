@@ -13,7 +13,6 @@ const {
   nextMidnightPacificIso,
 } = require("./usage");
 const {
-  enabledSourcesFor,
   hasSourceKey,
   sourceLabel,
 } = require("../lib/dataSources");
@@ -531,7 +530,9 @@ async function getAnalystTargetFromTwelveData(ticker) {
 }
 
 /**
- * Analyst target from Alpha Vantage OVERVIEW (also returns name/sector extras).
+ * Analyst target from Alpha Vantage OVERVIEW (scarce specialist — AV's live target role).
+ * Also returns name/sector/52w extras when present. Earnings date is NOT taken from here
+ * (Finnhub calendar is primary for earnings).
  */
 async function getAnalystTargetFromAlphaOverview(ticker) {
   const symbol = String(ticker).toUpperCase();
@@ -555,41 +556,16 @@ async function getAnalystTargetFromAlphaOverview(ticker) {
     peRatio: num(overview.PERatio),
     week52High: num(overview["52WeekHigh"]),
     week52Low: num(overview["52WeekLow"]),
-    // Present on some OVERVIEW payloads; null when absent.
-    earningsDate:
-      overview.EarningsDate ||
-      overview.NextEarningsDate ||
-      overview.EarningsReportDate ||
-      null,
   };
 }
 
 /**
- * Try Twelve Data price_target first; on plan/unavailable errors fall back to AV overview.
- * Never throws for soft failures — returns null target instead.
+ * Analyst target: Alpha Vantage OVERVIEW only.
+ * Twelve Data /price_target is Grow-plan-only (confirmed) — not used on the live path;
+ * the monthly capability probe still checks that it stays blocked.
  */
 async function getAnalystTarget(ticker) {
   const symbol = String(ticker).toUpperCase();
-
-  if (hasTwelveKey() && !twelvePriceTargetPlanBlocked) {
-    try {
-      const fromTwelve = await getAnalystTargetFromTwelveData(symbol);
-      console.log(`[getAnalystTarget] ${symbol} source=twelve_data`);
-      return fromTwelve;
-    } catch (err) {
-      if (err instanceof TwelveDataError && err.code === "plan_restricted") {
-        twelvePriceTargetPlanBlocked = true;
-        console.warn(
-          `[getAnalystTarget] Twelve Data price_target plan-restricted — using Alpha Vantage overview for ${symbol} (and later tickers this process)`
-        );
-      } else {
-        console.warn(
-          `[getAnalystTarget] Twelve Data failed for ${symbol} — falling back to Alpha Vantage:`,
-          err.message
-        );
-      }
-    }
-  }
 
   try {
     const fromAlpha = await getAnalystTargetFromAlphaOverview(symbol);
@@ -606,11 +582,79 @@ async function getAnalystTarget(ticker) {
         rateLimited: true,
       };
     }
-    console.error(`[getAnalystTarget] Both sources failed for ${symbol}:`, err.message);
+    console.error(`[getAnalystTarget] Alpha Vantage failed for ${symbol}:`, err.message);
     return {
       analystTargetPrice: null,
       source: null,
     };
+  }
+}
+
+function formatYmd(d) {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Next earnings date from Finnhub /calendar/earnings (free tier: ~1 month US).
+ */
+async function getEarningsDateFromFinnhub(ticker) {
+  try {
+    const symbol = String(ticker).toUpperCase();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const from = new Date(today);
+    from.setDate(from.getDate() - 7);
+    const to = new Date(today);
+    to.setMonth(to.getMonth() + 1);
+
+    const data = await callFinnhub("/calendar/earnings", {
+      symbol,
+      from: formatYmd(from),
+      to: formatYmd(to),
+    });
+
+    const rows = Array.isArray(data?.earningsCalendar)
+      ? data.earningsCalendar
+      : [];
+    const upcoming = rows
+      .map((r) => ({
+        date: r?.date ? String(r.date).slice(0, 10) : null,
+        hour: r?.hour || null,
+        epsEstimate: num(r?.epsEstimate),
+        revenueEstimate: num(r?.revenueEstimate),
+      }))
+      .filter((r) => r.date)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const todayStr = formatYmd(today);
+    const next =
+      upcoming.find((r) => r.date >= todayStr) || upcoming[upcoming.length - 1] || null;
+
+    if (!next) {
+      console.warn(`[getEarningsDateFromFinnhub] No calendar rows for ${symbol}`);
+      return {
+        earningsDate: null,
+        source: "finnhub",
+        hour: null,
+      };
+    }
+
+    console.log(
+      `[getEarningsDateFromFinnhub] ${symbol} → ${next.date}${next.hour ? ` (${next.hour})` : ""}`
+    );
+    return {
+      earningsDate: next.date,
+      source: "finnhub",
+      hour: next.hour,
+      epsEstimate: next.epsEstimate,
+      revenueEstimate: next.revenueEstimate,
+    };
+  } catch (err) {
+    console.error(
+      `[getEarningsDateFromFinnhub] Failed for ${ticker}:`,
+      err.message
+    );
+    return null;
   }
 }
 
@@ -767,7 +811,7 @@ async function getNewsFromMarketaux(ticker) {
   }
 }
 
-/** Capability → fetcher map (registry-driven news aggregation). */
+/** Capability → fetcher map (kept for optional direct probes / tests). */
 const NEWS_FETCHERS = {
   alpha_vantage: getNewsSentiment,
   finnhub: getNewsFromFinnhub,
@@ -775,47 +819,79 @@ const NEWS_FETCHERS = {
 };
 
 /**
- * Fetch all enabled news sources from the registry in parallel.
- * One failure never blocks another.
+ * Marketaux primary scored news; Alpha Vantage NEWS_SENTIMENT only if Marketaux fails.
+ * Finnhub scored /news-sentiment is free-tier blocked — not called on the live path.
  */
 async function getCombinedNews(ticker) {
-  const enabled = enabledSourcesFor("news");
-  const settled = await Promise.all(
-    enabled.map(async (src) => {
-      const fetch = NEWS_FETCHERS[src.id];
-      if (!fetch) return { id: src.id, data: null };
-      try {
-        return { id: src.id, data: await fetch(ticker) };
-      } catch (err) {
-        console.error(
-          `[getCombinedNews] ${sourceLabel(src.id)} failed:`,
-          err.message
-        );
-        return { id: src.id, data: null };
-      }
-    })
+  const symbol = String(ticker).toUpperCase();
+  let marketaux = null;
+  let alpha = null;
+
+  if (hasMarketauxKey()) {
+    try {
+      marketaux = await getNewsFromMarketaux(symbol);
+    } catch (err) {
+      console.error(
+        `[getCombinedNews] ${sourceLabel("marketaux")} failed:`,
+        err.message
+      );
+      marketaux = null;
+    }
+  }
+
+  const marketauxOk = Boolean(
+    marketaux &&
+      (marketaux.sentimentScore != null ||
+        (Array.isArray(marketaux.articles) && marketaux.articles.length > 0))
   );
 
-  const byId = Object.fromEntries(settled.map((r) => [r.id, r.data]));
-  const sources = settled.filter((r) => r.data).map((r) => r.id);
+  if (!marketauxOk) {
+    console.log(
+      `[getCombinedNews] ${symbol} Marketaux miss — trying Alpha Vantage news fallback`
+    );
+    try {
+      alpha = await getNewsSentiment(symbol);
+    } catch (err) {
+      console.error(
+        `[getCombinedNews] ${sourceLabel("alpha_vantage")} fallback failed:`,
+        err.message
+      );
+      alpha = null;
+    }
+  } else {
+    console.log(
+      `[getCombinedNews] ${symbol} Marketaux ok — skipping Alpha Vantage news`
+    );
+  }
+
+  const sources = [];
+  if (marketauxOk) sources.push("marketaux");
+  if (alpha && Array.isArray(alpha.news) && alpha.news.length > 0) {
+    sources.push("alpha_vantage");
+  }
 
   return {
-    alpha: byId.alpha_vantage || null,
-    finnhub: byId.finnhub || null,
-    marketaux: byId.marketaux || null,
-    byId,
+    alpha: alpha || null,
+    finnhub: null,
+    marketaux: marketauxOk ? marketaux : null,
+    byId: {
+      marketaux: marketauxOk ? marketaux : null,
+      alpha_vantage: alpha || null,
+      finnhub: null,
+    },
     sources,
     pending: sources.length === 0,
   };
 }
 
 /**
- * @deprecated Prefer getAnalystTarget + getCombinedNews. Kept for compatibility.
+ * @deprecated Prefer getAnalystTarget + getCombinedNews + getEarningsDateFromFinnhub.
  */
 async function getFundamentalsAndNews(ticker) {
   const target = await getAnalystTarget(ticker);
   await sleep(1200);
   const combined = await getCombinedNews(ticker);
+  const earnings = await getEarningsDateFromFinnhub(ticker);
 
   return {
     ticker: String(ticker).toUpperCase(),
@@ -830,7 +906,8 @@ async function getFundamentalsAndNews(ticker) {
       analystTargetSource: target?.source || null,
       week52High: target?.week52High ?? null,
       week52Low: target?.week52Low ?? null,
-      earningsDate: target?.earningsDate || null,
+      earningsDate: earnings?.earningsDate || null,
+      earningsSource: earnings?.source || null,
     },
     news: combined.alpha?.news || [],
     newsFinnhub: combined.finnhub || null,
@@ -891,6 +968,8 @@ module.exports = {
   callMarketaux,
   getQuoteAndIndicators,
   getAnalystTarget,
+  getAnalystTargetFromTwelveData,
+  getEarningsDateFromFinnhub,
   getNewsSentiment,
   getNewsFromFinnhub,
   getNewsFromMarketaux,

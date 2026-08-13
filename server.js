@@ -656,6 +656,7 @@ async function start() {
         await resolveOldRecommendations();
         let moodOk = true;
         let tidbitOk = true;
+        let discovery = null;
         try {
           const { refreshMarketMood } = require("./services/marketMood");
           await refreshMarketMood();
@@ -670,14 +671,36 @@ async function start() {
           tidbitOk = false;
           console.error("[cron didYouKnow]", err.message);
         }
+        try {
+          discovery = await discoverHotStocks({ warmReports: true });
+          console.log(
+            "[cron discoverHotStocks]",
+            discovery?.ok ? "ok" : discovery?.error || "done",
+            discovery?.summary || ""
+          );
+          await recordJobRun("daily_discovery", {
+            ok: Boolean(discovery?.ok !== false && !discovery?.error),
+            summary: discovery?.error
+              ? `failed: ${discovery.error}`
+              : `added=${discovery?.added?.length ?? discovery?.addedCount ?? 0} · promoted=${discovery?.rePromoted?.length ?? discovery?.rePromotedCount ?? 0} · archived=${discovery?.archived?.length ?? discovery?.archivedCount ?? 0}`,
+            detail: discovery,
+          });
+        } catch (err) {
+          console.error("[cron discoverHotStocks]", err.message);
+          await recordJobRun("daily_discovery", {
+            ok: false,
+            summary: `failed: ${err.message}`,
+          }).catch(() => {});
+        }
         await recordJobRun("daily_board_refresh", {
           ok: board?.boardRefreshStatus !== "failed" &&
             board?.boardRefreshStatus !== "failed_rate_limit",
-          summary: `board=${board?.boardRefreshStatus}; ok=${board?.successes}/${board?.tickerCount}; mood=${moodOk ? "ok" : "fail"}; tidbits=${tidbitOk ? "ok" : "fail"}`,
+          summary: `board=${board?.boardRefreshStatus}; ok=${board?.successes}/${board?.tickerCount}; mood=${moodOk ? "ok" : "fail"}; tidbits=${tidbitOk ? "ok" : "fail"}; discovery=${discovery?.ok === false ? "fail" : "ok"}`,
           detail: {
             board,
             moodOk,
             tidbitOk,
+            discovery,
           },
         });
       })().catch(async (err) => {
@@ -693,7 +716,7 @@ async function start() {
       });
     });
     console.log(
-      "[cron] Scheduled refreshBoard + resolve + marketMood + didYouKnow batch check daily at 07:00"
+      "[cron] Scheduled refreshBoard + resolve + marketMood + didYouKnow + discoverHotStocks daily at 07:00"
     );
 
     cron.schedule("0 4 1 * *", () => {
@@ -718,17 +741,6 @@ async function start() {
     });
     console.log(
       "[cron] Scheduled cleanupStaleCache + joke pool + capabilityProbe monthly (1st, 04:00)"
-    );
-
-    // Weekly hot-stock discovery (Sundays 06:00) — OFF until manually enabled.
-    // Uses Twelve Data market_movers; archives weakest when over BOARD_MAX_SIZE.
-    // cron.schedule("0 6 * * 0", () => {
-    //   discoverHotStocks()
-    //     .then((r) => console.log("[cron discoverHotStocks]", r?.ok ? "ok" : r?.error))
-    //     .catch((err) => console.error("[cron discoverHotStocks]", err.message));
-    // });
-    console.log(
-      "[cron] discoverHotStocks weekly schedule is DISABLED (commented) — enable when ready"
     );
 
     // One-shot heal after shared-fetch merge: drop fallback ai_reports, mark flat

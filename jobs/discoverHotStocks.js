@@ -3,7 +3,7 @@
  * Compares movers to the live board, re-promotes archived hits, and
  * adds genuinely new candidates under BOARD_MAX_SIZE (archiving weakest).
  *
- * Do NOT schedule this until manually verified — cron stays commented in server.js.
+ * Scheduled daily right after the 7am board refresh (see server.js).
  */
 
 const { setSetting } = require("../services/usage");

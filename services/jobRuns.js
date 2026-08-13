@@ -10,7 +10,7 @@ const JOB_DEFS = [
     schedule: "0 7 * * * (server local / UTC on Render)",
     enabled: true,
     description:
-      "refreshBoard + resolveOldRecommendations + marketMood + didYouKnow batch check",
+      "refreshBoard + resolveOldRecommendations + marketMood + didYouKnow + daily discoverHotStocks",
   },
   {
     id: "news_catchup_1pm",
@@ -21,11 +21,12 @@ const JOB_DEFS = [
       "Planned news-only catch-up — not wired in cron yet (newsOnly path exists in getStockReport).",
   },
   {
-    id: "weekly_discovery",
-    name: "Weekly hot-stock discovery",
-    schedule: "0 6 * * 0 (Sundays) — DISABLED",
-    enabled: false,
-    description: "discoverHotStocks via Twelve Data movers; cron commented off.",
+    id: "daily_discovery",
+    name: "Daily hot-stock discovery",
+    schedule: "daily with 7am refresh (after board refresh)",
+    enabled: true,
+    description:
+      "discoverHotStocks via Twelve Data movers; DISCOVERY_MAX_NEW cap; BOARD_MAX_SIZE archive/re-promote.",
   },
   {
     id: "monthly_cleanup_probe",
@@ -83,6 +84,17 @@ async function listJobStatuses() {
           finishedAt: at,
           ok: status === "full_success" || status === "partial",
           summary: status ? `boardRefreshStatus=${status} (from app_settings)` : null,
+        };
+      }
+    }
+    if (!last && def.id === "daily_discovery") {
+      const at = await getSetting("lastHotStockDiscoveryAt");
+      const status = await getSetting("lastHotStockDiscoveryStatus");
+      if (at) {
+        last = {
+          finishedAt: at,
+          ok: !status || !String(status).startsWith("failed"),
+          summary: status ? `status=${status}` : null,
         };
       }
     }

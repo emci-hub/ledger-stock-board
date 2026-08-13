@@ -26,6 +26,7 @@ const { analyzeStock } = require("./analyze");
 const { logQuoteClose } = require("./priceHistoryLog");
 const { getTickerInfo } = require("../lib/tickerInfo");
 const { sourceShortCode, formatSourceList } = require("../lib/dataSources");
+const { resolveProviderId } = require("../lib/aiProvider");
 const { deriveDataCaveats } = require("../lib/dataCaveats");
 const { computeNewsAgreement } = require("../lib/newsAgreement");
 const {
@@ -173,6 +174,8 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
   const earnings = buildEarningsFlag(overview.earningsDate);
   const peers = Array.isArray(rawData?.peers) ? rawData.peers : [];
   const newsAgreement = computeNewsAgreement(rawData?.fundamentals);
+  const analysisProvider = resolveProviderId() || "gemini";
+  const analysisSourceLabel = sourceShortCode(analysisProvider);
 
   const dual = normalizeDualAnalysis(analysis);
   const take = pickAnalysisTake(dual, displayMode);
@@ -242,6 +245,8 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     newsSourceLabel: formatSourceList(newsSources),
     newsPending,
     newsAgreement,
+    analysisSource: analysisProvider,
+    analysisSourceLabel,
     weekRange: weekRangeOut,
     earnings,
     peers,
@@ -261,7 +266,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
         target: sourceShortCode(targetSource),
         news: formatSourceList(newsSources),
         peers: peers.length ? sourceShortCode("finnhub") : null,
-        analysis: sourceShortCode("gemini"),
+        analysis: analysisSourceLabel,
       },
       weekRange: weekRangeOut,
       earnings,

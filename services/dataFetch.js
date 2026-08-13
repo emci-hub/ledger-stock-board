@@ -16,6 +16,12 @@ const {
   hasSourceKey,
   sourceLabel,
 } = require("../lib/dataSources");
+const {
+  getActiveBudget,
+  getActiveOutcomes,
+  QuotaSkippedError,
+} = require("./quotaBudget");
+const { getCallContextTicker } = require("./callContext");
 
 const ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query";
 const FINNHUB_BASE = "https://finnhub.io/api/v1";
@@ -121,6 +127,36 @@ function isPlanRestrictedMessage(msg, data) {
   );
 }
 
+function noteQuotaSkip(provider, action) {
+  const outcomes = getActiveOutcomes();
+  if (!outcomes) return;
+  if (!Array.isArray(outcomes.skippedNoQuota)) outcomes.skippedNoQuota = [];
+  outcomes.skippedNoQuota.push({
+    field: action || provider,
+    reason: "no_quota",
+    provider,
+    ticker: getCallContextTicker(),
+  });
+}
+
+function noteRefreshed(field) {
+  const outcomes = getActiveOutcomes();
+  if (!outcomes) return;
+  if (!Array.isArray(outcomes.refreshedFields)) outcomes.refreshedFields = [];
+  if (!outcomes.refreshedFields.includes(field)) {
+    outcomes.refreshedFields.push(field);
+  }
+}
+
+function consumeOrThrow(provider, action) {
+  const budget = getActiveBudget();
+  if (!budget) return;
+  if (!budget.tryConsume(provider, 1, { action, ticker: getCallContextTicker() })) {
+    noteQuotaSkip(provider, action);
+    throw new QuotaSkippedError(provider);
+  }
+}
+
 /**
  * Sole Alpha Vantage HTTP entry point — always increments alpha_vantage usage.
  */
@@ -133,6 +169,7 @@ async function callAlphaVantage(params) {
     );
   }
 
+  consumeOrThrow(PROVIDERS.ALPHA, params?.function || "alpha_vantage");
   await incrementUsage(PROVIDERS.ALPHA, {
     action: params?.function || "alpha_vantage",
   });
@@ -204,6 +241,7 @@ async function acquireFinnhubSlot() {
 
 async function callFinnhub(pathname, params = {}) {
   await acquireFinnhubSlot();
+  consumeOrThrow(PROVIDERS.FINNHUB, pathname || "finnhub");
   await incrementUsage(PROVIDERS.FINNHUB, {
     action: pathname || "finnhub",
   });
@@ -219,6 +257,7 @@ async function callFinnhub(pathname, params = {}) {
  * Sole Marketaux HTTP entry point — always increments marketaux usage.
  */
 async function callMarketaux(pathname, params = {}) {
+  consumeOrThrow(PROVIDERS.MARKETAUX, pathname || "marketaux");
   await incrementUsage(PROVIDERS.MARKETAUX, {
     action: pathname || "marketaux",
   });
@@ -242,6 +281,7 @@ async function callMarketaux(pathname, params = {}) {
  * Sole Twelve Data HTTP entry point — always increments twelve_data usage.
  */
 async function callTwelveData(pathname, params = {}) {
+  consumeOrThrow(PROVIDERS.TWELVE, pathname || "twelve_data");
   await incrementUsage(PROVIDERS.TWELVE, {
     action: pathname || "twelve_data",
   });
@@ -475,15 +515,18 @@ async function getQuoteAndIndicators(ticker, _mode) {
       );
       return quote;
     } catch (err) {
-      // Do not fall through to AV on Twelve rate limits — AV is reserved for news
-      // and is often already exhausted; falling through blanks the board.
-      if (err instanceof AlphaVantageError && err.code === "rate_limit") {
+      if (err instanceof QuotaSkippedError) {
+        console.warn(
+          `[getQuoteAndIndicators] ${symbol} twelve_data skipped — no quota; trying Alpha Vantage if available`
+        );
+      } else if (err instanceof AlphaVantageError && err.code === "rate_limit") {
+        // Do not fall through to AV on Twelve rate limits — AV is reserved for news
+        // and is often already exhausted; falling through blanks the board.
         console.error(
           `[getQuoteAndIndicators] Twelve Data rate-limited for ${symbol} — not falling back to Alpha Vantage`
         );
         throw err;
-      }
-      if (err instanceof AlphaVantageError && err.code === "invalid_ticker") {
+      } else if (err instanceof AlphaVantageError && err.code === "invalid_ticker") {
         console.warn(
           `[getQuoteAndIndicators] Twelve Data invalid for ${symbol} — trying Alpha Vantage`
         );
@@ -505,6 +548,12 @@ async function getQuoteAndIndicators(ticker, _mode) {
     console.log(`[getQuoteAndIndicators] ${symbol} source=alpha_vantage`);
     return quote;
   } catch (err) {
+    if (err instanceof QuotaSkippedError) {
+      console.warn(
+        `[getQuoteAndIndicators] ${symbol} alpha_vantage skipped — no quota`
+      );
+      throw err;
+    }
     if (err instanceof AlphaVantageError) throw err;
     console.error(`[getQuoteAndIndicators] Failed for ${ticker}:`, err.message);
     return null;
@@ -582,6 +631,14 @@ async function getAnalystTarget(ticker) {
     console.log(`[getAnalystTarget] ${symbol} source=alpha_vantage`);
     return fromAlpha;
   } catch (err) {
+    if (err instanceof QuotaSkippedError) {
+      console.warn(`[getAnalystTarget] ${symbol} skipped — no Alpha Vantage quota`);
+      return {
+        analystTargetPrice: null,
+        source: null,
+        quotaSkipped: true,
+      };
+    }
     if (err instanceof AlphaVantageError && err.code === "rate_limit") {
       console.warn(
         `[getAnalystTarget] Alpha Vantage rate-limited for ${symbol} — target=null`
@@ -660,6 +717,10 @@ async function getEarningsDateFromFinnhub(ticker) {
       revenueEstimate: next.revenueEstimate,
     };
   } catch (err) {
+    if (err instanceof QuotaSkippedError) {
+      console.warn(`[getEarningsDateFromFinnhub] ${ticker} skipped — no Finnhub quota`);
+      return null;
+    }
     console.error(
       `[getEarningsDateFromFinnhub] Failed for ${ticker}:`,
       err.message
@@ -710,6 +771,7 @@ async function getNewsSentiment(ticker) {
 
     return { ticker: symbol, source: "alpha_vantage", news: articles };
   } catch (err) {
+    if (err instanceof QuotaSkippedError) throw err;
     console.error(`[getNewsSentiment] Failed for ${ticker}:`, err.message);
     return null;
   }
@@ -816,6 +878,7 @@ async function getNewsFromMarketaux(ticker) {
       highlight: scored[0].highlight,
     };
   } catch (err) {
+    if (err instanceof QuotaSkippedError) throw err;
     console.error(`[getNewsFromMarketaux] Failed for ${ticker}:`, err.message);
     return null;
   }
@@ -836,15 +899,24 @@ async function getCombinedNews(ticker) {
   const symbol = String(ticker).toUpperCase();
   let marketaux = null;
   let alpha = null;
+  let mxQuotaSkipped = false;
+  let avQuotaSkipped = false;
 
   if (hasMarketauxKey()) {
     try {
       marketaux = await getNewsFromMarketaux(symbol);
     } catch (err) {
-      console.error(
-        `[getCombinedNews] ${sourceLabel("marketaux")} failed:`,
-        err.message
-      );
+      if (err instanceof QuotaSkippedError) {
+        mxQuotaSkipped = true;
+        console.warn(
+          `[getCombinedNews] ${symbol} marketaux skipped — no quota`
+        );
+      } else {
+        console.error(
+          `[getCombinedNews] ${sourceLabel("marketaux")} failed:`,
+          err.message
+        );
+      }
       marketaux = null;
     }
   }
@@ -862,10 +934,17 @@ async function getCombinedNews(ticker) {
     try {
       alpha = await getNewsSentiment(symbol);
     } catch (err) {
-      console.error(
-        `[getCombinedNews] ${sourceLabel("alpha_vantage")} fallback failed:`,
-        err.message
-      );
+      if (err instanceof QuotaSkippedError) {
+        avQuotaSkipped = true;
+        console.warn(
+          `[getCombinedNews] ${symbol} alpha_vantage news skipped — no quota`
+        );
+      } else {
+        console.error(
+          `[getCombinedNews] ${sourceLabel("alpha_vantage")} fallback failed:`,
+          err.message
+        );
+      }
       alpha = null;
     }
   } else {
@@ -880,6 +959,14 @@ async function getCombinedNews(ticker) {
     sources.push("alpha_vantage");
   }
 
+  const pending = sources.length === 0;
+  if (pending && (mxQuotaSkipped || avQuotaSkipped)) {
+    // Both paths unavailable due to quota — surface as pending, not a hard throw.
+    console.warn(
+      `[getCombinedNews] ${symbol} news pending — skipped for quota (mx=${mxQuotaSkipped} av=${avQuotaSkipped})`
+    );
+  }
+
   return {
     alpha: alpha || null,
     finnhub: null,
@@ -890,7 +977,8 @@ async function getCombinedNews(ticker) {
       finnhub: null,
     },
     sources,
-    pending: sources.length === 0,
+    pending,
+    quotaSkipped: mxQuotaSkipped || avQuotaSkipped,
   };
 }
 
@@ -1047,6 +1135,10 @@ async function getPeers(ticker) {
 
     return peers;
   } catch (err) {
+    if (err instanceof QuotaSkippedError) {
+      console.warn(`[getPeers] ${ticker} skipped — no Finnhub quota`);
+      return null;
+    }
     const status = err.response?.status;
     const body = err.response?.data;
     console.error(
@@ -1079,5 +1171,6 @@ module.exports = {
   getPriceHistoryFromTwelveData,
   AlphaVantageError,
   TwelveDataError,
+  QuotaSkippedError,
   nextMidnightPacificIso,
 };

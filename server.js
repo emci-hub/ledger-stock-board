@@ -485,9 +485,12 @@ async function buildDevStatusPayload() {
     generatedAt: new Date().toISOString(),
     lastBoardRefresh: await getSetting("lastBoardRefresh"),
     boardRefreshStatus: await getSetting("lastBoardRefreshStatus"),
+    lastSmartRefresh: await getSetting("lastSmartRefresh"),
+    lastSmartRefreshStatus: await getSetting("lastSmartRefreshStatus"),
     lastForceRefresh: await getSetting("lastForceRefresh"),
     lastForceRefreshStatus: await getSetting("lastForceRefreshStatus"),
     forceRefresh: getForceRefreshState(),
+    smartRefresh: getForceRefreshState(),
     sources,
     lastCallByProvider: await getLastCallByProvider(),
     recentCalls: await getRecentApiCalls(30),
@@ -508,7 +511,7 @@ app.get("/api/dev/status", async (req, res) => {
   }
 });
 
-app.post("/api/admin/force-refresh", async (req, res) => {
+async function handleSmartRefresh(req, res) {
   if (!devAuthOk(req)) return rejectDevUnauthorized(res);
   try {
     const state = getForceRefreshState();
@@ -517,7 +520,7 @@ app.post("/api/admin/force-refresh", async (req, res) => {
         ok: false,
         alreadyRunning: true,
         startedAt: state.startedAt,
-        message: "Force refresh already in progress.",
+        message: "Smart refresh already in progress.",
         lastResult: state.lastResult,
       });
     }
@@ -527,14 +530,17 @@ app.post("/api/admin/force-refresh", async (req, res) => {
     }
     return res.json(result);
   } catch (err) {
-    console.error("[POST /api/admin/force-refresh]", err.message);
+    console.error("[POST smart-refresh]", err.message);
     return res.status(500).json({
       ok: false,
-      error: "Force refresh failed.",
+      error: "Smart refresh failed.",
       detail: err.message,
     });
   }
-});
+}
+
+app.post("/api/admin/force-refresh", handleSmartRefresh);
+app.post("/api/admin/smart-refresh", handleSmartRefresh);
 
 app.get("/api/admin/force-refresh", async (req, res) => {
   if (!devAuthOk(req)) return rejectDevUnauthorized(res);

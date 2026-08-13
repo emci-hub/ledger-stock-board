@@ -36,10 +36,11 @@ const JOB_DEFS = [
   },
   {
     id: "manual_force_refresh",
-    name: "Manual force refresh all",
+    name: "Manual smart refresh",
     schedule: "on demand (dev-status only)",
     enabled: true,
-    description: "Bypasses freshness TTLs once; in-progress lock prevents double-fire.",
+    description:
+      "Quota-aware priority waterfall: board gaps → recent lookups → 1–2 archived. Respects freshness; skips sources with 0 remaining quota.",
   },
 ];
 
@@ -86,12 +87,16 @@ async function listJobStatuses() {
       }
     }
     if (!last && def.id === "manual_force_refresh") {
-      const at = await getSetting("lastForceRefresh");
-      const status = await getSetting("lastForceRefreshStatus");
+      const at =
+        (await getSetting("lastSmartRefresh")) ||
+        (await getSetting("lastForceRefresh"));
+      const status =
+        (await getSetting("lastSmartRefreshStatus")) ||
+        (await getSetting("lastForceRefreshStatus"));
       if (at) {
         last = {
           finishedAt: at,
-          ok: status === "full_success" || status === "partial",
+          ok: status === "ok" || status === "full_success" || status === "partial",
           summary: status ? `status=${status}` : null,
         };
       }

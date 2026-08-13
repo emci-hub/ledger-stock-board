@@ -1,0 +1,491 @@
+/**
+ * Smart Refresh — quota-aware, freshness-respecting priority waterfall.
+ * Priority 1: live board gaps · Priority 2: recent lookups · Priority 3: 1–2 archived.
+ * Never bypasses freshness TTLs. Never double-fires (in-progress lock).
+ */
+const { dbAll, dbRun } = require("../db/schema");
+const {
+  getStockCacheEntry,
+  getCachedSummary,
+  isFullyFresh,
+  isPriceFresh,
+  isTargetFresh,
+  isNewsFresh,
+  isEarningsFresh,
+  freshnessFromData,
+} = require("../services/cache");
+const { getStockReport } = require("../services/getStockReport");
+const { getUsageToday, PROVIDERS, setSetting } = require("../services/usage");
+const { recordJobRun } = require("../services/jobRuns");
+const {
+  createQuotaBudget,
+  runWithBudget,
+} = require("../services/quotaBudget");
+const {
+  getActiveBoardTickers,
+  listArchivedBoardPicks,
+  getPick,
+} = require("../lib/boardPicks");
+const { statusFromAnalysis, logRecommendation } = require("./refreshBoard");
+
+let inProgress = false;
+let startedAt = null;
+let lastResult = null;
+
+const USAGE_PROVIDERS = [
+  { key: "twelve_data", provider: PROVIDERS.TWELVE },
+  { key: "alpha_vantage", provider: PROVIDERS.ALPHA },
+  { key: "finnhub", provider: PROVIDERS.FINNHUB },
+  { key: "marketaux", provider: PROVIDERS.MARKETAUX },
+  { key: "gemini", provider: PROVIDERS.GEMINI },
+  { key: "claude", provider: PROVIDERS.CLAUDE },
+];
+
+const ARCHIVE_REFRESH_LIMIT = 2;
+const RECENT_LOOKUP_LIMIT = 10;
+
+function emptyTier(id, name) {
+  return {
+    id,
+    name,
+    refreshed: [],
+    alreadyCurrent: [],
+    skippedNoQuota: [],
+    failed: [],
+    tickersConsidered: 0,
+  };
+}
+
+async function snapshotUsage() {
+  const out = {};
+  for (const { key, provider } of USAGE_PROVIDERS) {
+    out[key] = await getUsageToday(provider);
+  }
+  return out;
+}
+
+function usageDelta(before, after) {
+  const calls = {};
+  let total = 0;
+  for (const { key } of USAGE_PROVIDERS) {
+    const n = Math.max(0, Number(after[key] || 0) - Number(before[key] || 0));
+    calls[key] = n;
+    total += n;
+  }
+  return { calls, total };
+}
+
+function assessNeeds(entry, summary) {
+  const data = entry?.data || null;
+  const price = !isPriceFresh(data);
+  const target = !isTargetFresh(data);
+  const news = !isNewsFresh(data);
+  const earnings = !isEarningsFresh(data);
+  const peers = !(Array.isArray(data?.peers) && data.peers.length > 0);
+  const analysis = !summary;
+  const fully = data && isFullyFresh(data) && Boolean(summary);
+  return {
+    price,
+    target,
+    news,
+    earnings,
+    peers,
+    analysis,
+    any: price || target || news || earnings || peers || analysis,
+    fullyFresh: Boolean(fully),
+  };
+}
+
+/**
+ * Sources required to satisfy each stale field (primary first).
+ * Used only for pre-flight "would this be blocked by zero quota?" messaging.
+ */
+function sourcesForNeed(needKey) {
+  switch (needKey) {
+    case "price":
+      return ["twelve_data", "alpha_vantage"];
+    case "target":
+      return ["alpha_vantage"];
+    case "news":
+      return ["marketaux", "alpha_vantage"];
+    case "earnings":
+    case "peers":
+      return ["finnhub"];
+    case "analysis":
+      return ["gemini"];
+    default:
+      return [];
+  }
+}
+
+function preflightQuotaSkips(needs, budget) {
+  const skipped = [];
+  for (const key of ["price", "target", "news", "earnings", "peers", "analysis"]) {
+    if (!needs[key]) continue;
+    const sources = sourcesForNeed(key);
+    const anyOk = sources.some((s) => budget.hasQuota(s));
+    if (!anyOk) {
+      skipped.push({
+        field: key,
+        reason: "no_quota",
+        sources,
+      });
+    }
+  }
+  return skipped;
+}
+
+async function listRecentNonBoardTickers(boardSet, limit = RECENT_LOOKUP_LIMIT) {
+  const rows = await dbAll(
+    `SELECT ticker, last_updated FROM stock_reports
+     ORDER BY last_updated DESC
+     LIMIT 40`
+  );
+  const out = [];
+  for (const row of rows || []) {
+    const t = String(row.ticker).toUpperCase();
+    if (boardSet.has(t)) continue;
+    out.push(t);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+async function listStaleArchivedTickers(limit = ARCHIVE_REFRESH_LIMIT) {
+  const archived = await listArchivedBoardPicks();
+  const scored = [];
+  for (const pick of archived || []) {
+    const ticker = String(pick.ticker).toUpperCase();
+    const entry = await getStockCacheEntry(ticker);
+    const f = freshnessFromData(entry?.data);
+    const times = [
+      f.priceUpdatedAt,
+      f.targetUpdatedAt,
+      f.newsUpdatedAt,
+      f.earningsUpdatedAt,
+      entry?.lastUpdated,
+    ]
+      .filter(Boolean)
+      .map((x) => Date.parse(x))
+      .filter((n) => !Number.isNaN(n));
+    const oldest = times.length ? Math.min(...times) : 0;
+    scored.push({ ticker, oldest });
+  }
+  scored.sort((a, b) => a.oldest - b.oldest);
+  return scored.slice(0, limit).map((s) => s.ticker);
+}
+
+async function upsertLiveStatus(ticker, status, sector) {
+  const prev = await getPick(ticker);
+  await dbRun(
+    `INSERT OR REPLACE INTO board_picks
+      (ticker, status, added_at, sector, archived_at, source)
+     VALUES (?, ?, ?, ?, NULL, ?)`,
+    [
+      ticker,
+      status,
+      prev?.added_at || new Date().toISOString(),
+      sector || null,
+      prev?.source || "seed",
+    ]
+  );
+}
+
+/**
+ * Refresh one ticker respecting freshness + quota budget.
+ * Returns a per-ticker outcome for the tier summary.
+ */
+async function processTicker(ticker, budget, { updateBoard = false } = {}) {
+  const symbol = String(ticker).toUpperCase();
+  const entry = await getStockCacheEntry(symbol);
+  const summary = await getCachedSummary(symbol);
+  const needs = assessNeeds(entry, summary);
+
+  if (!needs.any) {
+    return {
+      ticker: symbol,
+      status: "already_current",
+      detail: "All fields fresh — left alone",
+    };
+  }
+
+  const preSkips = preflightQuotaSkips(needs, budget);
+  const actionable = ["price", "target", "news", "earnings", "peers", "analysis"].filter(
+    (k) => needs[k] && !preSkips.some((s) => s.field === k)
+  );
+
+  if (!actionable.length) {
+    return {
+      ticker: symbol,
+      status: "skipped_no_quota",
+      detail: "Stale fields present but every required source has 0 remaining quota",
+      skippedFields: preSkips,
+      needed: needs,
+    };
+  }
+
+  const outcomes = {
+    ticker: symbol,
+    refreshedFields: [],
+    skippedNoQuota: [...preSkips],
+    failedFields: [],
+  };
+
+  try {
+    const report = await runWithBudget(budget, outcomes, () =>
+      getStockReport(symbol, "long", {
+        skipPeers: false,
+        smartRefresh: true,
+      })
+    );
+
+    if (!report) {
+      return {
+        ticker: symbol,
+        status: "failed",
+        detail: "No report returned",
+        skippedFields: outcomes.skippedNoQuota,
+      };
+    }
+
+    if (updateBoard) {
+      const lean = report.analysis?.lean;
+      const risk = report.analysis?.risk;
+      const status = statusFromAnalysis(lean, risk);
+      if (status) {
+        await upsertLiveStatus(symbol, status, report.sector || null);
+        if (status === "recommended" && report.price != null) {
+          await logRecommendation(symbol, report.price, lean);
+        }
+      }
+    }
+
+    const status =
+      outcomes.skippedNoQuota.length && outcomes.refreshedFields.length
+        ? "partial"
+        : outcomes.skippedNoQuota.length && !outcomes.refreshedFields.length
+          ? "skipped_no_quota"
+          : "refreshed";
+
+    return {
+      ticker: symbol,
+      status,
+      detail:
+        status === "refreshed"
+          ? `Refreshed: ${(outcomes.refreshedFields || []).join(", ") || "data"}`
+          : status === "partial"
+            ? `Partial refresh; some fields skipped — no quota`
+            : "Skipped — no quota",
+      refreshedFields: outcomes.refreshedFields,
+      skippedFields: outcomes.skippedNoQuota,
+      needed: needs,
+    };
+  } catch (err) {
+    return {
+      ticker: symbol,
+      status: "failed",
+      detail: err.message,
+      skippedFields: outcomes.skippedNoQuota,
+    };
+  }
+}
+
+function applyTickerResult(tier, result) {
+  tier.tickersConsidered += 1;
+  if (result.status === "already_current") {
+    tier.alreadyCurrent.push(result);
+  } else if (result.status === "skipped_no_quota") {
+    tier.skippedNoQuota.push(result);
+  } else if (result.status === "failed") {
+    tier.failed.push(result);
+  } else {
+    // refreshed | partial
+    tier.refreshed.push(result);
+    if (result.status === "partial" && result.skippedFields?.length) {
+      // Also surface quota skips at tier level for clarity
+      tier.skippedNoQuota.push({
+        ...result,
+        status: "partial_no_quota",
+      });
+    }
+  }
+}
+
+async function runTier(tier, tickers, budget, opts) {
+  for (const ticker of tickers) {
+    const result = await processTicker(ticker, budget, opts);
+    applyTickerResult(tier, result);
+    console.log(
+      `[smartRefresh] ${tier.id} ${ticker} → ${result.status}${
+        result.detail ? ` (${result.detail})` : ""
+      }`
+    );
+  }
+  return tier;
+}
+
+function summarizeTier(tiers) {
+  return tiers.map((t) => ({
+    id: t.id,
+    name: t.name,
+    considered: t.tickersConsidered,
+    refreshedCount: t.refreshed.length,
+    alreadyCurrentCount: t.alreadyCurrent.length,
+    skippedNoQuotaCount: t.skippedNoQuota.length,
+    failedCount: t.failed.length,
+    refreshed: t.refreshed.map((r) => ({
+      ticker: r.ticker,
+      fields: r.refreshedFields || [],
+      detail: r.detail,
+    })),
+    alreadyCurrent: t.alreadyCurrent.map((r) => r.ticker),
+    skippedNoQuota: t.skippedNoQuota.map((r) => ({
+      ticker: r.ticker,
+      detail: r.detail,
+      fields: (r.skippedFields || []).map((f) => f.field || f),
+    })),
+    failed: t.failed.map((r) => ({ ticker: r.ticker, detail: r.detail })),
+  }));
+}
+
+function getForceRefreshState() {
+  return {
+    inProgress,
+    startedAt,
+    lastResult,
+    mode: "smart_refresh",
+  };
+}
+
+const getSmartRefreshState = getForceRefreshState;
+
+/**
+ * Smart refresh once. Returns immediately with alreadyRunning if in flight.
+ */
+async function smartRefreshAll() {
+  if (inProgress) {
+    return {
+      ok: false,
+      alreadyRunning: true,
+      startedAt,
+      message: "Smart refresh already in progress — not starting another run.",
+      lastResult,
+    };
+  }
+
+  inProgress = true;
+  startedAt = new Date().toISOString();
+  const usageBefore = await snapshotUsage();
+  const budget = await createQuotaBudget();
+
+  try {
+    console.log(`[smartRefresh] Starting at ${startedAt}`);
+    console.log(
+      `[smartRefresh] Quota remaining at start:`,
+      budget.snapshot().remaining
+    );
+
+    const boardTickers = await getActiveBoardTickers();
+    const boardSet = new Set(boardTickers.map((t) => String(t).toUpperCase()));
+
+    const tier1 = emptyTier("priority_1_board", "Priority 1 — live board gaps");
+    const tier2 = emptyTier(
+      "priority_2_recent",
+      "Priority 2 — recently looked up"
+    );
+    const tier3 = emptyTier("priority_3_archive", "Priority 3 — archived (1–2)");
+
+    await runTier(tier1, boardTickers, budget, { updateBoard: true });
+
+    // Only continue waterfall if any daily-limited source still has room,
+    // or Finnhub run budget remains — otherwise P2/P3 would only no-op.
+    const recentTickers = await listRecentNonBoardTickers(boardSet);
+    await runTier(tier2, recentTickers, budget, { updateBoard: false });
+
+    const archiveTickers = await listStaleArchivedTickers(ARCHIVE_REFRESH_LIMIT);
+    await runTier(tier3, archiveTickers, budget, { updateBoard: false });
+
+    const usageAfter = await snapshotUsage();
+    const { calls, total } = usageDelta(usageBefore, usageAfter || {});
+    const tiers = summarizeTier([tier1, tier2, tier3]);
+
+    const refreshedTotal = tiers.reduce((n, t) => n + t.refreshedCount, 0);
+    const currentTotal = tiers.reduce((n, t) => n + t.alreadyCurrentCount, 0);
+    const quotaSkipTotal = tiers.reduce((n, t) => n + t.skippedNoQuotaCount, 0);
+    const failedTotal = tiers.reduce((n, t) => n + t.failedCount, 0);
+
+    const result = {
+      ok: true,
+      alreadyRunning: false,
+      mode: "smart_refresh",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      message:
+        "Smart refresh completed — freshness respected, quota checked before each source.",
+      tiers,
+      totals: {
+        refreshed: refreshedTotal,
+        alreadyCurrent: currentTotal,
+        skippedNoQuota: quotaSkipTotal,
+        failed: failedTotal,
+      },
+      callsBySource: calls,
+      totalCalls: total,
+      usageBefore,
+      usageAfter,
+      quota: budget.snapshot(),
+      note: "Shared report covers both short and long AI takes in one Gemini call when analysis is refreshed.",
+    };
+
+    lastResult = result;
+    await setSetting("lastSmartRefresh", result.finishedAt);
+    await setSetting(
+      "lastSmartRefreshStatus",
+      failedTotal && !refreshedTotal ? "failed" : "ok"
+    );
+    await recordJobRun("manual_force_refresh", {
+      ok: true,
+      summary: `smart · refreshed=${refreshedTotal} current=${currentTotal} noQuota=${quotaSkipTotal} fail=${failedTotal} · ${total} calls`,
+      detail: result,
+    });
+
+    console.log(
+      `[smartRefresh] Done — refreshed=${refreshedTotal} current=${currentTotal} noQuota=${quotaSkipTotal} calls=${total}`
+    );
+    return result;
+  } catch (err) {
+    const usageAfter = await snapshotUsage().catch(() => usageBefore);
+    const { calls, total } = usageDelta(usageBefore, usageAfter || {});
+    const result = {
+      ok: false,
+      alreadyRunning: false,
+      mode: "smart_refresh",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      message: err.message || "Smart refresh failed.",
+      callsBySource: calls,
+      totalCalls: total,
+      usageBefore,
+      usageAfter,
+    };
+    lastResult = result;
+    await recordJobRun("manual_force_refresh", {
+      ok: false,
+      summary: `smart failed: ${err.message}`,
+      detail: result,
+    }).catch(() => {});
+    throw err;
+  } finally {
+    inProgress = false;
+  }
+}
+
+/** Backward-compatible alias used by existing admin route. */
+const forceRefreshAll = smartRefreshAll;
+
+module.exports = {
+  smartRefreshAll,
+  forceRefreshAll,
+  getForceRefreshState,
+  getSmartRefreshState,
+};

@@ -94,13 +94,15 @@
     </div>
 
     <div class="card">
-      <h2>Force refresh all</h2>
+      <h2>Smart refresh</h2>
       <p style="margin:0 0 8px;color:var(--muted);font-size:13px;line-height:1.45;">
-        Bypasses freshness TTLs for every live board ticker once (shared short+long report).
-        Spends real API quota. Confirmation required. Double-clicks while running are ignored.
+        Quota-aware priority waterfall: fill live board gaps first, then recent lookups,
+        then 1–2 archived names. Respects freshness TTLs (does not force everything stale).
+        Sources with 0 remaining quota are skipped and reported. Confirmation required.
       </p>
-      <button type="button" class="danger" id="force-btn">Force refresh all…</button>
+      <button type="button" class="danger" id="force-btn">Smart refresh…</button>
       <div id="force-result" class="hidden"></div>
+      <div id="tier-summary" class="hidden" style="margin-top:14px;"></div>
     </div>
 
     <div class="card">
@@ -254,15 +256,78 @@
           .join("")
       : `<tr><td colspan="5" style="color:var(--muted);">No calls logged yet (new log starts after deploy).</td></tr>`;
 
-    const fr = data.forceRefresh || {};
+    const fr = data.smartRefresh || data.forceRefresh || {};
     const forceBtn = document.getElementById("force-btn");
     if (fr.inProgress) {
       forceBtn.disabled = true;
-      forceBtn.textContent = "Force refresh running…";
+      forceBtn.textContent = "Smart refresh running…";
     } else {
       forceBtn.disabled = false;
-      forceBtn.textContent = "Force refresh all…";
+      forceBtn.textContent = "Smart refresh…";
     }
+
+    const last = fr.lastResult;
+    if (last?.tiers) {
+      renderTierSummary(last);
+    }
+  }
+
+  function renderTierSummary(result) {
+    const box = document.getElementById("tier-summary");
+    if (!result?.tiers?.length) {
+      box.classList.add("hidden");
+      return;
+    }
+    box.classList.remove("hidden");
+    const totals = result.totals || {};
+    const quota = result.quota?.remaining || {};
+    box.innerHTML = `
+      <h2 style="margin-top:0;">Last smart refresh breakdown</h2>
+      <p class="mono" style="color:var(--muted);margin:0 0 10px;">
+        refreshed=${totals.refreshed ?? "—"} · already current=${totals.alreadyCurrent ?? "—"} ·
+        no quota=${totals.skippedNoQuota ?? "—"} · failed=${totals.failed ?? "—"} ·
+        calls=${result.totalCalls ?? "—"}
+      </p>
+      ${(result.tiers || [])
+        .map((t) => {
+          const refreshed = (t.refreshed || [])
+            .map(
+              (r) =>
+                `${escapeHtml(r.ticker)}${
+                  r.fields?.length ? ` [${escapeHtml(r.fields.join(", "))}]` : ""
+                }`
+            )
+            .join(", ") || "—";
+          const current = (t.alreadyCurrent || []).map(escapeHtml).join(", ") || "—";
+          const skipped = (t.skippedNoQuota || [])
+            .map(
+              (r) =>
+                `${escapeHtml(r.ticker)}${
+                  r.fields?.length ? ` [${escapeHtml(r.fields.join(", "))}]` : ""
+                }`
+            )
+            .join(", ") || "—";
+          const failed = (t.failed || [])
+            .map((r) => escapeHtml(r.ticker))
+            .join(", ") || "—";
+          return `<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+            <div style="font-weight:600;margin-bottom:6px;">${escapeHtml(t.name)}</div>
+            <div class="mono" style="font-size:12px;line-height:1.55;">
+              <div><span class="ok">Refreshed</span>: ${refreshed}</div>
+              <div>Already current: ${current}</div>
+              <div><span class="warn">Skipped — no quota</span>: ${skipped}</div>
+              <div><span class="bad">Failed</span>: ${failed}</div>
+            </div>
+          </div>`;
+        })
+        .join("")}
+      <p class="mono" style="color:var(--muted);font-size:11px;margin:8px 0 0;">
+        Remaining after run:
+        TD=${quota.twelve_data ?? "∞"} ·
+        AV=${quota.alpha_vantage ?? "∞"} ·
+        MX=${quota.marketaux ?? "∞"} ·
+        FH(run)=${quota.finnhub ?? "∞"}
+      </p>`;
   }
 
   async function loadStatus() {
@@ -307,31 +372,29 @@
 
   document.getElementById("force-btn").addEventListener("click", async () => {
     const ok = window.confirm(
-      "Force refresh ALL live board tickers now?\n\nThis bypasses freshness caches and spends real API quota (Twelve / AV / Finnhub / Marketaux / Gemini). Runs once — not a loop."
+      "Run Smart Refresh now?\n\nFills genuine board gaps first (respecting freshness), then recent lookups, then 1–2 archived names — only while quota remains. Sources at 0 remaining are skipped. Runs once."
     );
     if (!ok) return;
 
     const btn = document.getElementById("force-btn");
     const out = document.getElementById("force-result");
     btn.disabled = true;
-    btn.textContent = "Force refresh running…";
+    btn.textContent = "Smart refresh running…";
     out.classList.remove("hidden");
-    out.textContent = "Running single-pass force refresh…";
+    out.textContent = "Running quota-aware smart refresh…";
 
-    const { res, data } = await api("/api/admin/force-refresh", {
+    const { res, data } = await api("/api/admin/smart-refresh", {
       method: "POST",
       body: "{}",
     });
 
-    if (res.status === 409) {
-      out.textContent = JSON.stringify(data, null, 2);
-    } else if (!res.ok) {
+    if (res.status === 409 || !res.ok) {
       out.textContent = JSON.stringify(data, null, 2);
     } else {
+      const t = data.totals || {};
       const lines = [
         data.message || "Done",
-        `Tickers: ${data.succeeded}/${data.tickers} succeeded (${data.failed} failed/skipped)`,
-        `Status: ${data.boardRefreshStatus}`,
+        `Totals: refreshed=${t.refreshed ?? 0} · already current=${t.alreadyCurrent ?? 0} · no quota=${t.skippedNoQuota ?? 0} · failed=${t.failed ?? 0}`,
         `Total API calls this run: ${data.totalCalls}`,
         "Calls by source:",
         ...Object.entries(data.callsBySource || {}).map(
@@ -339,6 +402,7 @@
         ),
       ];
       out.textContent = lines.join("\n");
+      renderTierSummary(data);
     }
     await loadStatus();
   });

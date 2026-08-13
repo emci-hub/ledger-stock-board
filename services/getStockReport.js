@@ -20,6 +20,7 @@ const {
   getPeers,
   getEarningsDateFromFinnhub,
   AlphaVantageError,
+  QuotaSkippedError,
 } = require("./dataFetch");
 const { analyzeStock } = require("./analyze");
 const { logQuoteClose } = require("./priceHistoryLog");
@@ -35,6 +36,16 @@ const {
   normalizeLabelList,
 } = require("../lib/indicatorTags");
 const { runWithCallContext } = require("./callContext");
+const { getActiveOutcomes, getActiveBudget } = require("./quotaBudget");
+
+function noteFieldRefreshed(field) {
+  const outcomes = getActiveOutcomes();
+  if (!outcomes) return;
+  if (!Array.isArray(outcomes.refreshedFields)) outcomes.refreshedFields = [];
+  if (!outcomes.refreshedFields.includes(field)) {
+    outcomes.refreshedFields.push(field);
+  }
+}
 
 /** In-flight shared-data loads keyed by ticker only (mode is display-only). */
 const inFlight = new Map();
@@ -308,7 +319,8 @@ function ensureRawShape(rawData) {
  * Mode is not used for fetching or storage.
  * options.skipPeers — skip Finnhub peers when true.
  * options.newsOnly — refresh news (and re-analyze if needed); skip price/target/peers.
- * options.forceRefresh — treat every freshness check as stale (manual force only).
+ * options.smartRefresh — when a QuotaBudget is active, skip sources with 0 remaining
+ *   instead of failing hard; respects normal freshness (does not force stale).
  */
 async function loadSharedStockData(ticker, options = {}) {
   const symbol = String(ticker).toUpperCase();
@@ -320,17 +332,17 @@ async function loadSharedStockData(ticker, options = {}) {
 async function loadSharedStockDataInner(symbol, options = {}) {
   const skipPeers = Boolean(options.skipPeers);
   const newsOnly = Boolean(options.newsOnly);
-  const forceRefresh = Boolean(options.forceRefresh);
+  const smartRefresh = Boolean(options.smartRefresh);
 
   const entry = await getStockCacheEntry(symbol);
   let rawData = ensureRawShape(entry?.data);
   let analysis = await getCachedSummary(symbol);
 
-  const priceOk = forceRefresh ? false : isPriceFresh(rawData);
-  const targetOk = forceRefresh ? false : isTargetFresh(rawData);
-  const newsOk = forceRefresh ? false : isNewsFresh(rawData);
-  const earningsOk = forceRefresh ? false : isEarningsFresh(rawData);
-  const fullyFresh = forceRefresh ? false : isFullyFresh(rawData);
+  const priceOk = isPriceFresh(rawData);
+  const targetOk = isTargetFresh(rawData);
+  const newsOk = isNewsFresh(rawData);
+  const earningsOk = isEarningsFresh(rawData);
+  const fullyFresh = isFullyFresh(rawData);
 
   if (fullyFresh && analysis && !newsOnly) {
     // Still fill missing peers — empty [] used to stick forever on full cache hits.
@@ -338,8 +350,14 @@ async function loadSharedStockDataInner(symbol, options = {}) {
       console.log(
         `[getStockReport] full cache hit for ${symbol} but peers empty — fetching peers only`
       );
-      rawData.peers = (await getPeers(symbol)) || [];
-      await saveStockToCache(symbol, null, rawData);
+      try {
+        rawData.peers = (await getPeers(symbol)) || [];
+        if (rawData.peers.length) noteFieldRefreshed("peers");
+        await saveStockToCache(symbol, null, rawData);
+      } catch (err) {
+        if (!(err instanceof QuotaSkippedError)) throw err;
+        console.warn(`[getStockReport] peers skipped — no quota for ${symbol}`);
+      }
     } else {
       console.log(
         `[getStockReport] full cache hit for ${symbol} — no live API calls`
@@ -358,9 +376,7 @@ async function loadSharedStockDataInner(symbol, options = {}) {
 
   if (!newsOnly) {
     if (!priceOk) {
-      console.log(
-        `[getStockReport] price ${forceRefresh ? "forced" : "stale/missing"} for ${symbol} — fetching`
-      );
+      console.log(`[getStockReport] price stale/missing for ${symbol} — fetching`);
       try {
         const quote = await getQuoteAndIndicators(symbol);
         if (!quote && !rawData.quote) {
@@ -372,6 +388,7 @@ async function loadSharedStockDataInner(symbol, options = {}) {
         if (quote) {
           rawData.quote = quote;
           rawData.freshness.priceUpdatedAt = now();
+          noteFieldRefreshed("price");
           if (quote.name && !rawData.fundamentals.overview.name) {
             rawData.fundamentals.overview.name = quote.name;
           }
@@ -386,7 +403,11 @@ async function loadSharedStockDataInner(symbol, options = {}) {
           didFetch = true;
         }
       } catch (err) {
-        if (
+        if (err instanceof QuotaSkippedError) {
+          console.warn(
+            `[getStockReport] price skipped — no quota for ${symbol}`
+          );
+        } else if (
           err instanceof AlphaVantageError &&
           err.code === "rate_limit" &&
           rawData.quote
@@ -404,12 +425,16 @@ async function loadSharedStockDataInner(symbol, options = {}) {
 
     if (!targetOk) {
       console.log(
-        `[getStockReport] target ${forceRefresh ? "forced" : "stale/missing"} for ${symbol} — fetching`
+        `[getStockReport] target stale/missing for ${symbol} — fetching`
       );
       const target = await getAnalystTarget(symbol);
       const overview = rawData.fundamentals.overview;
       const local = getTickerInfo(symbol);
-      if (!target?.rateLimited) {
+      if (target?.quotaSkipped) {
+        console.warn(
+          `[getStockReport] target skipped — no quota for ${symbol}`
+        );
+      } else if (!target?.rateLimited) {
         overview.analystTargetPrice = target?.analystTargetPrice ?? null;
         overview.analystTargetSource = target?.source || null;
         if (target?.week52High != null) overview.week52High = target.week52High;
@@ -427,19 +452,24 @@ async function loadSharedStockDataInner(symbol, options = {}) {
         if (target?.peRatio != null) overview.peRatio = target.peRatio;
         if (target?.marketCap != null) overview.marketCap = target.marketCap;
         rawData.freshness.targetUpdatedAt = now();
+        noteFieldRefreshed("target");
+        didFetch = true;
       } else if (target?.analystTargetPrice != null) {
         overview.analystTargetPrice = target.analystTargetPrice;
         overview.analystTargetSource = target.source || null;
         rawData.freshness.targetUpdatedAt = now();
+        noteFieldRefreshed("target");
+        didFetch = true;
+      } else {
+        didFetch = true;
       }
-      didFetch = true;
     } else {
       console.log(`[getStockReport] target fresh for ${symbol}`);
     }
 
     if (!earningsOk) {
       console.log(
-        `[getStockReport] earnings ${forceRefresh ? "forced" : "stale/missing"} for ${symbol} — Finnhub calendar`
+        `[getStockReport] earnings stale/missing for ${symbol} — Finnhub calendar`
       );
       const earnings = await getEarningsDateFromFinnhub(symbol);
       if (earnings) {
@@ -448,6 +478,7 @@ async function loadSharedStockDataInner(symbol, options = {}) {
         overview.earningsSource = earnings.source || "finnhub";
         if (earnings.hour) overview.earningsHour = earnings.hour;
         rawData.freshness.earningsUpdatedAt = now();
+        noteFieldRefreshed("earnings");
       }
       didFetch = true;
     } else {
@@ -465,7 +496,7 @@ async function loadSharedStockDataInner(symbol, options = {}) {
 
   if (!newsOk) {
     console.log(
-      `[getStockReport] news ${forceRefresh ? "forced" : "stale/missing"} for ${symbol} — Marketaux primary, AV fallback-only`
+      `[getStockReport] news stale/missing for ${symbol} — Marketaux primary, AV fallback-only`
     );
     const combined = await getCombinedNews(symbol);
     rawData.fundamentals.news = combined.alpha?.news || [];
@@ -476,6 +507,7 @@ async function loadSharedStockDataInner(symbol, options = {}) {
     if (!combined.pending) {
       rawData.freshness.newsUpdatedAt = now();
       newsJustFetched = true;
+      noteFieldRefreshed("news");
     }
     didFetch = true;
   } else {
@@ -484,11 +516,9 @@ async function loadSharedStockDataInner(symbol, options = {}) {
   }
 
   if (!newsOnly) {
-    if (
-      !skipPeers &&
-      (forceRefresh || !rawData.peers || !rawData.peers.length)
-    ) {
+    if (!skipPeers && (!rawData.peers || !rawData.peers.length)) {
       rawData.peers = (await getPeers(symbol)) || [];
+      if (rawData.peers.length) noteFieldRefreshed("peers");
       didFetch = true;
     } else if (skipPeers && !Array.isArray(rawData.peers)) {
       rawData.peers = [];
@@ -502,23 +532,36 @@ async function loadSharedStockDataInner(symbol, options = {}) {
   }
 
   const shouldAnalyze =
-    forceRefresh ||
-    !analysis ||
-    (newsJustFetched && rawData.fundamentals.newsPending === false);
+    !analysis || (newsJustFetched && rawData.fundamentals.newsPending === false);
 
   if (shouldAnalyze) {
-    console.log(
-      `[getStockReport] summary ${
-        forceRefresh ? "force" : analysis ? "refresh" : "miss"
-      } for ${symbol} — calling Gemini once (dual+quip)`
-    );
-    analysis = await analyzeStock(
-      symbol,
-      rawData.quote,
-      rawData.fundamentals,
-      rawData.peers || []
-    );
-    await saveSummaryToCache(symbol, null, analysis);
+    const budget = getActiveBudget();
+    if (smartRefresh && budget && !budget.hasQuota("gemini")) {
+      console.warn(
+        `[getStockReport] analysis skipped — no Gemini quota for ${symbol}`
+      );
+      const outcomes = getActiveOutcomes();
+      if (outcomes) {
+        if (!Array.isArray(outcomes.skippedNoQuota)) outcomes.skippedNoQuota = [];
+        outcomes.skippedNoQuota.push({
+          field: "analysis",
+          reason: "no_quota",
+          provider: "gemini",
+        });
+      }
+    } else {
+      console.log(
+        `[getStockReport] summary ${analysis ? "refresh" : "miss"} for ${symbol} — calling Gemini once (dual+quip)`
+      );
+      analysis = await analyzeStock(
+        symbol,
+        rawData.quote,
+        rawData.fundamentals,
+        rawData.peers || []
+      );
+      await saveSummaryToCache(symbol, null, analysis);
+      noteFieldRefreshed("analysis");
+    }
   } else {
     console.log(`[getStockReport] summary cache hit for ${symbol}`);
   }
@@ -535,7 +578,7 @@ async function loadSharedStockDataInner(symbol, options = {}) {
  * Mode is display-only: picks short/long take + indicators from the shared report.
  * options.skipPeers — skip Finnhub peers when true.
  * options.newsOnly — only refresh news (+ re-analyze if needed).
- * options.forceRefresh — bypass all freshness TTLs (manual force only).
+ * options.smartRefresh — quota-aware path used by Smart Refresh.
  */
 async function getStockReport(ticker, mode, options = {}) {
   const symbol = String(ticker).toUpperCase();

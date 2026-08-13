@@ -4,12 +4,13 @@
  * adds genuinely new candidates under BOARD_MAX_SIZE (archiving weakest).
  *
  * Scheduled daily right after the 7am board refresh (see server.js).
+ * Never calls Alpha Vantage. Respects Twelve Data smartRefreshReserve.
  */
 
-const { setSetting } = require("../services/usage");
+const { setSetting, getUsageToday, PROVIDERS } = require("../services/usage");
 const { getDiscoveryMoversBundle } = require("../services/dataFetch");
 const { getStockReport } = require("../services/getStockReport");
-const { hasSourceKey } = require("../lib/dataSources");
+const { hasSourceKey, smartRefreshReserve, DATA_SOURCES } = require("../lib/dataSources");
 const {
   generateDiscoveryWriteUp,
   saveDiscoveryBlurb,
@@ -18,6 +19,7 @@ const {
   listLiveBoardPicks,
   listArchivedBoardPicks,
   ensureBoardCapacity,
+  previewArchivesForSlots,
   promotePick,
   BOARD_MAX_SIZE,
 } = require("../lib/boardPicks");
@@ -27,6 +29,9 @@ const MAX_NEW_PER_RUN = Math.max(
   1,
   Number.parseInt(process.env.DISCOVERY_MAX_NEW || "3", 10) || 3
 );
+
+/** Twelve Data calls for gainers + losers movers bundle. */
+const MOVERS_TD_CALLS = 2;
 
 function statusFromAnalysis(lean, risk) {
   const l = String(lean || "").toLowerCase();
@@ -44,6 +49,176 @@ function pickStatusFromReport(report) {
   const lean = report?.analysis?.lean;
   const risk = report?.analysis?.risk;
   return statusFromAnalysis(lean, risk);
+}
+
+function tdLimit() {
+  return Number(DATA_SOURCES.twelve_data?.rateLimit?.limit) || 800;
+}
+
+function tdReserve() {
+  return smartRefreshReserve("twelve_data");
+}
+
+async function twelveQuotaSnapshot() {
+  const used = await getUsageToday(PROVIDERS.TWELVE);
+  const limit = tdLimit();
+  const remaining = Math.max(0, limit - Number(used || 0));
+  const reserve = tdReserve();
+  const spendable = Math.max(0, remaining - reserve);
+  return { used, limit, remaining, reserve, spendable };
+}
+
+/**
+ * Conservative TD estimate for a full discovery run:
+ * 2 movers + 1 price warm per possible new ticker (re-promotes may add more).
+ */
+function estimateDiscoveryCalls(maxNew = MAX_NEW_PER_RUN) {
+  const n = Math.max(1, Number(maxNew) || MAX_NEW_PER_RUN);
+  return {
+    twelve_data: MOVERS_TD_CALLS + n,
+    alpha_vantage: 0,
+    finnhub: n, // peers/earnings possible on warm getStockReport
+    marketaux: n, // news possible on warm
+    gemini: n, // discovery write-up per new add
+    claude: 0,
+  };
+}
+
+function blockReasonForTd(snapshot, need) {
+  if (snapshot.remaining < need) return "no_quota";
+  if (snapshot.spendable < need) return "reserve_protected";
+  return null;
+}
+
+/**
+ * Zero-cost discovery preview — no movers fetch, no promotions.
+ */
+async function previewDiscovery(options = {}) {
+  const maxNew = options.maxNew ?? MAX_NEW_PER_RUN;
+  const startedAt = new Date().toISOString();
+
+  if (!hasTwelve()) {
+    return {
+      ok: false,
+      preview: true,
+      spendsNothing: true,
+      error: "TWELVE_DATA_API_KEY not configured",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+    };
+  }
+
+  const live = await listLiveBoardPicks();
+  const archived = await listArchivedBoardPicks();
+  const liveCount = live.length;
+  const freeSlots = Math.max(0, BOARD_MAX_SIZE - liveCount);
+  const td = await twelveQuotaSnapshot();
+  const estimatedCalls = estimateDiscoveryCalls(maxNew);
+  const needTd = estimatedCalls.twelve_data;
+  const skipReason = blockReasonForTd(td, needTd);
+
+  const archivePreview = await previewArchivesForSlots(maxNew, { protect: [] });
+
+  const remainingAfter = {
+    twelve_data: Math.max(0, td.remaining - (skipReason ? 0 : needTd)),
+    alpha_vantage: null,
+    finnhub: null,
+    marketaux: null,
+    gemini: null,
+    claude: null,
+  };
+  // Fill daily-limited sources we track
+  const mxUsed = await getUsageToday(PROVIDERS.MARKETAUX);
+  const avUsed = await getUsageToday(PROVIDERS.ALPHA);
+  const mxLimit = Number(DATA_SOURCES.marketaux?.rateLimit?.limit) || 100;
+  const avLimit = Number(DATA_SOURCES.alpha_vantage?.rateLimit?.limit) || 25;
+  const mxRem = Math.max(0, mxLimit - Number(mxUsed || 0));
+  const avRem = Math.max(0, avLimit - Number(avUsed || 0));
+  remainingAfter.marketaux = Math.max(
+    0,
+    mxRem - (skipReason ? 0 : estimatedCalls.marketaux)
+  );
+  remainingAfter.alpha_vantage = avRem; // discovery never spends AV
+
+  return {
+    ok: true,
+    preview: true,
+    spendsNothing: true,
+    mode: "discovery_preview",
+    message: skipReason
+      ? skipReason === "reserve_protected"
+        ? "Skipped — reserve protected: Twelve Data spendable headroom is below this run's estimate."
+        : "Skipped — no quota: Twelve Data remaining is below this run's estimate."
+      : "Preview only — no API calls spent. Exact new tickers are unknown until confirm (movers not fetched). Confirm to run for real.",
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    board: {
+      liveCount,
+      max: BOARD_MAX_SIZE,
+      freeSlots,
+      archivedCount: archived.length,
+      maxNew,
+    },
+    wouldAdd: {
+      note: "Determined at confirm from Twelve Data movers (gainers + losers). Up to maxNew brand-new names.",
+      upTo: maxNew,
+      tickers: null,
+    },
+    wouldRePromote: {
+      note: "Archived movers that appear hot again are re-promoted first (count unknown until movers fetch).",
+      tickers: null,
+    },
+    wouldArchive: archivePreview.wouldArchive,
+    estimatedCalls,
+    totalEstimatedCalls: Object.values(estimatedCalls).reduce((a, b) => a + b, 0),
+    quota: {
+      remainingBefore: {
+        twelve_data: td.remaining,
+        alpha_vantage: avRem,
+        marketaux: mxRem,
+        finnhub: null,
+        gemini: null,
+        claude: null,
+      },
+      remainingAfter: {
+        ...remainingAfter,
+        // If skipped, after === before for TD/MX estimates
+        twelve_data: skipReason ? td.remaining : remainingAfter.twelve_data,
+        marketaux: skipReason ? mxRem : remainingAfter.marketaux,
+      },
+      spendableBefore: {
+        twelve_data: td.spendable,
+        alpha_vantage: Math.max(
+          0,
+          avRem - smartRefreshReserve("alpha_vantage")
+        ),
+      },
+      reserves: {
+        twelve_data: td.reserve,
+        alpha_vantage: smartRefreshReserve("alpha_vantage"),
+      },
+      usedToday: {
+        twelve_data: td.used,
+        alpha_vantage: avUsed,
+        marketaux: mxUsed,
+      },
+    },
+    skipFlags: skipReason
+      ? [
+          {
+            source: "twelve_data",
+            reason: skipReason,
+            detail:
+              skipReason === "reserve_protected"
+                ? `need≈${needTd} TD · spendable=${td.spendable} (reserve ${td.reserve})`
+                : `need≈${needTd} TD · remaining=${td.remaining}`,
+          },
+        ]
+      : [],
+    wouldSkipEntireRun: Boolean(skipReason),
+    alphaVantageTouched: false,
+    note: "Discovery never touches Alpha Vantage. Movers use Twelve Data only; warm reports may use MX/FH/Gemini for new names.",
+  };
 }
 
 /**
@@ -71,6 +246,44 @@ async function discoverHotStocks(options = {}) {
     await setSetting("lastHotStockDiscoveryAt", result.finishedAt);
     await setSetting("lastHotStockDiscoveryStatus", "failed_no_key");
     return result;
+  }
+
+  // Quota-aware gate (same spirit as Smart Refresh): refuse to start if TD
+  // spendable headroom cannot cover the conservative estimate.
+  const td = await twelveQuotaSnapshot();
+  const estimatedCalls = estimateDiscoveryCalls(maxNew);
+  const needTd = estimatedCalls.twelve_data;
+  const skipReason = blockReasonForTd(td, needTd);
+  if (skipReason) {
+    const result = {
+      ok: false,
+      skipped: true,
+      reason: skipReason,
+      message:
+        skipReason === "reserve_protected"
+          ? "Skipped — reserve protected for twelve_data"
+          : "Skipped — no quota for twelve_data",
+      detail: `need≈${needTd} · remaining=${td.remaining} · spendable=${td.spendable} · reserve=${td.reserve}`,
+      estimatedCalls,
+      quota: td,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      alphaVantageTouched: false,
+    };
+    await setSetting("lastHotStockDiscovery", JSON.stringify(result));
+    await setSetting("lastHotStockDiscoveryAt", result.finishedAt);
+    await setSetting(
+      "lastHotStockDiscoveryStatus",
+      skipReason === "reserve_protected" ? "skipped_reserve" : "skipped_no_quota"
+    );
+    console.warn(`[discoverHotStocks] ${result.message} (${result.detail})`);
+    return result;
+  }
+
+  // dryRun for legacy callers: still a no-op on writes, but fetching movers
+  // spends TD — prefer previewDiscovery() for zero-cost admin previews.
+  if (dryRun && options.previewOnly !== false && options.fetchMovers !== true) {
+    return previewDiscovery({ maxNew });
   }
 
   let movers;
@@ -168,7 +381,6 @@ async function discoverHotStocks(options = {}) {
     let report = null;
     if (warmReports) {
       try {
-        // Seed overview name from movers so cards aren't blank before OVERVIEW
         report = await getStockReport(mover.ticker, "long", {
           skipPeers: false,
         });
@@ -235,6 +447,7 @@ async function discoverHotStocks(options = {}) {
     archived: archivedOut,
     skipped,
     newCandidateCount: newCandidates.length,
+    alphaVantageTouched: false,
   };
 
   await setSetting("lastHotStockDiscovery", JSON.stringify(result));
@@ -252,5 +465,8 @@ async function discoverHotStocks(options = {}) {
 
 module.exports = {
   discoverHotStocks,
+  previewDiscovery,
+  estimateDiscoveryCalls,
   MAX_NEW_PER_RUN,
+  MOVERS_TD_CALLS,
 };

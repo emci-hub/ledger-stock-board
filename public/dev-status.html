@@ -109,14 +109,28 @@
     </div>
 
     <div class="card">
-      <h2>Smart refresh</h2>
-      <p style="margin:0 0 8px;color:var(--muted);font-size:13px;line-height:1.45;">
-        Quota-aware priority waterfall: fill live board gaps first, then recent lookups,
-        then 1–2 archived names. Respects freshness TTLs (does not force everything stale).
-        Sources with 0 remaining quota, or only reserve headroom left, are skipped and reported.
-        Confirmation required.
+      <h2>Admin actions</h2>
+      <p style="margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.45;">
+        Both actions show a <strong>pre-flight cost preview</strong> first (no API spend).
+        Only “Confirm &amp; run” executes for real.
       </p>
-      <button type="button" class="danger" id="force-btn">Smart refresh…</button>
+      <p class="safeguard-note" style="margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#0e1319;color:var(--muted);font-size:12px;line-height:1.5;">
+        <strong style="color:var(--ink);">Safeguards:</strong>
+        Discovery respects Twelve Data’s reserve and never touches Alpha Vantage.
+        Smart Refresh respects each source’s reserve and only refreshes genuinely stale fields.
+      </p>
+      <div class="row">
+        <button type="button" class="danger" id="force-btn">Smart refresh…</button>
+        <button type="button" class="danger" id="discovery-btn">Discover new stocks</button>
+      </div>
+      <div id="preview-panel" class="hidden" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:#0e1319;">
+        <h2 style="margin:0 0 8px;" id="preview-title">Preview</h2>
+        <div id="preview-body" style="font-size:13px;line-height:1.5;color:var(--muted);"></div>
+        <div class="row" style="margin-top:12px;">
+          <button type="button" class="danger" id="preview-confirm-btn">Confirm &amp; run</button>
+          <button type="button" id="preview-cancel-btn">Cancel</button>
+        </div>
+      </div>
       <div id="force-result" class="hidden"></div>
       <div id="tier-summary" class="hidden" style="margin-top:14px;"></div>
     </div>
@@ -134,8 +148,8 @@
         </table>
       </div>
       <p style="margin:10px 0 0;color:var(--muted);font-size:12px;line-height:1.4;">
-        Reserve = headroom Smart Refresh will not spend (live family searches may still use it).
-        Smart avail. = remaining after subtracting the reserve.
+        Reserve = headroom Smart Refresh / Discovery will not spend (live family searches may still use it).
+        Twelve Data reserve is also enforced before Discovery starts. Smart avail. = remaining after subtracting the reserve.
       </p>
     </div>
 
@@ -290,20 +304,254 @@
 
     const fr = data.smartRefresh || data.forceRefresh || {};
     const forceBtn = document.getElementById("force-btn");
+    const discoveryBtn = document.getElementById("discovery-btn");
     if (fr.inProgress) {
       forceBtn.disabled = true;
       forceBtn.textContent = "Smart refresh running…";
-    } else {
+      if (discoveryBtn) discoveryBtn.disabled = true;
+    } else if (!pendingAction) {
       forceBtn.disabled = false;
       forceBtn.textContent = "Smart refresh…";
+      if (discoveryBtn) {
+        discoveryBtn.disabled = false;
+        discoveryBtn.textContent = "Discover new stocks";
+      }
     }
 
     const last = fr.lastResult;
-    if (last?.tiers) {
+    if (last?.tiers && !pendingAction) {
       renderTierSummary(last);
     }
 
     renderDeeperToggle(data.deeperLook || {});
+  }
+
+  let pendingAction = null; // 'smart_refresh' | 'discovery'
+
+  function hidePreview() {
+    pendingAction = null;
+    const panel = document.getElementById("preview-panel");
+    panel.classList.add("hidden");
+    document.getElementById("preview-body").innerHTML = "";
+    document.getElementById("force-btn").disabled = false;
+    document.getElementById("force-btn").textContent = "Smart refresh…";
+    document.getElementById("discovery-btn").disabled = false;
+    document.getElementById("discovery-btn").textContent = "Discover new stocks";
+  }
+
+  function fmtCalls(calls) {
+    if (!calls) return "—";
+    return Object.entries(calls)
+      .filter(([, v]) => Number(v) > 0)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(" · ") || "none";
+  }
+
+  function fmtQuotaTable(quota, estimatedCalls) {
+    if (!quota) return "";
+    const before = quota.remainingBefore || {};
+    const after = quota.remainingAfter || {};
+    const keys = [
+      "twelve_data",
+      "alpha_vantage",
+      "marketaux",
+      "finnhub",
+      "gemini",
+      "claude",
+    ];
+    const rows = keys
+      .map((k) => {
+        const b = before[k];
+        const a = after[k];
+        const est = estimatedCalls?.[k] || 0;
+        if (b == null && a == null && !est) return "";
+        const bTxt = b == null ? "∞" : String(b);
+        const aTxt = a == null ? "∞" : String(a);
+        return `<tr>
+          <td class="mono">${escapeHtml(k)}</td>
+          <td class="mono">${escapeHtml(bTxt)}</td>
+          <td class="mono">${est}</td>
+          <td class="mono">${escapeHtml(aTxt)}</td>
+        </tr>`;
+      })
+      .filter(Boolean)
+      .join("");
+    return `<table style="margin-top:8px;">
+      <thead><tr><th>Source</th><th>Remaining before</th><th>Est. use</th><th>Remaining after</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+
+  function renderSmartPreview(data) {
+    const t = data.totals || {};
+    const tiersHtml = (data.tiers || [])
+      .map((tier) => {
+        const refresh = (tier.wouldRefresh || [])
+          .map(
+            (r) =>
+              `${escapeHtml(r.ticker)}${
+                r.fields?.length ? ` [${escapeHtml(r.fields.join(", "))}]` : ""
+              }`
+          )
+          .join(", ") || "—";
+        const current = (tier.alreadyCurrent || []).map(escapeHtml).join(", ") || "—";
+        const noQ = (tier.skippedNoQuota || [])
+          .map((r) => escapeHtml(r.ticker))
+          .join(", ") || "—";
+        const res = (tier.skippedReserveProtected || [])
+          .map((r) => escapeHtml(r.ticker))
+          .join(", ") || "—";
+        return `<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0;">
+          <div style="font-weight:600;color:var(--ink);">${escapeHtml(tier.name)}</div>
+          <div class="mono" style="font-size:12px;margin-top:4px;">
+            <div><span class="ok">Would refresh</span>: ${refresh}</div>
+            <div>Already current: ${current}</div>
+            <div><span class="warn">Skipped — no quota</span>: ${noQ}</div>
+            <div><span class="warn">Skipped — reserve protected</span>: ${res}</div>
+          </div>
+        </div>`;
+      })
+      .join("");
+
+    const flags = (data.skipFlags || []).length
+      ? `<p class="warn" style="margin:8px 0 0;">⚠ ${data.skipFlags.length} skip flag(s) — some fields/tickers would be blocked by quota or reserve.</p>`
+      : `<p class="ok" style="margin:8px 0 0;">No quota / reserve skips expected.</p>`;
+
+    return `
+      <p style="margin:0 0 8px;color:var(--ink);">${escapeHtml(data.message || "Preview")}</p>
+      <p class="mono" style="margin:0 0 8px;">
+        would refresh=${t.wouldRefresh ?? 0} · already current=${t.alreadyCurrent ?? 0} ·
+        no quota=${t.skippedNoQuota ?? 0} · reserve=${t.skippedReserveProtected ?? 0} ·
+        est. calls=${data.totalEstimatedCalls ?? 0}
+      </p>
+      <p class="mono" style="margin:0;">Estimated calls: ${escapeHtml(fmtCalls(data.estimatedCalls))}</p>
+      ${fmtQuotaTable(data.quota, data.estimatedCalls)}
+      ${flags}
+      ${tiersHtml}
+      <p style="margin:10px 0 0;font-size:11px;">${escapeHtml(data.note || "")}</p>
+    `;
+  }
+
+  function renderDiscoveryPreview(data) {
+    const board = data.board || {};
+    const wouldArchive = (data.wouldArchive || [])
+      .map((a) => escapeHtml(a.ticker))
+      .join(", ") || "— (board has room or none needed for maxNew)";
+    const flags = (data.skipFlags || []).length
+      ? `<p class="warn" style="margin:8px 0 0;">⚠ ${data.skipFlags
+          .map((f) => escapeHtml(`${f.reason}: ${f.detail || f.source || ""}`))
+          .join(" · ")}</p>`
+      : `<p class="ok" style="margin:8px 0 0;">Twelve Data headroom looks sufficient for this estimate.</p>`;
+
+    const confirmDisabled = data.wouldSkipEntireRun
+      ? `<p class="bad" style="margin:8px 0 0;">Confirm is blocked — discovery would be skipped entirely for quota/reserve.</p>`
+      : "";
+
+    return `
+      <p style="margin:0 0 8px;color:var(--ink);">${escapeHtml(data.message || "Preview")}</p>
+      <p class="mono" style="margin:0 0 6px;">
+        Board ${board.liveCount ?? "—"}/${board.max ?? "—"} · free slots=${board.freeSlots ?? "—"} ·
+        max new=${board.maxNew ?? "—"} · archived pool=${board.archivedCount ?? "—"}
+      </p>
+      <div class="mono" style="font-size:12px;line-height:1.55;">
+        <div><span class="ok">Would add</span>: up to ${escapeHtml(String(board.maxNew ?? "—"))} new movers
+          <span style="color:var(--muted);">(exact tickers unknown until confirm — movers not fetched in preview)</span></div>
+        <div>Would re-promote: archived movers that appear hot again
+          <span style="color:var(--muted);">(unknown until movers fetch)</span></div>
+        <div><span class="warn">Would archive to make room</span>: ${wouldArchive}</div>
+        <div>Alpha Vantage: never touched</div>
+      </div>
+      <p class="mono" style="margin:8px 0 0;">Estimated calls: ${escapeHtml(fmtCalls(data.estimatedCalls))} (total ${data.totalEstimatedCalls ?? 0})</p>
+      ${fmtQuotaTable(data.quota, data.estimatedCalls)}
+      ${flags}
+      ${confirmDisabled}
+      <p style="margin:10px 0 0;font-size:11px;">${escapeHtml(data.note || "")}</p>
+    `;
+  }
+
+  async function showPreview(kind) {
+    pendingAction = kind;
+    const panel = document.getElementById("preview-panel");
+    const title = document.getElementById("preview-title");
+    const body = document.getElementById("preview-body");
+    const confirmBtn = document.getElementById("preview-confirm-btn");
+    const forceBtn = document.getElementById("force-btn");
+    const discoveryBtn = document.getElementById("discovery-btn");
+    const out = document.getElementById("force-result");
+
+    forceBtn.disabled = true;
+    discoveryBtn.disabled = true;
+    panel.classList.remove("hidden");
+    out.classList.add("hidden");
+    title.textContent =
+      kind === "discovery" ? "Discovery preview" : "Smart Refresh preview";
+    body.innerHTML = `<p class="mono">Building zero-cost preview…</p>`;
+    confirmBtn.disabled = true;
+
+    const path =
+      kind === "discovery"
+        ? "/api/admin/discovery"
+        : "/api/admin/smart-refresh";
+    const { res, data } = await api(path, {
+      method: "POST",
+      body: JSON.stringify({ preview: true }),
+    });
+
+    if (!res.ok) {
+      body.innerHTML = `<p class="bad">${escapeHtml(data?.error || data?.message || "Preview failed")}</p>`;
+      confirmBtn.disabled = true;
+      return;
+    }
+
+    body.innerHTML =
+      kind === "discovery"
+        ? renderDiscoveryPreview(data)
+        : renderSmartPreview(data);
+    confirmBtn.disabled = Boolean(data.wouldSkipEntireRun);
+    confirmBtn.dataset.kind = kind;
+  }
+
+  async function confirmPending() {
+    if (!pendingAction) return;
+    const kind = pendingAction;
+    const btn = document.getElementById("preview-confirm-btn");
+    const out = document.getElementById("force-result");
+    const body = document.getElementById("preview-body");
+    btn.disabled = true;
+    body.innerHTML += `<p class="mono" style="margin-top:10px;">Running for real…</p>`;
+
+    const path =
+      kind === "discovery"
+        ? "/api/admin/discovery"
+        : "/api/admin/smart-refresh";
+    const { res, data } = await api(path, {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    });
+
+    hidePreview();
+    out.classList.remove("hidden");
+
+    if (kind === "smart_refresh") {
+      if (res.status === 409 || !res.ok) {
+        out.textContent = JSON.stringify(data, null, 2);
+      } else {
+        const t = data.totals || {};
+        out.textContent = [
+          data.message || "Done",
+          `Totals: refreshed=${t.refreshed ?? 0} · already current=${t.alreadyCurrent ?? 0} · no quota=${t.skippedNoQuota ?? 0} · reserve protected=${t.skippedReserveProtected ?? 0} · failed=${t.failed ?? 0}`,
+          `Total API calls this run: ${data.totalCalls}`,
+          "Calls by source:",
+          ...Object.entries(data.callsBySource || {}).map(
+            ([k, v]) => `  ${k}: ${v}`
+          ),
+        ].join("\n");
+        renderTierSummary(data);
+      }
+    } else {
+      out.textContent = JSON.stringify(data, null, 2);
+    }
+    await loadStatus();
   }
 
   function renderDeeperToggle(dl) {
@@ -462,41 +710,20 @@
     renderDeeperToggle(data);
   });
 
-  document.getElementById("force-btn").addEventListener("click", async () => {
-    const ok = window.confirm(
-      "Run Smart Refresh now?\n\nFills genuine board gaps first (respecting freshness), then recent lookups, then 1–2 archived names — only while quota remains above each source's reserve. Reserve-protected and zero-quota sources are skipped. Runs once."
-    );
-    if (!ok) return;
+  document.getElementById("force-btn").addEventListener("click", () => {
+    showPreview("smart_refresh");
+  });
 
-    const btn = document.getElementById("force-btn");
-    const out = document.getElementById("force-result");
-    btn.disabled = true;
-    btn.textContent = "Smart refresh running…";
-    out.classList.remove("hidden");
-    out.textContent = "Running quota-aware smart refresh…";
+  document.getElementById("discovery-btn").addEventListener("click", () => {
+    showPreview("discovery");
+  });
 
-    const { res, data } = await api("/api/admin/smart-refresh", {
-      method: "POST",
-      body: "{}",
-    });
+  document.getElementById("preview-cancel-btn").addEventListener("click", () => {
+    hidePreview();
+  });
 
-    if (res.status === 409 || !res.ok) {
-      out.textContent = JSON.stringify(data, null, 2);
-    } else {
-      const t = data.totals || {};
-      const lines = [
-        data.message || "Done",
-        `Totals: refreshed=${t.refreshed ?? 0} · already current=${t.alreadyCurrent ?? 0} · no quota=${t.skippedNoQuota ?? 0} · reserve protected=${t.skippedReserveProtected ?? 0} · failed=${t.failed ?? 0}`,
-        `Total API calls this run: ${data.totalCalls}`,
-        "Calls by source:",
-        ...Object.entries(data.callsBySource || {}).map(
-          ([k, v]) => `  ${k}: ${v}`
-        ),
-      ];
-      out.textContent = lines.join("\n");
-      renderTierSummary(data);
-    }
-    await loadStatus();
+  document.getElementById("preview-confirm-btn").addEventListener("click", () => {
+    confirmPending();
   });
 
   loadStatus();

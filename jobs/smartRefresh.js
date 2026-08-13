@@ -390,6 +390,250 @@ function summarizeTier(tiers) {
   }));
 }
 
+function estimateCallsForNeeds(needs, skippedFields = []) {
+  const skipped = new Set((skippedFields || []).map((s) => s.field));
+  const calls = {
+    twelve_data: 0,
+    alpha_vantage: 0,
+    finnhub: 0,
+    marketaux: 0,
+    gemini: 0,
+    claude: 0,
+  };
+  if (needs.price && !skipped.has("price")) calls.twelve_data += 1;
+  if (needs.target && !skipped.has("target")) calls.alpha_vantage += 1;
+  if (needs.news && !skipped.has("news")) calls.marketaux += 1;
+  if (needs.earnings && !skipped.has("earnings")) calls.finnhub += 1;
+  if (needs.peers && !skipped.has("peers")) calls.finnhub += 1;
+  // Analysis miss OR successful news refresh both trigger one Gemini dual call.
+  const analysisFires =
+    (needs.analysis && !skipped.has("analysis")) ||
+    (needs.news && !skipped.has("news"));
+  if (analysisFires) calls.gemini += 1;
+  return calls;
+}
+
+function addCalls(into, add) {
+  for (const [k, v] of Object.entries(add || {})) {
+    into[k] = (into[k] || 0) + Number(v || 0);
+  }
+  return into;
+}
+
+function emptyCalls() {
+  return {
+    twelve_data: 0,
+    alpha_vantage: 0,
+    finnhub: 0,
+    marketaux: 0,
+    gemini: 0,
+    claude: 0,
+  };
+}
+
+async function assessTickerPreview(ticker, budget) {
+  const symbol = String(ticker).toUpperCase();
+  const entry = await getStockCacheEntry(symbol);
+  const summary = await getCachedSummary(symbol);
+  const needs = assessNeeds(entry, summary);
+
+  if (!needs.any) {
+    return {
+      ticker: symbol,
+      status: "already_current",
+      needed: needs,
+      estimatedCalls: emptyCalls(),
+      skippedFields: [],
+      skippedReserveFields: [],
+    };
+  }
+
+  const preSkips = preflightQuotaSkips(needs, budget);
+  const actionable = ["price", "target", "news", "earnings", "peers", "analysis"].filter(
+    (k) => needs[k] && !preSkips.some((s) => s.field === k)
+  );
+
+  if (!actionable.length) {
+    const reserveOnly = preSkips.every((s) => s.reason === "reserve_protected");
+    return {
+      ticker: symbol,
+      status: reserveOnly ? "skipped_reserve_protected" : "skipped_no_quota",
+      needed: needs,
+      estimatedCalls: emptyCalls(),
+      skippedFields: preSkips.filter((s) => s.reason === "no_quota"),
+      skippedReserveFields: preSkips.filter((s) => s.reason === "reserve_protected"),
+    };
+  }
+
+  const estimatedCalls = estimateCallsForNeeds(needs, preSkips);
+  // Soft-consume estimated calls so later tickers see shrinking budget in preview.
+  for (const [provider, n] of Object.entries(estimatedCalls)) {
+    if (n > 0) budget.tryConsume(provider, n, { action: "preview", ticker: symbol });
+  }
+
+  return {
+    ticker: symbol,
+    status: "would_refresh",
+    needed: needs,
+    fields: actionable,
+    estimatedCalls,
+    skippedFields: preSkips.filter((s) => s.reason === "no_quota"),
+    skippedReserveFields: preSkips.filter((s) => s.reason === "reserve_protected"),
+  };
+}
+
+/**
+ * Zero-cost Smart Refresh preview — cache assessment only, no live API calls.
+ */
+async function previewSmartRefresh() {
+  const usageBefore = await snapshotUsage();
+  const budget = await createQuotaBudget();
+  const remainingBefore = budget.snapshot().remaining;
+  const spendableBefore = budget.snapshot().spendable;
+  const reserves = budget.snapshot().reserves;
+
+  const boardTickers = await getActiveBoardTickers();
+  const boardSet = new Set(boardTickers.map((t) => String(t).toUpperCase()));
+  const recentTickers = await listRecentNonBoardTickers(boardSet);
+  const archiveTickers = await listStaleArchivedTickers(ARCHIVE_REFRESH_LIMIT);
+
+  async function previewTier(id, name, tickers) {
+    const tier = {
+      id,
+      name,
+      wouldRefresh: [],
+      alreadyCurrent: [],
+      skippedNoQuota: [],
+      skippedReserveProtected: [],
+      tickersConsidered: 0,
+    };
+    for (const ticker of tickers) {
+      const row = await assessTickerPreview(ticker, budget);
+      tier.tickersConsidered += 1;
+      if (row.status === "already_current") tier.alreadyCurrent.push(row);
+      else if (row.status === "skipped_no_quota") tier.skippedNoQuota.push(row);
+      else if (row.status === "skipped_reserve_protected") {
+        tier.skippedReserveProtected.push(row);
+      } else tier.wouldRefresh.push(row);
+    }
+    return tier;
+  }
+
+  const tiers = [
+    await previewTier("priority_1_board", "Priority 1 — live board gaps", boardTickers),
+    await previewTier(
+      "priority_2_recent",
+      "Priority 2 — recently looked up",
+      recentTickers
+    ),
+    await previewTier(
+      "priority_3_archive",
+      "Priority 3 — archived (1–2)",
+      archiveTickers
+    ),
+  ];
+
+  const estimatedCalls = emptyCalls();
+  for (const tier of tiers) {
+    for (const row of tier.wouldRefresh) {
+      addCalls(estimatedCalls, row.estimatedCalls);
+    }
+  }
+
+  const remainingAfter = {};
+  const spendableAfter = {};
+  for (const key of Object.keys(estimatedCalls)) {
+    const before = remainingBefore[key];
+    if (before == null) {
+      remainingAfter[key] = null;
+      spendableAfter[key] = null;
+    } else {
+      remainingAfter[key] = Math.max(0, before - (estimatedCalls[key] || 0));
+      const reserve = Number(reserves[key] || 0);
+      spendableAfter[key] = Math.max(0, remainingAfter[key] - reserve);
+    }
+  }
+
+  const skipFlags = [];
+  for (const tier of tiers) {
+    for (const row of [...tier.skippedNoQuota, ...tier.skippedReserveProtected]) {
+      skipFlags.push({
+        ticker: row.ticker,
+        status: row.status,
+        fields: [
+          ...(row.skippedFields || []).map((f) => f.field),
+          ...(row.skippedReserveFields || []).map((f) => f.field),
+        ],
+      });
+    }
+    for (const row of tier.wouldRefresh) {
+      if (row.skippedFields?.length || row.skippedReserveFields?.length) {
+        skipFlags.push({
+          ticker: row.ticker,
+          status: "partial_skip",
+          fields: [
+            ...(row.skippedFields || []).map((f) => f.field),
+            ...(row.skippedReserveFields || []).map((f) => f.field),
+          ],
+        });
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    preview: true,
+    spendsNothing: true,
+    mode: "smart_refresh_preview",
+    message:
+      "Preview only — no API calls spent. Confirm to run the real Smart Refresh.",
+    tiers: tiers.map((t) => ({
+      id: t.id,
+      name: t.name,
+      considered: t.tickersConsidered,
+      wouldRefreshCount: t.wouldRefresh.length,
+      alreadyCurrentCount: t.alreadyCurrent.length,
+      skippedNoQuotaCount: t.skippedNoQuota.length,
+      skippedReserveProtectedCount: t.skippedReserveProtected.length,
+      wouldRefresh: t.wouldRefresh.map((r) => ({
+        ticker: r.ticker,
+        fields: r.fields || [],
+        estimatedCalls: r.estimatedCalls,
+      })),
+      alreadyCurrent: t.alreadyCurrent.map((r) => r.ticker),
+      skippedNoQuota: t.skippedNoQuota.map((r) => ({
+        ticker: r.ticker,
+        fields: (r.skippedFields || []).map((f) => f.field),
+      })),
+      skippedReserveProtected: t.skippedReserveProtected.map((r) => ({
+        ticker: r.ticker,
+        fields: (r.skippedReserveFields || []).map((f) => f.field),
+      })),
+    })),
+    totals: {
+      wouldRefresh: tiers.reduce((n, t) => n + t.wouldRefresh.length, 0),
+      alreadyCurrent: tiers.reduce((n, t) => n + t.alreadyCurrent.length, 0),
+      skippedNoQuota: tiers.reduce((n, t) => n + t.skippedNoQuota.length, 0),
+      skippedReserveProtected: tiers.reduce(
+        (n, t) => n + t.skippedReserveProtected.length,
+        0
+      ),
+    },
+    estimatedCalls,
+    totalEstimatedCalls: Object.values(estimatedCalls).reduce((a, b) => a + b, 0),
+    quota: {
+      remainingBefore,
+      remainingAfter,
+      spendableBefore,
+      spendableAfter,
+      reserves,
+      usedToday: usageBefore,
+    },
+    skipFlags,
+    note: "Shared report covers both short and long AI takes in one Gemini call when analysis/news is refreshed. Estimates assume Marketaux news succeeds (no AV news fallback).",
+  };
+}
+
 function getForceRefreshState() {
   return {
     inProgress,
@@ -533,6 +777,7 @@ const forceRefreshAll = smartRefreshAll;
 module.exports = {
   smartRefreshAll,
   forceRefreshAll,
+  previewSmartRefresh,
   getForceRefreshState,
   getSmartRefreshState,
 };

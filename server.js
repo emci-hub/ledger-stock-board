@@ -23,6 +23,7 @@ const {
 const {
   forceRefreshAll,
   getForceRefreshState,
+  previewSmartRefresh,
 } = require("./jobs/forceRefreshAll");
 const { invalidateBoardStaleCaches } = require("./jobs/invalidateBoardCache");
 const {
@@ -34,9 +35,15 @@ const {
   PROVIDERS,
 } = require("./services/usage");
 const { AlphaVantageError } = require("./services/dataFetch");
-const { DATA_SOURCES, hasSourceKey, sourcesLegend, sourceRole, smartRefreshReserve } = require("./lib/dataSources");
+const {
+  DATA_SOURCES,
+  hasSourceKey,
+  sourcesLegend,
+  sourceRole,
+  smartRefreshReserve,
+} = require("./lib/dataSources");
 const { getLastCapabilityProbe } = require("./jobs/capabilityProbe");
-const { discoverHotStocks } = require("./jobs/discoverHotStocks");
+const { discoverHotStocks, previewDiscovery } = require("./jobs/discoverHotStocks");
 const {
   listArchivedBoardPicks,
   BOARD_MAX_SIZE,
@@ -418,18 +425,26 @@ app.get("/api/archive", async (req, res) => {
 });
 
 app.post("/api/discovery/run", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
   try {
-    const dryRun = Boolean(req.body?.dryRun);
+    const preview = Boolean(req.body?.preview || req.body?.dryRun);
+    const confirm = Boolean(req.body?.confirm);
+    if (preview && !confirm) {
+      const result = await previewDiscovery({
+        maxNew: req.body?.maxNew,
+      });
+      return res.json(result);
+    }
     const result = await discoverHotStocks({
-      dryRun,
+      dryRun: false,
       maxNew: req.body?.maxNew,
       warmReports: req.body?.warmReports !== false,
     });
     try {
       await recordJobRun("daily_discovery", {
-        ok: Boolean(result?.ok !== false),
-        summary: dryRun
-          ? `manual dryRun · ${JSON.stringify(result?.summary || result).slice(0, 180)}`
+        ok: Boolean(result?.ok !== false && !result?.skipped),
+        summary: result?.skipped
+          ? `manual skipped · ${result.reason || "quota"}`
           : `manual run · added=${Array.isArray(result?.added) ? result.added.length : 0}`,
         detail: result,
       });
@@ -440,6 +455,40 @@ app.post("/api/discovery/run", async (req, res) => {
   } catch (err) {
     console.error("[POST /api/discovery/run]", err.message);
     return res.status(500).json({ error: "Discovery run failed.", detail: err.message });
+  }
+});
+
+app.post("/api/admin/discovery", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    const preview = Boolean(req.body?.preview) || !Boolean(req.body?.confirm);
+    if (preview && !req.body?.confirm) {
+      return res.json(await previewDiscovery({ maxNew: req.body?.maxNew }));
+    }
+    const result = await discoverHotStocks({
+      dryRun: false,
+      maxNew: req.body?.maxNew,
+      warmReports: req.body?.warmReports !== false,
+    });
+    try {
+      await recordJobRun("daily_discovery", {
+        ok: Boolean(result?.ok !== false && !result?.skipped),
+        summary: result?.skipped
+          ? `admin skipped · ${result.reason || "quota"}`
+          : `admin run · added=${Array.isArray(result?.added) ? result.added.length : 0}`,
+        detail: result,
+      });
+    } catch {
+      /* ignore */
+    }
+    return res.json(result);
+  } catch (err) {
+    console.error("[POST /api/admin/discovery]", err.message);
+    return res.status(500).json({
+      ok: false,
+      error: "Discovery run failed.",
+      detail: err.message,
+    });
   }
 });
 
@@ -531,6 +580,12 @@ app.get("/api/dev/status", async (req, res) => {
 async function handleSmartRefresh(req, res) {
   if (!devAuthOk(req)) return rejectDevUnauthorized(res);
   try {
+    const preview = Boolean(req.body?.preview) || !Boolean(req.body?.confirm);
+    if (preview && !req.body?.confirm) {
+      const result = await previewSmartRefresh();
+      return res.json(result);
+    }
+
     const state = getForceRefreshState();
     if (state.inProgress) {
       return res.status(409).json({

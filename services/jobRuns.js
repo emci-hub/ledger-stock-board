@@ -26,7 +26,7 @@ const JOB_DEFS = [
     schedule: "daily with 7am refresh (after board refresh)",
     enabled: true,
     description:
-      "discoverHotStocks via Twelve Data movers; DISCOVERY_MAX_NEW cap; BOARD_MAX_SIZE archive/re-promote.",
+      "discoverHotStocks via Twelve Data movers; TD reserve gate; DISCOVERY_MAX_NEW cap; BOARD_MAX_SIZE archive/re-promote; never Alpha Vantage.",
   },
   {
     id: "monthly_cleanup_probe",

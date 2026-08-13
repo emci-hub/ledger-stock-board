@@ -441,6 +441,27 @@
 
   document.getElementById("refresh-btn").addEventListener("click", () => loadStatus());
 
+  document.getElementById("deeper-toggle-btn").addEventListener("click", async () => {
+    const btn = document.getElementById("deeper-toggle-btn");
+    const errEl = document.getElementById("deeper-err");
+    const currentlyOn = btn.dataset.enabled === "1";
+    const next = !currentlyOn;
+    btn.disabled = true;
+    const { res, data } = await api("/api/dev/deeper-look-enabled", {
+      method: "POST",
+      body: JSON.stringify({ enabled: next }),
+    });
+    btn.disabled = false;
+    if (!res.ok) {
+      if (errEl) {
+        errEl.textContent = data?.error || "Failed to update setting.";
+        errEl.classList.remove("hidden");
+      }
+      return;
+    }
+    renderDeeperToggle(data);
+  });
+
   document.getElementById("force-btn").addEventListener("click", async () => {
     const ok = window.confirm(
       "Run Smart Refresh now?\n\nFills genuine board gaps first (respecting freshness), then recent lookups, then 1–2 archived names — only while quota remains above each source's reserve. Reserve-protected and zero-quota sources are skipped. Runs once."

@@ -122,7 +122,8 @@
       </p>
       <p class="safeguard-note" style="margin:0 0 12px;padding:10px 12px;border:1px dashed var(--line);border-radius:8px;background:#0e1319;color:var(--muted);font-size:12px;line-height:1.5;">
         <strong style="color:var(--ink);">Recommended order:</strong>
-        Run Discovery first to update the board, then Smart Refresh to fill in any new additions.
+        Run Discovery first to update the board, then Smart Refresh to fill gaps
+        and promote any remaining eligible candidates with leftover quota.
       </p>
       <p class="mono hidden" id="lock-banner" style="margin:0 0 10px;color:var(--warn);"></p>
       <div class="row">
@@ -435,34 +436,67 @@
 
   function renderSmartPreview(data) {
     const t = data.totals || {};
-    const tiersHtml = (data.tiers || [])
-      .map((tier) => {
-        const refresh = (tier.wouldRefresh || [])
-          .map(
-            (r) =>
-              `${escapeHtml(r.ticker)}${
-                r.fields?.length ? ` [${escapeHtml(r.fields.join(", "))}]` : ""
-              }`
-          )
-          .join(", ") || "—";
-        const current = (tier.alreadyCurrent || []).map(escapeHtml).join(", ") || "—";
-        const noQ = (tier.skippedNoQuota || [])
-          .map((r) => escapeHtml(r.ticker))
-          .join(", ") || "—";
-        const res = (tier.skippedReserveProtected || [])
-          .map((r) => escapeHtml(r.ticker))
-          .join(", ") || "—";
-        return `<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0;">
-          <div style="font-weight:600;color:var(--ink);">${escapeHtml(tier.name)}</div>
-          <div class="mono" style="font-size:12px;margin-top:4px;">
-            <div><span class="ok">Would refresh</span>: ${refresh}</div>
-            <div>Already current: ${current}</div>
-            <div><span class="warn">Skipped — no quota</span>: ${noQ}</div>
-            <div><span class="warn">Skipped — reserve protected</span>: ${res}</div>
-          </div>
-        </div>`;
-      })
-      .join("");
+    const promote = data.promote || {};
+    const promoteList = Array.isArray(promote.wouldPromote)
+      ? promote.wouldPromote.map(escapeHtml).join(", ") || "—"
+      : "—";
+    const promoteArchive = Array.isArray(promote.wouldArchive)
+      ? promote.wouldArchive.map(escapeHtml).join(", ") || "—"
+      : "—";
+
+    function renderTierBlock(tier) {
+      const refresh = (tier.wouldRefresh || [])
+        .map(
+          (r) =>
+            `${escapeHtml(r.ticker)}${
+              r.fields?.length ? ` [${escapeHtml(r.fields.join(", "))}]` : ""
+            }`
+        )
+        .join(", ") || "—";
+      const current = (tier.alreadyCurrent || []).map(escapeHtml).join(", ") || "—";
+      const noQ = (tier.skippedNoQuota || [])
+        .map((r) => escapeHtml(r.ticker))
+        .join(", ") || "—";
+      const res = (tier.skippedReserveProtected || [])
+        .map((r) => escapeHtml(r.ticker))
+        .join(", ") || "—";
+      return `<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0;">
+        <div style="font-weight:600;color:var(--ink);">${escapeHtml(tier.name)}</div>
+        <div class="mono" style="font-size:12px;margin-top:4px;">
+          <div><span class="ok">Would refresh</span>: ${refresh}</div>
+          <div>Already current: ${current}</div>
+          <div><span class="warn">Skipped — no quota</span>: ${noQ}</div>
+          <div><span class="warn">Skipped — reserve protected</span>: ${res}</div>
+        </div>
+      </div>`;
+    }
+
+    const promoteHtml = `<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0;">
+      <div style="font-weight:600;color:var(--ink);">${escapeHtml(
+        promote.name || "Priority 1b — promote eligible candidates"
+      )}</div>
+      <div class="mono" style="font-size:12px;margin-top:4px;line-height:1.55;">
+        <div>Candidate pool=${escapeHtml(String(promote.candidatePoolSize ?? "—"))}
+          · eligible=${escapeHtml(String(promote.eligibleCount ?? "—"))}
+          · main pool=${escapeHtml(String(promote.eligibleMainPool ?? "—"))}</div>
+        <div>Budget after P1=<span class="ok">${escapeHtml(
+          String(promote.promotableBudget ?? "—")
+        )}</span>
+          · bound by ${escapeHtml(String(promote.bindingSource || "—"))}</div>
+        <div><span class="ok">Would promote</span>: ${escapeHtml(
+          String(promote.wouldPromoteCount ?? t.wouldPromote ?? 0)
+        )}
+          <span style="color:var(--muted);">[${promoteList}]</span></div>
+        <div><span class="warn">Would archive to make room</span>: ${promoteArchive}</div>
+        <div>Est. promote calls: ${escapeHtml(fmtCalls(promote.estimatedCalls))}</div>
+      </div>
+    </div>`;
+
+    const tierBlocks = data.tiers || [];
+    const tiersHtml =
+      (tierBlocks[0] ? renderTierBlock(tierBlocks[0]) : "") +
+      promoteHtml +
+      tierBlocks.slice(1).map(renderTierBlock).join("");
 
     const flags = (data.skipFlags || []).length
       ? `<p class="warn" style="margin:8px 0 0;">⚠ ${data.skipFlags.length} skip flag(s) — some fields/tickers would be blocked by quota or reserve.</p>`
@@ -471,7 +505,8 @@
     return `
       <p style="margin:0 0 8px;color:var(--ink);">${escapeHtml(data.message || "Preview")}</p>
       <p class="mono" style="margin:0 0 8px;">
-        would refresh=${t.wouldRefresh ?? 0} · already current=${t.alreadyCurrent ?? 0} ·
+        would refresh=${t.wouldRefresh ?? 0} · would promote=${t.wouldPromote ?? promote.wouldPromoteCount ?? 0} ·
+        already current=${t.alreadyCurrent ?? 0} ·
         no quota=${t.skippedNoQuota ?? 0} · reserve=${t.skippedReserveProtected ?? 0} ·
         est. calls=${data.totalEstimatedCalls ?? 0}
       </p>
@@ -623,7 +658,7 @@
         const t = data.totals || {};
         out.textContent = [
           data.message || "Done",
-          `Totals: refreshed=${t.refreshed ?? 0} · already current=${t.alreadyCurrent ?? 0} · no quota=${t.skippedNoQuota ?? 0} · reserve protected=${t.skippedReserveProtected ?? 0} · failed=${t.failed ?? 0}`,
+          `Totals: refreshed=${t.refreshed ?? 0} · promoted=${t.promoted ?? 0} · already current=${t.alreadyCurrent ?? 0} · no quota=${t.skippedNoQuota ?? 0} · reserve protected=${t.skippedReserveProtected ?? 0} · failed=${t.failed ?? 0}`,
           `Total API calls this run: ${data.totalCalls}`,
           "Calls by source:",
           ...Object.entries(data.callsBySource || {}).map(
@@ -691,10 +726,25 @@
     box.innerHTML = `
       <h2 style="margin-top:0;">Last smart refresh breakdown</h2>
       <p class="mono" style="color:var(--muted);margin:0 0 10px;">
-        refreshed=${totals.refreshed ?? "—"} · already current=${totals.alreadyCurrent ?? "—"} ·
+        refreshed=${totals.refreshed ?? "—"} · promoted=${totals.promoted ?? result.promote?.promotedCount ?? "—"} ·
+        already current=${totals.alreadyCurrent ?? "—"} ·
         no quota=${totals.skippedNoQuota ?? "—"} · reserve protected=${totals.skippedReserveProtected ?? "—"} ·
         failed=${totals.failed ?? "—"} · calls=${result.totalCalls ?? "—"}
       </p>
+      ${
+        result.promote
+          ? `<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:0 0 8px;">
+        <div style="font-weight:600;color:var(--ink);">${escapeHtml(
+          result.promote.name || "Priority 1b — promote eligible candidates"
+        )}</div>
+        <div class="mono" style="font-size:12px;margin-top:4px;">
+          Promoted: ${(result.promote.added || []).map((a) => escapeHtml(a.ticker)).join(", ") || "—"}
+          · budget ${escapeHtml(String(result.promote.promotionBudget?.maxPromote ?? "—"))}
+          · bound by ${escapeHtml(String(result.promote.promotionBudget?.bindingSource || "—"))}
+        </div>
+      </div>`
+          : ""
+      }
       ${(result.tiers || [])
         .map((t) => {
           const refreshed = (t.refreshed || [])

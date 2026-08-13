@@ -144,6 +144,25 @@ function pickIndicatorsForMode(quoteIndicators, mode) {
 }
 
 /**
+ * Prefer explicit newsSources, but also infer from stored payloads so dual
+ * MX + AV attribution shows on the main card whenever both succeeded.
+ */
+function resolveNewsSources(fundamentals) {
+  const listed = Array.isArray(fundamentals?.newsSources)
+    ? fundamentals.newsSources
+    : [];
+  const hasMx =
+    listed.includes("marketaux") || Boolean(fundamentals?.newsMarketaux);
+  const hasAv =
+    listed.includes("alpha_vantage") ||
+    (Array.isArray(fundamentals?.news) && fundamentals.news.length > 0);
+  const out = [];
+  if (hasMx) out.push("marketaux");
+  if (hasAv) out.push("alpha_vantage");
+  return out;
+}
+
+/**
  * Build a display report for one mode over shared raw data + dual analysis.
  * `analysis` may be dual `{ short, long, quip }` or a legacy single take.
  */
@@ -152,9 +171,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
   const quote = rawData?.quote || {};
   const overview = rawData?.fundamentals?.overview || {};
   const freshness = freshnessFromData(rawData);
-  const newsSources = Array.isArray(rawData?.fundamentals?.newsSources)
-    ? rawData.fundamentals.newsSources
-    : [];
+  const newsSources = resolveNewsSources(rawData?.fundamentals);
   const newsPending =
     Boolean(rawData?.fundamentals?.newsPending) ||
     (!freshness.newsUpdatedAt && newsSources.length === 0);

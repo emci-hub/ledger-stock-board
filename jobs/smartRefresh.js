@@ -1,6 +1,8 @@
 /**
  * Smart Refresh — quota-aware, freshness-respecting priority waterfall.
- * Priority 1: live board gaps · Priority 2: recent lookups · Priority 3: 1–2 archived.
+ * Priority 1: live board gaps (batched news/price prefetch + per-ticker fill)
+ * Priority 1b: promote eligible candidates (same computePromotionBudget as Discovery)
+ * Priority 2: recent lookups · Priority 3: 1–2 archived.
  * Never bypasses freshness TTLs. Never double-fires (in-progress lock).
  */
 const { dbAll, dbRun } = require("../db/schema");
@@ -32,6 +34,11 @@ const {
   getPick,
 } = require("../lib/boardPicks");
 const { statusFromAnalysis, logRecommendation } = require("./refreshBoard");
+const {
+  promoteEligibleCandidates,
+  previewPromoteEligibleCandidates,
+  estimatePromotionWarmCalls,
+} = require("./discoverHotStocks");
 
 let lastResult = null;
 
@@ -540,21 +547,39 @@ async function previewSmartRefresh() {
     return tier;
   }
 
-  const tiers = [
-    await previewTier("priority_1_board", "Priority 1 — live board gaps", boardTickers, {
-      boardBatch: true,
-    }),
-    await previewTier(
-      "priority_2_recent",
-      "Priority 2 — recently looked up",
-      recentTickers
-    ),
-    await previewTier(
-      "priority_3_archive",
-      "Priority 3 — archived (1–2)",
-      archiveTickers
-    ),
-  ];
+  const tier1 = await previewTier(
+    "priority_1_board",
+    "Priority 1 — live board gaps",
+    boardTickers,
+    { boardBatch: true }
+  );
+
+  // After P1 soft-consume, preview candidate promotions with leftover quota
+  // (same computePromotionBudget math Discovery uses).
+  const promotePreview = await previewPromoteEligibleCandidates({
+    spendableOverrides: budget.snapshot().spendable,
+    remainingOverrides: budget.snapshot().remaining,
+  });
+  const promoteEstimated = estimatePromotionWarmCalls(
+    promotePreview.wouldPromoteCount || 0
+  );
+  for (const [provider, n] of Object.entries(promoteEstimated)) {
+    if (n > 0) {
+      budget.tryConsume(provider, n, { action: "preview_promote" });
+    }
+  }
+
+  const tier2 = await previewTier(
+    "priority_2_recent",
+    "Priority 2 — recently looked up",
+    recentTickers
+  );
+  const tier3 = await previewTier(
+    "priority_3_archive",
+    "Priority 3 — archived (1–2)",
+    archiveTickers
+  );
+  const tiers = [tier1, tier2, tier3];
 
   const estimatedCalls = emptyCalls();
   for (const tier of tiers) {
@@ -562,6 +587,7 @@ async function previewSmartRefresh() {
       addCalls(estimatedCalls, row.estimatedCalls);
     }
   }
+  addCalls(estimatedCalls, promoteEstimated);
 
   const remainingAfter = {};
   const spendableAfter = {};
@@ -641,6 +667,21 @@ async function previewSmartRefresh() {
         (n, t) => n + t.skippedReserveProtected.length,
         0
       ),
+      wouldPromote: promotePreview.wouldPromoteCount || 0,
+    },
+    promote: {
+      name: "Priority 1b — promote eligible candidates",
+      candidatePoolSize: promotePreview.candidatePoolSize,
+      eligibleCount: promotePreview.eligibleCount,
+      eligibleMainPool: promotePreview.eligibleMainPool,
+      wouldPromoteCount: promotePreview.wouldPromoteCount,
+      wouldPromote: (promotePreview.wouldPromote || []).map((r) => r.ticker),
+      wouldArchive: (promotePreview.wouldArchive || []).map(
+        (a) => a.ticker || a
+      ),
+      bindingSource: promotePreview.promotionBudget?.bindingSource || null,
+      promotableBudget: promotePreview.promotionBudget?.maxPromote ?? 0,
+      estimatedCalls: promoteEstimated,
     },
     estimatedCalls,
     totalEstimatedCalls: Object.values(estimatedCalls).reduce((a, b) => a + b, 0),
@@ -653,7 +694,7 @@ async function previewSmartRefresh() {
       usedToday: usageBefore,
     },
     skipFlags,
-    note: "Shared report covers both short and long AI takes in one Gemini call when analysis/news is refreshed. Live-board news is batched (1 Marketaux + 1 Alpha Vantage NEWS_SENTIMENT for all stale names). TD price credits remain 1/symbol even when HTTP-batched.",
+    note: "P1 uses batched MX+AV news + TD multi-symbol prices for live-board gaps, then per-ticker fills (target/peers/analysis). After P1, leftover quota may promote ranked candidates (same computePromotionBudget + reserves as Discovery Stage 2). TD price credits remain 1/symbol even when HTTP-batched.",
   };
 }
 
@@ -723,6 +764,30 @@ async function smartRefreshAll() {
 
     await runTier(tier1, boardTickers, budget, { updateBoard: true });
 
+    // Priority 1b: promote eligible candidates with leftover quota (Discovery Stage 2 math).
+    // Holds the same smart_refresh lock — does not start a second Discovery run.
+    let promoteResult = null;
+    try {
+      promoteResult = await promoteEligibleCandidates({
+        warmReports: true,
+        withWriteUps: false,
+        pickSource: "smart_refresh",
+      });
+      console.log(
+        `[smartRefresh] promote step — added=${promoteResult.added?.length || 0} rePromoted=${promoteResult.rePromoted?.length || 0} budget=${promoteResult.promotionBudget?.maxPromote ?? "?"} bound by ${promoteResult.promotionBudget?.bindingSource || "?"}`
+      );
+    } catch (err) {
+      console.warn(`[smartRefresh] promote step failed:`, err.message);
+      promoteResult = {
+        ok: false,
+        error: err.message,
+        added: [],
+        rePromoted: [],
+        skipped: [],
+        failed: [],
+      };
+    }
+
     // Only continue waterfall if any daily-limited source still has room,
     // or Finnhub run budget remains — otherwise P2/P3 would only no-op.
     const recentTickers = await listRecentNonBoardTickers(boardSet);
@@ -743,6 +808,12 @@ async function smartRefreshAll() {
       0
     );
     const failedTotal = tiers.reduce((n, t) => n + t.failedCount, 0);
+    const promotedCount = Array.isArray(promoteResult?.added)
+      ? promoteResult.added.length
+      : 0;
+    const rePromotedCount = Array.isArray(promoteResult?.rePromoted)
+      ? promoteResult.rePromoted.length
+      : 0;
 
     const result = {
       ok: true,
@@ -751,37 +822,50 @@ async function smartRefreshAll() {
       startedAt,
       finishedAt: new Date().toISOString(),
       message:
-        "Smart refresh completed — freshness respected; quota + reserve checked before each source.",
+        "Smart refresh completed — board gaps filled, eligible candidates promoted when quota allowed, then recent/archive waterfall.",
       tiers,
+      promote: {
+        name: "Priority 1b — promote eligible candidates",
+        added: promoteResult?.added || [],
+        rePromoted: promoteResult?.rePromoted || [],
+        skipped: promoteResult?.skipped || [],
+        failed: promoteResult?.failed || [],
+        promotionBudget: promoteResult?.promotionBudget || null,
+        promotedCount,
+        rePromotedCount,
+        error: promoteResult?.error || null,
+      },
       totals: {
         refreshed: refreshedTotal,
         alreadyCurrent: currentTotal,
         skippedNoQuota: quotaSkipTotal,
         skippedReserveProtected: reserveSkipTotal,
         failed: failedTotal,
+        promoted: promotedCount,
+        rePromoted: rePromotedCount,
       },
       callsBySource: calls,
       totalCalls: total,
       usageBefore,
       usageAfter,
       quota: budget.snapshot(),
-      note: "Shared report covers both short and long AI takes in one Gemini call when analysis is refreshed. Live searches may still use reserved Alpha Vantage headroom. Newly warmed Discovery tickers stay already-current when their fields are still fresh.",
+      note: "P1 batches live-board news/prices then fills gaps. P1b reuses Discovery's computePromotionBudget + promoteEligibleCandidates under this same lock. Live searches may still use reserved Alpha Vantage headroom.",
     };
 
     lastResult = result;
     await setSetting("lastSmartRefresh", result.finishedAt);
     await setSetting(
       "lastSmartRefreshStatus",
-      failedTotal && !refreshedTotal ? "failed" : "ok"
+      failedTotal && !refreshedTotal && !promotedCount ? "failed" : "ok"
     );
     await recordJobRun("manual_force_refresh", {
       ok: true,
-      summary: `smart · refreshed=${refreshedTotal} current=${currentTotal} noQuota=${quotaSkipTotal} reserve=${reserveSkipTotal} fail=${failedTotal} · ${total} calls`,
+      summary: `smart · refreshed=${refreshedTotal} promoted=${promotedCount} current=${currentTotal} noQuota=${quotaSkipTotal} reserve=${reserveSkipTotal} fail=${failedTotal} · ${total} calls`,
       detail: result,
     });
 
     console.log(
-      `[smartRefresh] Done — refreshed=${refreshedTotal} current=${currentTotal} noQuota=${quotaSkipTotal} reserve=${reserveSkipTotal} calls=${total}`
+      `[smartRefresh] Done — refreshed=${refreshedTotal} promoted=${promotedCount} current=${currentTotal} noQuota=${quotaSkipTotal} reserve=${reserveSkipTotal} calls=${total}`
     );
     return result;
   } catch (err) {

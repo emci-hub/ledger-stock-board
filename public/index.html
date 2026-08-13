@@ -204,6 +204,10 @@
     display:block;margin-top:6px;
     font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
   }
+  .news-via-inline{
+    display:inline-block;margin:0 0 0 6px;vertical-align:middle;
+  }
+  .tags .news-via-inline{margin-top:0;}
   .range-flag,.earnings-flag{
     font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
     margin:0 0 8px;
@@ -650,16 +654,12 @@
     const via = report.priceSourceLabel
       ? `<span class="via-source" style="margin-left:4px;">via ${escapeHtml(report.priceSourceLabel)}</span>`
       : "";
-    // News source line only when we have sources; missing news is a caveat badge.
+    // Analysis attribution under the summary; news sources sit beside the
+    // agree/disagree badge in the tags row so dual MX+AV is visible without Deep Dive.
     const viaBits = [];
     if (report.analysisSourceLabel) {
       viaBits.push(
         `<span class="via-source">via ${escapeHtml(report.analysisSourceLabel)}</span>`
-      );
-    }
-    if (!report.newsPending && report.newsSourceLabel) {
-      viaBits.push(
-        `<span class="news-via">via ${escapeHtml(report.newsSourceLabel)}</span>`
       );
     }
     const viaRow = viaBits.length
@@ -766,6 +766,14 @@
         })
       : "";
 
+    // Keep dual news attribution visible next to agree/disagree on the main card.
+    const newsViaBesideAgreement =
+      !report.newsPending && report.newsSourceLabel
+        ? `<span class="news-via news-via-inline">via ${escapeHtml(
+            report.newsSourceLabel
+          )}</span>`
+        : "";
+
     const riskLabel =
       report.analysis?.riskTag || labels.risk || { plain: risk, technical: risk, explanation: "" };
 
@@ -773,6 +781,7 @@
       tags.map((t) => labelHtml(t, { asTagClass: tagClass(lean) })).join("") +
       labelHtml(riskLabel, { asTagClass: riskClass(risk) }) +
       newsAgreeBadge +
+      newsViaBesideAgreement +
       completeBadge;
 
     const targetLine =

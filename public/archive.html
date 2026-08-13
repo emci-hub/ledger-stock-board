@@ -92,6 +92,10 @@
   .delta{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;text-align:right;}
   .delta.up{color:var(--green);} .delta.down{color:var(--rust);}
   .exch{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted-dim);text-align:right;}
+  .via-source{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+    margin-left:6px;white-space:nowrap;
+  }
   .body{padding:0 14px 14px;border-top:1px solid transparent;}
   details[open] .body{border-top-color:var(--line);padding-top:12px;margin-top:0;}
   .warns{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
@@ -231,6 +235,9 @@
     const summary = row.summary
       ? `<div class="summary">${escapeHtml(row.summary)}</div>`
       : `<div class="summary">No full report yet — Analyze builds one using today's remaining quota.</div>`;
+    const viaSignal = row.signalSourceLabel
+      ? `<span class="via-source">via ${escapeHtml(row.signalSourceLabel)}</span>`
+      : "";
     return `<details class="row" data-ticker="${escapeHtml(row.ticker)}">
       <summary class="row-sum">
         <div class="id-block">
@@ -238,7 +245,7 @@
           <div class="name">${escapeHtml(row.name || row.ticker)}</div>
         </div>
         <div class="badge-wrap"><span class="badge ${tier}">${badgeLabel}</span></div>
-        <div class="price">${formatMoney(row.price)}</div>
+        <div class="price">${formatMoney(row.price)}${viaSignal}</div>
         <div class="delta ${down ? "down" : "up"}">${formatPct(row.percentChange)}</div>
         <div class="exch">${escapeHtml(row.exchange || "—")}</div>
       </summary>

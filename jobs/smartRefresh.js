@@ -22,14 +22,17 @@ const {
   runWithBudget,
 } = require("../services/quotaBudget");
 const {
+  tryAcquireAdminLock,
+  releaseAdminLock,
+  getAdminActionLock,
+} = require("../services/adminActionLock");
+const {
   getActiveBoardTickers,
   listArchivedBoardPicks,
   getPick,
 } = require("../lib/boardPicks");
 const { statusFromAnalysis, logRecommendation } = require("./refreshBoard");
 
-let inProgress = false;
-let startedAt = null;
 let lastResult = null;
 
 const USAGE_PROVIDERS = [
@@ -635,32 +638,37 @@ async function previewSmartRefresh() {
 }
 
 function getForceRefreshState() {
+  const lock = getAdminActionLock();
   return {
-    inProgress,
-    startedAt,
+    inProgress: lock.inProgress,
+    action: lock.action,
+    startedAt: lock.startedAt,
     lastResult,
     mode: "smart_refresh",
+    message: lock.message,
   };
 }
 
 const getSmartRefreshState = getForceRefreshState;
 
 /**
- * Smart refresh once. Returns immediately with alreadyRunning if in flight.
+ * Smart refresh once. Returns immediately with alreadyRunning if in flight
+ * (shared lock with Discovery).
  */
 async function smartRefreshAll() {
-  if (inProgress) {
+  const acquired = tryAcquireAdminLock("smart_refresh");
+  if (!acquired.ok) {
     return {
       ok: false,
       alreadyRunning: true,
-      startedAt,
-      message: "Smart refresh already in progress — not starting another run.",
+      startedAt: acquired.startedAt,
+      action: acquired.action,
+      message: acquired.message,
       lastResult,
     };
   }
 
-  inProgress = true;
-  startedAt = new Date().toISOString();
+  const startedAt = acquired.startedAt;
   const usageBefore = await snapshotUsage();
   const budget = await createQuotaBudget();
 
@@ -725,7 +733,7 @@ async function smartRefreshAll() {
       usageBefore,
       usageAfter,
       quota: budget.snapshot(),
-      note: "Shared report covers both short and long AI takes in one Gemini call when analysis is refreshed. Live searches may still use reserved Alpha Vantage headroom.",
+      note: "Shared report covers both short and long AI takes in one Gemini call when analysis is refreshed. Live searches may still use reserved Alpha Vantage headroom. Newly warmed Discovery tickers stay already-current when their fields are still fresh.",
     };
 
     lastResult = result;
@@ -767,7 +775,7 @@ async function smartRefreshAll() {
     }).catch(() => {});
     throw err;
   } finally {
-    inProgress = false;
+    releaseAdminLock("smart_refresh");
   }
 }
 

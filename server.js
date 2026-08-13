@@ -26,6 +26,7 @@ const {
   previewSmartRefresh,
 } = require("./jobs/forceRefreshAll");
 const { invalidateBoardStaleCaches } = require("./jobs/invalidateBoardCache");
+const { getAdminActionLock } = require("./services/adminActionLock");
 const {
   getApiUsageToday,
   getUsageToday,
@@ -465,11 +466,24 @@ app.post("/api/admin/discovery", async (req, res) => {
     if (preview && !req.body?.confirm) {
       return res.json(await previewDiscovery({ maxNew: req.body?.maxNew }));
     }
+    const lock = getAdminActionLock();
+    if (lock.inProgress) {
+      return res.status(409).json({
+        ok: false,
+        alreadyRunning: true,
+        action: lock.action,
+        startedAt: lock.startedAt,
+        message: lock.message,
+      });
+    }
     const result = await discoverHotStocks({
       dryRun: false,
       maxNew: req.body?.maxNew,
       warmReports: req.body?.warmReports !== false,
     });
+    if (result?.alreadyRunning) {
+      return res.status(409).json(result);
+    }
     try {
       await recordJobRun("daily_discovery", {
         ok: Boolean(result?.ok !== false && !result?.skipped),
@@ -556,6 +570,7 @@ async function buildDevStatusPayload() {
     lastForceRefreshStatus: await getSetting("lastForceRefreshStatus"),
     forceRefresh: getForceRefreshState(),
     smartRefresh: getForceRefreshState(),
+    adminActionLock: getAdminActionLock(),
     deeperLook: await getDeeperLookSetting(),
     sources,
     lastCallByProvider: await getLastCallByProvider(),
@@ -586,14 +601,15 @@ async function handleSmartRefresh(req, res) {
       return res.json(result);
     }
 
-    const state = getForceRefreshState();
-    if (state.inProgress) {
+    const lock = getAdminActionLock();
+    if (lock.inProgress) {
       return res.status(409).json({
         ok: false,
         alreadyRunning: true,
-        startedAt: state.startedAt,
-        message: "Smart refresh already in progress.",
-        lastResult: state.lastResult,
+        action: lock.action,
+        startedAt: lock.startedAt,
+        message: lock.message,
+        lastResult: getForceRefreshState().lastResult,
       });
     }
     const result = await forceRefreshAll();

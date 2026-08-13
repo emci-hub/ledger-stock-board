@@ -118,7 +118,13 @@
         <strong style="color:var(--ink);">Safeguards:</strong>
         Discovery respects Twelve Data’s reserve and never touches Alpha Vantage.
         Smart Refresh respects each source’s reserve and only refreshes genuinely stale fields.
+        Both share one in-progress lock so they cannot run at the same time.
       </p>
+      <p class="safeguard-note" style="margin:0 0 12px;padding:10px 12px;border:1px dashed var(--line);border-radius:8px;background:#0e1319;color:var(--muted);font-size:12px;line-height:1.5;">
+        <strong style="color:var(--ink);">Recommended order:</strong>
+        Run Discovery first to update the board, then Smart Refresh to fill in any new additions.
+      </p>
+      <p class="mono hidden" id="lock-banner" style="margin:0 0 10px;color:var(--warn);"></p>
       <div class="row">
         <button type="button" class="danger" id="force-btn">Smart refresh…</button>
         <button type="button" class="danger" id="discovery-btn">Discover new stocks</button>
@@ -303,18 +309,44 @@
       : `<tr><td colspan="5" style="color:var(--muted);">No calls logged yet (new log starts after deploy).</td></tr>`;
 
     const fr = data.smartRefresh || data.forceRefresh || {};
+    const lock = data.adminActionLock || fr;
     const forceBtn = document.getElementById("force-btn");
     const discoveryBtn = document.getElementById("discovery-btn");
-    if (fr.inProgress) {
+    const confirmBtn = document.getElementById("preview-confirm-btn");
+    const lockBanner = document.getElementById("lock-banner");
+
+    if (lock.inProgress) {
+      const who =
+        lock.action === "discovery"
+          ? "Discovery"
+          : lock.action === "smart_refresh"
+            ? "Smart Refresh"
+            : "An admin action";
       forceBtn.disabled = true;
-      forceBtn.textContent = "Smart refresh running…";
-      if (discoveryBtn) discoveryBtn.disabled = true;
+      discoveryBtn.disabled = true;
+      if (confirmBtn) confirmBtn.disabled = true;
+      forceBtn.textContent =
+        lock.action === "smart_refresh"
+          ? "Smart refresh running…"
+          : "Smart refresh (locked)";
+      discoveryBtn.textContent =
+        lock.action === "discovery"
+          ? "Discovery running…"
+          : "Discover (locked)";
+      if (lockBanner) {
+        lockBanner.classList.remove("hidden");
+        lockBanner.textContent =
+          lock.message ||
+          `${who} is in progress — wait for it to finish before starting the other.`;
+      }
     } else if (!pendingAction) {
       forceBtn.disabled = false;
       forceBtn.textContent = "Smart refresh…";
-      if (discoveryBtn) {
-        discoveryBtn.disabled = false;
-        discoveryBtn.textContent = "Discover new stocks";
+      discoveryBtn.disabled = false;
+      discoveryBtn.textContent = "Discover new stocks";
+      if (lockBanner) {
+        lockBanner.classList.add("hidden");
+        lockBanner.textContent = "";
       }
     }
 
@@ -479,6 +511,19 @@
     const discoveryBtn = document.getElementById("discovery-btn");
     const out = document.getElementById("force-result");
 
+    // Re-check shared lock before opening a confirmable preview.
+    const status = await api("/api/dev/status");
+    if (status.res.ok && status.data?.adminActionLock?.inProgress) {
+      pendingAction = null;
+      const lock = status.data.adminActionLock;
+      out.classList.remove("hidden");
+      out.textContent =
+        lock.message ||
+        "Another admin action is already in progress — wait for it to finish.";
+      await loadStatus();
+      return;
+    }
+
     forceBtn.disabled = true;
     discoveryBtn.disabled = true;
     panel.classList.remove("hidden");
@@ -532,8 +577,16 @@
     hidePreview();
     out.classList.remove("hidden");
 
+    if (res.status === 409) {
+      out.textContent =
+        data?.message ||
+        "Blocked — another admin action is already in progress.";
+      await loadStatus();
+      return;
+    }
+
     if (kind === "smart_refresh") {
-      if (res.status === 409 || !res.ok) {
+      if (!res.ok) {
         out.textContent = JSON.stringify(data, null, 2);
       } else {
         const t = data.totals || {};

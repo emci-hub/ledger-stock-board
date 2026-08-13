@@ -23,6 +23,10 @@ const {
   promotePick,
   BOARD_MAX_SIZE,
 } = require("../lib/boardPicks");
+const {
+  tryAcquireAdminLock,
+  releaseAdminLock,
+} = require("../services/adminActionLock");
 
 /** Max brand-new tickers to onboard per discovery run (limits API spend). */
 const MAX_NEW_PER_RUN = Math.max(
@@ -223,7 +227,15 @@ async function previewDiscovery(options = {}) {
 
 /**
  * discoverHotStocks() — main entry.
- * @param {{ dryRun?: boolean, maxNew?: number, warmReports?: boolean }} options
+ * Real runs share the admin in-progress lock with Smart Refresh.
+ * @param {{ dryRun?: boolean, maxNew?: number, warmReports?: boolean, fetchMovers?: boolean, previewOnly?: boolean }} options
+ *
+ * Order-safety with Smart Refresh:
+ * - When warmReports is on (default), newly added / re-promoted tickers are filled via
+ *   getStockReport, so a following Smart Refresh sees those fields as fresh
+ *   (already_current) and does not re-fetch them.
+ * - Tickers Discovery did not touch are evaluated solely on their own freshness TTLs.
+ * - Gaps left when a warm fails remain "missing/stale" so Smart Refresh can fill them.
  */
 async function discoverHotStocks(options = {}) {
   const dryRun = Boolean(options.dryRun);
@@ -234,6 +246,11 @@ async function discoverHotStocks(options = {}) {
   console.log(
     `[discoverHotStocks] start at ${startedAt} dryRun=${dryRun} maxNew=${maxNew} boardMax=${BOARD_MAX_SIZE}`
   );
+
+  // dryRun / preview path: zero-cost, no lock.
+  if (dryRun && options.previewOnly !== false && options.fetchMovers !== true) {
+    return previewDiscovery({ maxNew });
+  }
 
   if (!hasTwelve()) {
     const result = {
@@ -280,12 +297,38 @@ async function discoverHotStocks(options = {}) {
     return result;
   }
 
-  // dryRun for legacy callers: still a no-op on writes, but fetching movers
-  // spends TD — prefer previewDiscovery() for zero-cost admin previews.
-  if (dryRun && options.previewOnly !== false && options.fetchMovers !== true) {
-    return previewDiscovery({ maxNew });
+  const acquired = tryAcquireAdminLock("discovery");
+  if (!acquired.ok) {
+    const result = {
+      ok: false,
+      alreadyRunning: true,
+      action: acquired.action,
+      startedAt: acquired.startedAt,
+      message: acquired.message,
+      finishedAt: new Date().toISOString(),
+    };
+    console.warn(`[discoverHotStocks] ${result.message}`);
+    return result;
   }
 
+  try {
+    return await discoverHotStocksInner({
+      dryRun,
+      maxNew,
+      warmReports,
+      startedAt: acquired.startedAt,
+    });
+  } finally {
+    releaseAdminLock("discovery");
+  }
+}
+
+async function discoverHotStocksInner({
+  dryRun,
+  maxNew,
+  warmReports,
+  startedAt,
+}) {
   let movers;
   try {
     movers = await getDiscoveryMoversBundle({ outputsize: 30, country: "USA" });

@@ -207,7 +207,7 @@ async function buildStatusPayload() {
     alphaVantageUsedToday: alphaUsed,
     alphaVantageLimit: DAILY_AV_LIMIT,
     alphaVantageRole:
-      sourceRole("alpha_vantage") || "analyst_target_specialist_news_fallback",
+      sourceRole("alpha_vantage") || "analyst_target_and_parallel_news",
     twelveDataUsedToday: twelveUsed,
     twelveDataLimit: DAILY_TWELVE_LIMIT,
     twelveDataRole: sourceRole("twelve_data") || "price_indicators_primary",

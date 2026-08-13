@@ -240,6 +240,10 @@
     const ov = document.getElementById("overview");
     ov.textContent =
       `Generated ${fmtTime(data.generatedAt)} · board ${data.boardLiveCount}/${data.boardMaxSize}` +
+      ` · candidates ${data.boardCandidateCount ?? 0}/${data.candidatePoolCap ?? "—"}` +
+      (data.discoveryPromotionBudget
+        ? ` · promotable today ${data.discoveryPromotionBudget.maxPromote ?? "—"} (bound by ${data.discoveryPromotionBudget.bindingSource || "—"})`
+        : "") +
       ` · lastBoardRefresh ${fmtTime(data.lastBoardRefresh)} (${data.boardRefreshStatus || "—"})` +
       ` · resets ${fmtTime(data.resetsAt)}`;
 
@@ -481,32 +485,44 @@
 
   function renderDiscoveryPreview(data) {
     const board = data.board || {};
+    const cand = data.candidates || {};
     const wouldArchive = (data.wouldArchive || [])
       .map((a) => escapeHtml(a.ticker))
-      .join(", ") || "— (board has room or none needed for maxNew)";
+      .join(", ") || "— (board has room or none needed for promotions)";
     const flags = (data.skipFlags || []).length
       ? `<p class="warn" style="margin:8px 0 0;">⚠ ${data.skipFlags
           .map((f) => escapeHtml(`${f.reason}: ${f.detail || f.source || ""}`))
           .join(" · ")}</p>`
-      : `<p class="ok" style="margin:8px 0 0;">FMP headroom looks sufficient for this estimate.</p>`;
+      : `<p class="ok" style="margin:8px 0 0;">FMP headroom looks sufficient for Stage 1 movers.</p>`;
 
     const confirmDisabled = data.wouldSkipEntireRun
       ? `<p class="bad" style="margin:8px 0 0;">Confirm is blocked — discovery would be skipped entirely for quota/reserve.</p>`
       : "";
 
+    const promoList = Array.isArray(cand.promotableTickersPreview)
+      ? cand.promotableTickersPreview.map(escapeHtml).join(", ") || "—"
+      : "—";
+
     return `
       <p style="margin:0 0 8px;color:var(--ink);">${escapeHtml(data.message || "Preview")}</p>
       <p class="mono" style="margin:0 0 6px;">
-        Board ${board.liveCount ?? "—"}/${board.max ?? "—"} · free slots=${board.freeSlots ?? "—"} ·
-        max new=${board.maxNew ?? "—"} · archived pool=${board.archivedCount ?? "—"}
+        Live (active) ${board.liveCount ?? "—"}/${board.max ?? "—"} · free slots=${board.freeSlots ?? "—"} ·
+        archived=${board.archivedCount ?? "—"} ·
+        candidates=${board.candidateCount ?? cand.total ?? "—"}/${board.candidatePoolCap ?? "—"}
       </p>
       <div class="mono" style="font-size:12px;line-height:1.55;">
-        <div><span class="ok">Would add</span>: up to ${escapeHtml(String(board.maxNew ?? "—"))} new movers
-          <span style="color:var(--muted);">(exact tickers unknown until confirm — movers not fetched in preview)</span></div>
-        <div>Would re-promote: archived movers that appear hot again
-          <span style="color:var(--muted);">(unknown until movers fetch)</span></div>
+        <div><strong style="color:var(--ink);">Stage 1</strong> (cheap): upsert all FMP movers as candidates; flag pennies/non-major (kept)</div>
+        <div>Candidate pool now: ${escapeHtml(String(cand.total ?? board.candidateCount ?? "—"))}
+          · main pool=${escapeHtml(String(cand.mainPool ?? cand.eligibleMainPool ?? "—"))}
+          · penny=${escapeHtml(String(cand.penny ?? "—"))}
+          · non-major=${escapeHtml(String(cand.nonMajorExchange ?? "—"))}</div>
+        <div><strong style="color:var(--ink);">Stage 2</strong> (quota-bound): promotable today=<span class="ok">${escapeHtml(String(cand.promotableToday ?? "—"))}</span>
+          · bound by ${escapeHtml(String(cand.bindingSource || data.promotionBudget?.bindingSource || "—"))}
+          ${cand.hardCap ? `· hard cap ${escapeHtml(String(cand.hardCap))}` : "· no hard cap"}</div>
+        <div><span class="ok">Would promote</span>: ${escapeHtml(String(cand.promotableToday ?? "—"))} (preview from current pool)
+          <span style="color:var(--muted);">[${promoList}]</span></div>
+        <div>Would re-promote: archived movers that appear hot again (counts against same budget)</div>
         <div><span class="warn">Would archive to make room</span>: ${wouldArchive}</div>
-        <div>Alpha Vantage: never touched</div>
       </div>
       <p class="mono" style="margin:8px 0 0;">Estimated calls: ${escapeHtml(fmtCalls(data.estimatedCalls))} (total ${data.totalEstimatedCalls ?? 0})</p>
       ${fmtQuotaTable(data.quota, data.estimatedCalls)}
@@ -617,7 +633,21 @@
         renderTierSummary(data);
       }
     } else {
-      out.textContent = JSON.stringify(data, null, 2);
+      // Discovery confirm result
+      if (!res.ok) {
+        out.textContent = JSON.stringify(data, null, 2);
+      } else {
+        const c = data.candidates || {};
+        const s1 = data.stage1 || {};
+        out.textContent = [
+          data.message || "Discovery done",
+          `Candidates: pool=${c.poolSize ?? "—"} · main=${c.mainPool ?? "—"} · penny=${c.penny ?? "—"} · non-major=${c.nonMajorExchange ?? "—"}`,
+          `Promotable today (budget): ${c.promotableToday ?? "—"} bound by ${c.bindingSource || data.promotionBudget?.bindingSource || "—"}`,
+          `Actually promoted: ${c.promoted ?? (data.added || []).length} · re-promoted: ${c.rePromoted ?? (data.rePromoted || []).length}`,
+          `Stage 1: inserted=${s1.inserted ?? 0} updated=${s1.updated ?? 0} pruned=${(s1.pruned || []).length} trimmed=${(s1.trimmed || []).length}`,
+          `Archived for capacity: ${(data.archived || []).length} · skipped: ${(data.skipped || []).length}`,
+        ].join("\n");
+      }
     }
     await loadStatus();
   }

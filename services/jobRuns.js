@@ -26,7 +26,7 @@ const JOB_DEFS = [
     schedule: "daily with 7am refresh (after board refresh)",
     enabled: true,
     description:
-      "discoverHotStocks via FMP free movers (gainers+losers+most-actives); FMP reserve gate; DISCOVERY_MAX_NEW cap; BOARD_MAX_SIZE archive/re-promote; never Alpha Vantage.",
+      "discoverHotStocks via FMP free movers → Stage 1 candidate upsert (all unique) → Stage 2 resource-bound promote (TD/MX/AV reserves); BOARD_MAX_SIZE archive/re-promote.",
   },
   {
     id: "monthly_cleanup_probe",

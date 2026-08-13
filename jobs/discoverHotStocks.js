@@ -1,17 +1,28 @@
 /**
  * Hot-stock discovery via FMP free-tier movers
  * (/stable/biggest-gainers, /stable/biggest-losers, /stable/most-actives).
- * Compares movers to the live board, re-promotes archived hits, and
- * adds genuinely new candidates under BOARD_MAX_SIZE (archiving weakest).
+ *
+ * Three board tiers:
+ *   candidate — Stage 1 cheap FMP signal only (all unique movers saved)
+ *   live      — recommended | watch (Stage 2 promotion builds full reports)
+ *   archived  — previously live, retained off-board
+ *
+ * Stage 1 (free beyond the 3 FMP calls): upsert ALL movers as candidates,
+ * flag pennies / non-major exchanges (do not drop), prune miss streaks, trim pool.
+ * Stage 2 (quota-bound): promote top-ranked candidates up to what remaining
+ * TD/MX/AV/Gemini spendable headroom can safely warm today.
  *
  * Scheduled daily right after the 7am board refresh (see server.js).
- * Never calls Alpha Vantage or Twelve Data for movers.
  */
 
 const { setSetting, getUsageToday, PROVIDERS } = require("../services/usage");
 const { getDiscoveryMoversBundle } = require("../services/dataFetch");
 const { getStockReport } = require("../services/getStockReport");
-const { hasSourceKey, smartRefreshReserve, DATA_SOURCES } = require("../lib/dataSources");
+const {
+  hasSourceKey,
+  smartRefreshReserve,
+  DATA_SOURCES,
+} = require("../lib/dataSources");
 const {
   generateDiscoveryWriteUp,
   saveDiscoveryBlurb,
@@ -19,24 +30,39 @@ const {
 const {
   listLiveBoardPicks,
   listArchivedBoardPicks,
+  listCandidatePicks,
+  countCandidates,
   ensureBoardCapacity,
   previewArchivesForSlots,
   promotePick,
+  upsertCandidateFromMover,
+  pruneMissingCandidates,
+  trimCandidatePool,
+  rankCandidatesForPromotion,
   BOARD_MAX_SIZE,
+  CANDIDATE_POOL_CAP,
+  CANDIDATE_MISS_STREAK_LIMIT,
+  DISCOVERY_PROMOTE_HARD_CAP,
 } = require("../lib/boardPicks");
 const {
   tryAcquireAdminLock,
   releaseAdminLock,
 } = require("../services/adminActionLock");
 
-/** Max brand-new tickers to onboard per discovery run (limits API spend). */
-const MAX_NEW_PER_RUN = Math.max(
-  1,
-  Number.parseInt(process.env.DISCOVERY_MAX_NEW || "3", 10) || 3
-);
-
 /** FMP calls for gainers + losers + most-actives. */
 const MOVERS_FMP_CALLS = 3;
+
+/**
+ * Conservative per-ticker warm cost when promoting a candidate to live.
+ * Discovery movers themselves never touch AV; warm reports may.
+ */
+const WARM_COST_PER_TICKER = {
+  twelve_data: 1,
+  marketaux: 1,
+  alpha_vantage: 1,
+  finnhub: 1,
+  gemini: 1,
+};
 
 function statusFromAnalysis(lean, risk) {
   const l = String(lean || "").toLowerCase();
@@ -73,20 +99,110 @@ async function fmpQuotaSnapshot() {
   return { used, limit, remaining, reserve, spendable };
 }
 
+async function sourceQuotaSnapshot(sourceId, providerKey, limitOverride = null) {
+  const used = await getUsageToday(providerKey);
+  const limit =
+    limitOverride != null
+      ? limitOverride
+      : DATA_SOURCES[sourceId]?.rateLimit?.limit;
+  const reserve = smartRefreshReserve(sourceId);
+  if (limit == null) {
+    return {
+      used,
+      limit: null,
+      remaining: null,
+      reserve,
+      spendable: Infinity,
+    };
+  }
+  const remaining = Math.max(0, Number(limit) - Number(used || 0));
+  const spendable = Math.max(0, remaining - reserve);
+  return { used, limit, remaining, reserve, spendable };
+}
+
 /**
- * Conservative estimate for a full discovery run:
- * 3 FMP movers + warm-report side effects for up to maxNew names.
- * Warm reports may use TD/MX/FH/Gemini — not FMP. Discovery never uses AV.
+ * How many full-report promotions we can safely afford today.
+ * Bound by the tightest of TD / MX / AV / Gemini spendable headroom.
  */
-function estimateDiscoveryCalls(maxNew = MAX_NEW_PER_RUN) {
-  const n = Math.max(1, Number(maxNew) || MAX_NEW_PER_RUN);
+async function computePromotionBudget(options = {}) {
+  const twelve = await sourceQuotaSnapshot(
+    "twelve_data",
+    PROVIDERS.TWELVE
+  );
+  const marketaux = await sourceQuotaSnapshot(
+    "marketaux",
+    PROVIDERS.MARKETAUX
+  );
+  const alpha = await sourceQuotaSnapshot(
+    "alpha_vantage",
+    PROVIDERS.ALPHA
+  );
+  const gemini = await sourceQuotaSnapshot("gemini", PROVIDERS.GEMINI, null);
+
+  const caps = {
+    twelve_data: Math.floor(
+      twelve.spendable / WARM_COST_PER_TICKER.twelve_data
+    ),
+    marketaux: Math.floor(
+      marketaux.spendable / WARM_COST_PER_TICKER.marketaux
+    ),
+    alpha_vantage: Math.floor(
+      alpha.spendable / WARM_COST_PER_TICKER.alpha_vantage
+    ),
+    // Gemini has no published daily hard cap — do not bind promotion on it.
+    gemini: Infinity,
+  };
+
+  let maxPromote = Math.min(
+    caps.twelve_data,
+    caps.marketaux,
+    caps.alpha_vantage
+  );
+  if (!Number.isFinite(maxPromote) || maxPromote < 0) maxPromote = 0;
+
+  const hardCap =
+    options.hardCap != null
+      ? Number(options.hardCap)
+      : DISCOVERY_PROMOTE_HARD_CAP;
+  if (Number.isFinite(hardCap) && hardCap > 0) {
+    maxPromote = Math.min(maxPromote, hardCap);
+  }
+  // Explicit override (e.g. promoteLimit: 0 for Stage-1-only runs).
+  if (options.promoteLimit != null && Number.isFinite(Number(options.promoteLimit))) {
+    maxPromote = Math.min(maxPromote, Math.max(0, Number(options.promoteLimit)));
+  }
+
+  let bindingSource = null;
+  for (const [k, v] of Object.entries(caps)) {
+    if (v === maxPromote || (maxPromote === 0 && v === 0)) {
+      bindingSource = k;
+      break;
+    }
+  }
+  // Prefer the true min source when several equal.
+  const finiteCaps = Object.entries(caps).filter(([, v]) => Number.isFinite(v));
+  finiteCaps.sort((a, b) => a[1] - b[1]);
+  bindingSource = finiteCaps[0]?.[0] || bindingSource;
+
+  return {
+    maxPromote,
+    bindingSource,
+    hardCap: hardCap > 0 ? hardCap : null,
+    perTicker: { ...WARM_COST_PER_TICKER },
+    sources: { twelve_data: twelve, marketaux, alpha_vantage: alpha, gemini },
+    caps,
+  };
+}
+
+function estimateDiscoveryCalls(promoteCount = 0) {
+  const n = Math.max(0, Number(promoteCount) || 0);
   return {
     fmp: MOVERS_FMP_CALLS,
-    twelve_data: n, // possible price warm for new tickers
-    alpha_vantage: 0,
-    finnhub: n,
-    marketaux: n,
-    gemini: n,
+    twelve_data: n * WARM_COST_PER_TICKER.twelve_data,
+    alpha_vantage: n * WARM_COST_PER_TICKER.alpha_vantage,
+    finnhub: n * WARM_COST_PER_TICKER.finnhub,
+    marketaux: n * WARM_COST_PER_TICKER.marketaux,
+    gemini: n * WARM_COST_PER_TICKER.gemini,
     claude: 0,
   };
 }
@@ -97,11 +213,37 @@ function blockReasonForFmp(snapshot, need) {
   return null;
 }
 
+function candidateSummary(rows) {
+  let penny = 0;
+  let nonMajor = 0;
+  let mainPool = 0;
+  for (const row of rows || []) {
+    let flags = row.flags;
+    if (!flags && row.flags_json) {
+      try {
+        flags = JSON.parse(row.flags_json);
+      } catch {
+        flags = {};
+      }
+    }
+    flags = flags || {};
+    if (flags.penny) penny += 1;
+    if (flags.nonMajorExchange) nonMajor += 1;
+    if (!flags.penny && !flags.nonMajorExchange) mainPool += 1;
+  }
+  return {
+    total: (rows || []).length,
+    penny,
+    nonMajorExchange: nonMajor,
+    mainPool,
+  };
+}
+
 /**
  * Zero-cost discovery preview — no movers fetch, no promotions.
+ * Shows current candidate pool + how many promotions today's quota allows.
  */
 async function previewDiscovery(options = {}) {
-  const maxNew = options.maxNew ?? MAX_NEW_PER_RUN;
   const startedAt = new Date().toISOString();
 
   if (!hasFmp()) {
@@ -117,35 +259,39 @@ async function previewDiscovery(options = {}) {
 
   const live = await listLiveBoardPicks();
   const archived = await listArchivedBoardPicks();
+  const candidates = await listCandidatePicks();
   const liveCount = live.length;
   const freeSlots = Math.max(0, BOARD_MAX_SIZE - liveCount);
   const fmp = await fmpQuotaSnapshot();
-  const estimatedCalls = estimateDiscoveryCalls(maxNew);
+  const promotionBudget = await computePromotionBudget(options);
+  const maxPromote = promotionBudget.maxPromote;
+  const estimatedCalls = estimateDiscoveryCalls(maxPromote);
   const needFmp = estimatedCalls.fmp;
   const skipReason = blockReasonForFmp(fmp, needFmp);
 
-  const archivePreview = await previewArchivesForSlots(maxNew, { protect: [] });
-
-  const mxUsed = await getUsageToday(PROVIDERS.MARKETAUX);
-  const avUsed = await getUsageToday(PROVIDERS.ALPHA);
-  const tdUsed = await getUsageToday(PROVIDERS.TWELVE);
-  const mxLimit = Number(DATA_SOURCES.marketaux?.rateLimit?.limit) || 100;
-  const avLimit = Number(DATA_SOURCES.alpha_vantage?.rateLimit?.limit) || 25;
-  const tdLimitVal = Number(DATA_SOURCES.twelve_data?.rateLimit?.limit) || 800;
-  const mxRem = Math.max(0, mxLimit - Number(mxUsed || 0));
-  const avRem = Math.max(0, avLimit - Number(avUsed || 0));
-  const tdRem = Math.max(0, tdLimitVal - Number(tdUsed || 0));
+  const ranked = rankCandidatesForPromotion(candidates);
+  const eligibleMain = ranked.filter((r) => r.mainPool);
+  const promotableToday = ranked.slice(0, maxPromote).map((r) => r.ticker);
+  const archivePreview = await previewArchivesForSlots(maxPromote, {
+    protect: [],
+  });
 
   const remainingAfter = {
     fmp: skipReason ? fmp.remaining : Math.max(0, fmp.remaining - needFmp),
     twelve_data: Math.max(
       0,
-      tdRem - (skipReason ? 0 : estimatedCalls.twelve_data || 0)
+      (promotionBudget.sources.twelve_data.remaining || 0) -
+        (skipReason ? 0 : estimatedCalls.twelve_data || 0)
     ),
-    alpha_vantage: avRem,
+    alpha_vantage: Math.max(
+      0,
+      (promotionBudget.sources.alpha_vantage.remaining || 0) -
+        (skipReason ? 0 : estimatedCalls.alpha_vantage || 0)
+    ),
     marketaux: Math.max(
       0,
-      mxRem - (skipReason ? 0 : estimatedCalls.marketaux || 0)
+      (promotionBudget.sources.marketaux.remaining || 0) -
+        (skipReason ? 0 : estimatedCalls.marketaux || 0)
     ),
     finnhub: null,
     gemini: null,
@@ -161,7 +307,7 @@ async function previewDiscovery(options = {}) {
       ? skipReason === "reserve_protected"
         ? "Skipped — reserve protected: FMP spendable headroom is below this run's estimate."
         : "Skipped — no quota: FMP remaining is below this run's estimate."
-      : "Preview only — no API calls spent. Exact new tickers are unknown until confirm (movers not fetched). Confirm to run for real.",
+      : "Preview only — no API calls spent. Stage 1 will upsert all FMP movers as candidates; Stage 2 promotes up to today's resource-bound budget. Exact new movers unknown until confirm.",
     startedAt,
     finishedAt: new Date().toISOString(),
     board: {
@@ -169,26 +315,40 @@ async function previewDiscovery(options = {}) {
       max: BOARD_MAX_SIZE,
       freeSlots,
       archivedCount: archived.length,
-      maxNew,
+      candidateCount: candidates.length,
+      candidatePoolCap: CANDIDATE_POOL_CAP,
     },
+    candidates: {
+      ...candidateSummary(candidates),
+      eligibleMainPool: eligibleMain.length,
+      promotableToday: maxPromote,
+      promotableTickersPreview: promotableToday,
+      bindingSource: promotionBudget.bindingSource,
+      hardCap: promotionBudget.hardCap,
+      missStreakLimit: CANDIDATE_MISS_STREAK_LIMIT,
+    },
+    promotionBudget,
     wouldAdd: {
-      note: "Determined at confirm from FMP movers (gainers + losers + most-actives). Up to maxNew brand-new names.",
-      upTo: maxNew,
-      tickers: null,
+      note: "Stage 2 promotes top-ranked candidates (main pool first) up to promotableToday. Exact list refreshes after Stage 1 upserts today's FMP movers.",
+      upTo: maxPromote,
+      tickers: promotableToday.length ? promotableToday : null,
     },
     wouldRePromote: {
-      note: "Archived movers that appear hot again are re-promoted first (count unknown until movers fetch).",
+      note: "Archived movers that appear hot again are re-promoted first and count against the same promotion budget.",
       tickers: null,
     },
     wouldArchive: archivePreview.wouldArchive,
     estimatedCalls,
-    totalEstimatedCalls: Object.values(estimatedCalls).reduce((a, b) => a + b, 0),
+    totalEstimatedCalls: Object.values(estimatedCalls).reduce(
+      (a, b) => a + b,
+      0
+    ),
     quota: {
       remainingBefore: {
         fmp: fmp.remaining,
-        twelve_data: tdRem,
-        alpha_vantage: avRem,
-        marketaux: mxRem,
+        twelve_data: promotionBudget.sources.twelve_data.remaining,
+        alpha_vantage: promotionBudget.sources.alpha_vantage.remaining,
+        marketaux: promotionBudget.sources.marketaux.remaining,
         finnhub: null,
         gemini: null,
         claude: null,
@@ -196,22 +356,21 @@ async function previewDiscovery(options = {}) {
       remainingAfter,
       spendableBefore: {
         fmp: fmp.spendable,
-        twelve_data: Math.max(0, tdRem - smartRefreshReserve("twelve_data")),
-        alpha_vantage: Math.max(
-          0,
-          avRem - smartRefreshReserve("alpha_vantage")
-        ),
+        twelve_data: promotionBudget.sources.twelve_data.spendable,
+        alpha_vantage: promotionBudget.sources.alpha_vantage.spendable,
+        marketaux: promotionBudget.sources.marketaux.spendable,
       },
       reserves: {
         fmp: fmp.reserve,
-        twelve_data: smartRefreshReserve("twelve_data"),
-        alpha_vantage: smartRefreshReserve("alpha_vantage"),
+        twelve_data: promotionBudget.sources.twelve_data.reserve,
+        alpha_vantage: promotionBudget.sources.alpha_vantage.reserve,
+        marketaux: promotionBudget.sources.marketaux.reserve,
       },
       usedToday: {
         fmp: fmp.used,
-        twelve_data: tdUsed,
-        alpha_vantage: avUsed,
-        marketaux: mxUsed,
+        twelve_data: promotionBudget.sources.twelve_data.used,
+        alpha_vantage: promotionBudget.sources.alpha_vantage.used,
+        marketaux: promotionBudget.sources.marketaux.used,
       },
     },
     skipFlags: skipReason
@@ -228,35 +387,25 @@ async function previewDiscovery(options = {}) {
       : [],
     wouldSkipEntireRun: Boolean(skipReason),
     alphaVantageTouched: false,
-    note: "Discovery never touches Alpha Vantage. Movers use FMP only; warm reports may use TD/MX/FH/Gemini for new names.",
+    note: "Stage 1 is FMP-only. Stage 2 warm reports may use TD/MX/AV/Gemini within reserves. Candidate pennies/non-major exchanges are flagged but kept.",
   };
 }
 
 /**
  * discoverHotStocks() — main entry.
  * Real runs share the admin in-progress lock with Smart Refresh.
- * @param {{ dryRun?: boolean, maxNew?: number, warmReports?: boolean, fetchMovers?: boolean, previewOnly?: boolean }} options
- *
- * Order-safety with Smart Refresh:
- * - When warmReports is on (default), newly added / re-promoted tickers are filled via
- *   getStockReport, so a following Smart Refresh sees those fields as fresh
- *   (already_current) and does not re-fetch them.
- * - Tickers Discovery did not touch are evaluated solely on their own freshness TTLs.
- * - Gaps left when a warm fails remain "missing/stale" so Smart Refresh can fill them.
  */
 async function discoverHotStocks(options = {}) {
   const dryRun = Boolean(options.dryRun);
-  const maxNew = options.maxNew ?? MAX_NEW_PER_RUN;
   const warmReports = options.warmReports !== false;
 
   const startedAt = new Date().toISOString();
   console.log(
-    `[discoverHotStocks] start at ${startedAt} dryRun=${dryRun} maxNew=${maxNew} boardMax=${BOARD_MAX_SIZE}`
+    `[discoverHotStocks] start at ${startedAt} dryRun=${dryRun} boardMax=${BOARD_MAX_SIZE}`
   );
 
-  // dryRun / preview path: zero-cost, no lock.
   if (dryRun && options.previewOnly !== false && options.fetchMovers !== true) {
-    return previewDiscovery({ maxNew });
+    return previewDiscovery(options);
   }
 
   if (!hasFmp()) {
@@ -272,12 +421,11 @@ async function discoverHotStocks(options = {}) {
     return result;
   }
 
-  // Quota-aware gate: refuse to start if FMP spendable headroom cannot cover movers.
   const fmp = await fmpQuotaSnapshot();
-  const estimatedCalls = estimateDiscoveryCalls(maxNew);
-  const needFmp = estimatedCalls.fmp;
+  const needFmp = MOVERS_FMP_CALLS;
   const skipReason = blockReasonForFmp(fmp, needFmp);
   if (skipReason) {
+    const promotionBudget = await computePromotionBudget(options);
     const result = {
       ok: false,
       skipped: true,
@@ -287,7 +435,11 @@ async function discoverHotStocks(options = {}) {
           ? "Skipped — reserve protected for fmp"
           : "Skipped — no quota for fmp",
       detail: `need≈${needFmp} · remaining=${fmp.remaining} · spendable=${fmp.spendable} · reserve=${fmp.reserve}`,
-      estimatedCalls,
+      promotionBudget,
+      candidates: {
+        poolSize: await countCandidates(),
+        promotableToday: promotionBudget.maxPromote,
+      },
       quota: fmp,
       startedAt,
       finishedAt: new Date().toISOString(),
@@ -320,9 +472,9 @@ async function discoverHotStocks(options = {}) {
   try {
     return await discoverHotStocksInner({
       dryRun,
-      maxNew,
       warmReports,
       startedAt: acquired.startedAt,
+      options,
     });
   } finally {
     releaseAdminLock("discovery");
@@ -331,9 +483,9 @@ async function discoverHotStocks(options = {}) {
 
 async function discoverHotStocksInner({
   dryRun,
-  maxNew,
   warmReports,
   startedAt,
+  options = {},
 }) {
   let movers;
   try {
@@ -352,34 +504,71 @@ async function discoverHotStocksInner({
     return result;
   }
 
+  // ── Stage 1: cheap candidate upsert (no full reports) ──────────────
+  const stage1 = {
+    inserted: 0,
+    updated: 0,
+    refreshedLive: 0,
+    refreshedArchived: 0,
+    flaggedPenny: 0,
+    flaggedNonMajor: 0,
+  };
+
+  if (!dryRun) {
+    for (const mover of movers.all) {
+      const res = await upsertCandidateFromMover(mover);
+      if (res.action === "inserted") stage1.inserted += 1;
+      else if (res.action === "updated") stage1.updated += 1;
+      else if (res.action === "refreshed_live") stage1.refreshedLive += 1;
+      else if (res.action === "refreshed_archived") stage1.refreshedArchived += 1;
+      if (res.flags?.penny) stage1.flaggedPenny += 1;
+      if (res.flags?.nonMajorExchange) stage1.flaggedNonMajor += 1;
+    }
+  }
+
+  const prune = dryRun
+    ? { bumped: [], removed: [], missLimit: CANDIDATE_MISS_STREAK_LIMIT }
+    : await pruneMissingCandidates(
+        movers.all.map((m) => m.ticker),
+        { missLimit: CANDIDATE_MISS_STREAK_LIMIT }
+      );
+  const trim = dryRun
+    ? { trimmed: [], kept: 0, max: CANDIDATE_POOL_CAP }
+    : await trimCandidatePool({ max: CANDIDATE_POOL_CAP });
+
   const live = await listLiveBoardPicks();
   const archived = await listArchivedBoardPicks();
+  const candidates = await listCandidatePicks();
   const liveSet = new Set(live.map((p) => String(p.ticker).toUpperCase()));
   const archivedSet = new Set(
     archived.map((p) => String(p.ticker).toUpperCase())
   );
-  const moverTickers = movers.all.map((m) => m.ticker);
   const moverByTicker = new Map(movers.all.map((m) => [m.ticker, m]));
+  const moverTickers = movers.all.map((m) => m.ticker);
+
+  // ── Stage 2: resource-bound promotion ──────────────────────────────
+  const promotionBudget = await computePromotionBudget(options);
+  let seatsLeft = promotionBudget.maxPromote;
 
   const rePromoteCandidates = moverTickers.filter((t) => archivedSet.has(t));
-  const newCandidates = movers.all
-    .filter((m) => !liveSet.has(m.ticker) && !archivedSet.has(m.ticker))
-    .sort(
-      (a, b) =>
-        Math.abs(Number(b.percentChange) || 0) -
-        Math.abs(Number(a.percentChange) || 0)
-    );
+  const rankedCandidates = rankCandidatesForPromotion(
+    candidates.filter((c) => !liveSet.has(String(c.ticker).toUpperCase()))
+  );
 
   const rePromoted = [];
   const added = [];
   const archivedOut = [];
   const skipped = [];
 
-  // 1) Re-promote archived names that are hot again
   for (const ticker of rePromoteCandidates) {
+    if (seatsLeft <= 0) {
+      skipped.push({ ticker, reason: "promotion_budget_exhausted" });
+      continue;
+    }
     const mover = moverByTicker.get(ticker);
     if (dryRun) {
       rePromoted.push({ ticker, dryRun: true, mover });
+      seatsLeft -= 1;
       continue;
     }
     const cap = await ensureBoardCapacity(1, {
@@ -407,18 +596,38 @@ async function discoverHotStocksInner({
     rePromoted.push({ ticker, status, mover });
     liveSet.add(ticker);
     archivedSet.delete(ticker);
+    seatsLeft -= 1;
   }
 
-  // 2) Add genuinely new movers under the board cap
-  let addedCount = 0;
-  for (const mover of newCandidates) {
-    if (addedCount >= maxNew) {
-      skipped.push({ ticker: mover.ticker, reason: "max_new_per_run" });
+  for (const row of rankedCandidates) {
+    const ticker = String(row.ticker).toUpperCase();
+    if (liveSet.has(ticker)) continue;
+    if (seatsLeft <= 0) {
+      skipped.push({
+        ticker,
+        reason: "promotion_budget_exhausted",
+        mainPool: row.mainPool,
+      });
       continue;
     }
+
+    const mover = moverByTicker.get(ticker) || {
+      ticker,
+      name: row.name,
+      percentChange: row.percent_change,
+      last: row.price,
+      exchange: row.exchange,
+    };
+
     if (dryRun) {
-      added.push({ ticker: mover.ticker, dryRun: true, mover });
-      addedCount += 1;
+      added.push({
+        ticker,
+        dryRun: true,
+        mover,
+        mainPool: row.mainPool,
+        flags: row.flags,
+      });
+      seatsLeft -= 1;
       continue;
     }
 
@@ -430,52 +639,55 @@ async function discoverHotStocksInner({
     let report = null;
     if (warmReports) {
       try {
-        report = await getStockReport(mover.ticker, "long", {
-          skipPeers: false,
-        });
+        report = await getStockReport(ticker, "long", { skipPeers: false });
       } catch (err) {
         console.warn(
-          `[discoverHotStocks] warm report failed for ${mover.ticker}:`,
+          `[discoverHotStocks] warm report failed for ${ticker}:`,
           err.message
         );
       }
     }
 
     const status = report ? pickStatusFromReport(report) : "watch";
-    await promotePick(mover.ticker, {
+    await promotePick(ticker, {
       status,
       sector: report?.sector || null,
       source: "discovery",
     });
 
     let discoveryBlurb = null;
-    try {
-      discoveryBlurb = await generateDiscoveryWriteUp({
-        ticker: mover.ticker,
-        name: mover.name || report?.companyName || report?.name,
-        sector: report?.sector || null,
-        percentChange: mover.percentChange,
-        mover,
-      });
-      await saveDiscoveryBlurb(mover.ticker, discoveryBlurb);
-    } catch (err) {
-      console.warn(
-        `[discoverHotStocks] discovery write-up failed for ${mover.ticker}:`,
-        err.message
-      );
+    if (warmReports) {
+      try {
+        discoveryBlurb = await generateDiscoveryWriteUp({
+          ticker,
+          name: mover.name || report?.companyName || report?.name,
+          sector: report?.sector || null,
+          percentChange: mover.percentChange ?? row.percent_change,
+          mover,
+        });
+        await saveDiscoveryBlurb(ticker, discoveryBlurb);
+      } catch (err) {
+        console.warn(
+          `[discoverHotStocks] discovery write-up failed for ${ticker}:`,
+          err.message
+        );
+      }
     }
 
     added.push({
-      ticker: mover.ticker,
+      ticker,
       status,
-      name: mover.name,
-      percentChange: mover.percentChange,
+      name: mover.name || row.name,
+      percentChange: mover.percentChange ?? row.percent_change,
+      mainPool: row.mainPool,
+      flags: row.flags,
       discoveryBlurb,
     });
-    addedCount += 1;
-    liveSet.add(mover.ticker);
+    liveSet.add(ticker);
+    seatsLeft -= 1;
   }
 
+  const candidateCountAfter = await countCandidates();
   const finishedAt = new Date().toISOString();
   const result = {
     ok: true,
@@ -489,13 +701,30 @@ async function discoverHotStocksInner({
       mostActiveTop: movers.mostActive.slice(0, 10).map((m) => m.ticker),
       unique: movers.all.length,
     },
+    stage1: {
+      ...stage1,
+      pruned: prune.removed,
+      pruneBumped: prune.bumped.length,
+      trimmed: trim.trimmed,
+      candidatePoolCap: CANDIDATE_POOL_CAP,
+      missStreakLimit: CANDIDATE_MISS_STREAK_LIMIT,
+    },
+    candidates: {
+      poolSize: candidateCountAfter,
+      ...candidateSummary(await listCandidatePicks()),
+      promotableToday: promotionBudget.maxPromote,
+      bindingSource: promotionBudget.bindingSource,
+      hardCap: promotionBudget.hardCap,
+      promoted: added.length,
+      rePromoted: rePromoted.length,
+    },
+    promotionBudget,
     liveBefore: live.length,
     liveAfter: liveSet.size,
     rePromoted,
     added,
     archived: archivedOut,
     skipped,
-    newCandidateCount: newCandidates.length,
     alphaVantageTouched: false,
   };
 
@@ -507,7 +736,7 @@ async function discoverHotStocksInner({
   );
 
   console.log(
-    `[discoverHotStocks] done — added=${added.length} rePromoted=${rePromoted.length} archived=${archivedOut.length}`
+    `[discoverHotStocks] done — candidates=${candidateCountAfter} promoted=${added.length} rePromoted=${rePromoted.length} budget=${promotionBudget.maxPromote} (bound by ${promotionBudget.bindingSource})`
   );
   return result;
 }
@@ -516,6 +745,9 @@ module.exports = {
   discoverHotStocks,
   previewDiscovery,
   estimateDiscoveryCalls,
-  MAX_NEW_PER_RUN,
+  computePromotionBudget,
   MOVERS_FMP_CALLS,
+  WARM_COST_PER_TICKER,
+  /** @deprecated use computePromotionBudget().maxPromote — kept for older callers */
+  MAX_NEW_PER_RUN: DISCOVERY_PROMOTE_HARD_CAP || 3,
 };

@@ -45,12 +45,14 @@ const {
   smartRefreshReserve,
 } = require("./lib/dataSources");
 const { getLastCapabilityProbe } = require("./jobs/capabilityProbe");
-const { discoverHotStocks, previewDiscovery } = require("./jobs/discoverHotStocks");
+const { discoverHotStocks, previewDiscovery, computePromotionBudget } = require("./jobs/discoverHotStocks");
 const {
   listArchivedBoardPicks,
   BOARD_MAX_SIZE,
   countLiveBoard,
+  countCandidates,
   getActiveBoardTickers,
+  CANDIDATE_POOL_CAP,
 } = require("./lib/boardPicks");
 const { LIVE_BOARD_STATUSES } = require("./lib/boardTickers");
 const { getMarketMood, loadMood } = require("./services/marketMood");
@@ -245,6 +247,8 @@ async function buildStatusPayload() {
     lastCapabilityProbeAt: await getSetting("lastCapabilityProbeAt"),
     boardMaxSize: BOARD_MAX_SIZE,
     boardLiveCount: await countLiveBoard(),
+    boardCandidateCount: await countCandidates(),
+    candidatePoolCap: CANDIDATE_POOL_CAP,
     lastHotStockDiscoveryAt: await getSetting("lastHotStockDiscoveryAt"),
     lastHotStockDiscoveryStatus: await getSetting("lastHotStockDiscoveryStatus"),
     // Cached only — never spend Gemini on status polls
@@ -589,6 +593,12 @@ async function buildDevStatusPayload() {
     jobs: await listJobStatuses(),
     boardLiveCount: await countLiveBoard(),
     boardMaxSize: BOARD_MAX_SIZE,
+    boardCandidateCount: await countCandidates(),
+    candidatePoolCap: CANDIDATE_POOL_CAP,
+    discoveryPromotionBudget: await computePromotionBudget().catch(() => null),
+    lastHotStockDiscoveryAt: await getSetting("lastHotStockDiscoveryAt"),
+    lastHotStockDiscoveryStatus: await getSetting("lastHotStockDiscoveryStatus"),
+    lastHotStockDiscovery: await getSetting("lastHotStockDiscovery"),
     resetsAt: nextMidnightPacificIso(),
   };
 }

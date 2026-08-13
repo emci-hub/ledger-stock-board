@@ -104,6 +104,101 @@ async function migrateLegacyModeCache() {
  * Recreate board_picks so CHECK allows 'archived' and optional columns exist.
  * Idempotent via app_settings flag when the new columns are already present.
  */
+
+/**
+ * Recreate board_picks so CHECK allows 'candidate' + cheap FMP signal columns.
+ * Idempotent via app_settings flag when candidate status + columns are present.
+ */
+async function migrateBoardPicksCandidateSupport() {
+  const cols = await dbAll(`PRAGMA table_info(board_picks)`);
+  const names = new Set((cols || []).map((c) => c.name));
+  const needsCols =
+    !names.has("discovered_at") ||
+    !names.has("last_seen_at") ||
+    !names.has("miss_streak") ||
+    !names.has("flags_json") ||
+    !names.has("percent_change") ||
+    !names.has("exchange") ||
+    !names.has("price") ||
+    !names.has("name");
+
+  // Detect whether CHECK already includes candidate by probing insert capability
+  // via app_settings flag (safer than parsing sqlite_master).
+  const flag = await dbGet(
+    `SELECT value FROM app_settings WHERE key = ?`,
+    ["boardPicksCandidateMigration_v1"]
+  );
+  if (flag?.value && !needsCols) return;
+
+  await dbExecute(`
+    CREATE TABLE IF NOT EXISTS board_picks_candidate_mig (
+      ticker TEXT PRIMARY KEY,
+      status TEXT NOT NULL CHECK (status IN ('recommended', 'watch', 'not_recommended', 'archived', 'candidate')),
+      added_at TEXT NOT NULL,
+      sector TEXT,
+      archived_at TEXT,
+      source TEXT,
+      discovery_blurb TEXT,
+      name TEXT,
+      price REAL,
+      percent_change REAL,
+      exchange TEXT,
+      discovered_at TEXT,
+      last_seen_at TEXT,
+      miss_streak INTEGER DEFAULT 0,
+      flags_json TEXT
+    )
+  `);
+
+  const existing = await dbAll(`SELECT * FROM board_picks`);
+  for (const row of existing || []) {
+    const status =
+      row.status === "candidate" ||
+      row.status === "archived" ||
+      row.status === "recommended" ||
+      row.status === "watch" ||
+      row.status === "not_recommended"
+        ? row.status
+        : "watch";
+    await dbExecute(
+      `INSERT OR REPLACE INTO board_picks_candidate_mig
+        (ticker, status, added_at, sector, archived_at, source, discovery_blurb,
+         name, price, percent_change, exchange, discovered_at, last_seen_at,
+         miss_streak, flags_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        row.ticker,
+        status,
+        row.added_at,
+        row.sector ?? null,
+        row.archived_at ?? null,
+        row.source ?? "seed",
+        row.discovery_blurb ?? null,
+        row.name ?? null,
+        row.price ?? null,
+        row.percent_change ?? null,
+        row.exchange ?? null,
+        row.discovered_at ?? null,
+        row.last_seen_at ?? null,
+        Number(row.miss_streak || 0),
+        row.flags_json ?? null,
+      ]
+    );
+  }
+
+  await dbExecute(`DROP TABLE IF EXISTS board_picks`);
+  await dbExecute(
+    `ALTER TABLE board_picks_candidate_mig RENAME TO board_picks`
+  );
+
+  await dbExecute(
+    `INSERT INTO app_settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ["boardPicksCandidateMigration_v1", new Date().toISOString()]
+  );
+  console.log("[db] board_picks candidate tier migrated");
+}
+
 async function migrateBoardPicksArchiveSupport() {
   const cols = await dbAll(`PRAGMA table_info(board_picks)`);
   const names = new Set((cols || []).map((c) => c.name));
@@ -199,11 +294,19 @@ async function initSchema() {
     await dbExecute(`
       CREATE TABLE IF NOT EXISTS board_picks (
         ticker TEXT PRIMARY KEY,
-        status TEXT NOT NULL CHECK (status IN ('recommended', 'watch', 'not_recommended', 'archived')),
+        status TEXT NOT NULL CHECK (status IN ('recommended', 'watch', 'not_recommended', 'archived', 'candidate')),
         added_at TEXT NOT NULL,
         sector TEXT,
         archived_at TEXT,
-        source TEXT
+        source TEXT,
+        name TEXT,
+        price REAL,
+        percent_change REAL,
+        exchange TEXT,
+        discovered_at TEXT,
+        last_seen_at TEXT,
+        miss_streak INTEGER DEFAULT 0,
+        flags_json TEXT
       )
     `);
 
@@ -249,6 +352,12 @@ async function initSchema() {
     }
 
     try {
+      await migrateBoardPicksCandidateSupport();
+    } catch (err) {
+      console.warn("[db] board_picks candidate migration skipped:", err.message);
+    }
+
+    try {
       await dbExecute(
         `ALTER TABLE board_picks ADD COLUMN discovery_blurb TEXT`
       );
@@ -256,6 +365,25 @@ async function initSchema() {
       // Column already exists — ignore
       if (!/duplicate column/i.test(err.message || "")) {
         console.warn("[db] discovery_blurb column:", err.message);
+      }
+    }
+
+    for (const col of [
+      "name TEXT",
+      "price REAL",
+      "percent_change REAL",
+      "exchange TEXT",
+      "discovered_at TEXT",
+      "last_seen_at TEXT",
+      "miss_streak INTEGER DEFAULT 0",
+      "flags_json TEXT",
+    ]) {
+      try {
+        await dbExecute(`ALTER TABLE board_picks ADD COLUMN ${col}`);
+      } catch (err) {
+        if (!/duplicate column/i.test(err.message || "")) {
+          console.warn(`[db] board_picks add ${col}:`, err.message);
+        }
       }
     }
 

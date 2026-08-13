@@ -139,7 +139,14 @@
   .delta.down{color:var(--rust);}
   .via-source{
     font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
-    margin-left:2px;
+  }
+  .via-row{
+    display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;
+    margin-top:6px;
+  }
+  .via-row .via-source,
+  .via-row .news-via{
+    display:inline;margin:0;
   }
 
   .spark{display:block;margin:10px 0 2px;filter:drop-shadow(0 0 3px rgba(79,184,138,0.35));}
@@ -194,7 +201,7 @@
     font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--gold);
   }
   .news-via{
-    display:inline-block;margin-top:6px;
+    display:block;margin-top:6px;
     font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
   }
   .range-flag,.earnings-flag{
@@ -220,8 +227,8 @@
   }
   .mood-line{
     font-family:'Fraunces',serif;font-size:17px;font-weight:500;line-height:1.45;
-    color:#F5F6F1;margin:0 0 10px;padding:12px 0 4px;
-    border-top:1px solid var(--line-soft);
+    color:#F5F6F1;margin:0 0 14px;padding:4px 0 10px;
+    border-bottom:1px solid var(--line-soft);
   }
   .mood-line .mood-label{
     display:block;font-family:'IBM Plex Mono',monospace;font-size:10px;
@@ -331,6 +338,40 @@
   .row-item .r-price{font-family:'IBM Plex Mono',monospace;width:70px;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);}
   .row-item .r-delta{width:60px;text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600;font-variant-numeric:tabular-nums;}
   .row-item .r-when{width:70px;text-align:right;color:var(--muted-dim);font-size:11px;}
+  .row-item.expandable{cursor:pointer;}
+  .row-item.expandable:hover{background:var(--surface-2);}
+  .more-picks-wrap{margin:8px 0 18px;}
+  .more-picks-toggle{
+    display:inline-flex;align-items:center;gap:6px;
+    border:1px solid var(--line);background:var(--surface-2);color:var(--muted);
+    border-radius:8px;padding:8px 12px;font-size:12px;font-family:'IBM Plex Mono',monospace;
+    cursor:pointer;
+  }
+  .more-picks-toggle:hover{border-color:#3A4A43;color:var(--ink);}
+  .more-picks-panel{margin-top:10px;}
+  .more-picks-panel[hidden]{display:none !important;}
+  .more-expand{margin-top:10px;}
+  .spotlight-grid{
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px;
+  }
+  @media (max-width:900px){
+    .spotlight-grid{grid-template-columns:1fr;}
+  }
+  .card.spotlight{
+    border-color:#3A4A43;
+    box-shadow:0 0 0 1px rgba(79,184,138,0.12);
+  }
+  .stale-section{margin:22px 0 8px;}
+  .stale-section .section-label{color:var(--muted-dim);}
+  .stale-grid .card{
+    opacity:0.78;border-style:dashed;
+  }
+  .stale-badge{
+    display:inline-block;margin-left:8px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;
+    color:var(--gold);border:1px solid rgba(217,168,87,0.35);
+    border-radius:6px;padding:1px 6px;vertical-align:middle;
+  }
 
   footer{margin-top:38px;font-size:12px;color:var(--muted-dim);text-align:center;}
   .sources-legend{
@@ -381,7 +422,6 @@
   </header>
   <p class="sub">A quiet daily read on stocks worth knowing about — plus anything you want to look up yourself.</p>
 
-  <div id="mood-line" class="mood-line" hidden></div>
   <div id="did-you-know" class="dyk" hidden></div>
 
   <div class="controls">
@@ -400,8 +440,23 @@
     <div class="grid" id="search-grid"></div>
   </div>
 
+  <div id="mood-line" class="mood-line" hidden></div>
   <div class="section-label" id="picks-label">Today's picks · stable, long-term leaning</div>
-  <div class="grid" id="picks-grid"></div>
+  <div id="picks-board">
+    <div class="spotlight-grid" id="spotlight-grid"></div>
+    <div class="grid" id="picks-grid"></div>
+    <div class="more-picks-wrap" id="more-picks-wrap" hidden>
+      <button type="button" class="more-picks-toggle" id="more-picks-toggle">Show 6 more picks</button>
+      <div class="more-picks-panel" id="more-picks-panel" hidden>
+        <div class="row-list" id="more-picks-list"></div>
+        <div class="more-expand" id="more-expand"></div>
+      </div>
+    </div>
+    <div class="stale-section" id="stale-section" hidden>
+      <div class="section-label">Needs a refresh <span class="stale-badge">stale · 48h+</span></div>
+      <div class="grid stale-grid" id="stale-grid"></div>
+    </div>
+  </div>
 
   <div class="section-label">Recently looked up <span class="why-help" title="Pulled instantly from what your family has already searched — no new data cost">why instant?</span></div>
   <div class="row-list" id="recent-list"></div>
@@ -581,7 +636,7 @@
     return `<div class="caveat-row">${badges}</div>`;
   }
 
-  function buildCardHtml(report, status) {
+  function buildCardHtml(report, status, options = {}) {
     if (!report) return "";
     const lean = report.analysis?.lean || "neutral";
     const risk = report.analysis?.risk || "medium";
@@ -593,15 +648,22 @@
     const target = report.analystTarget;
     const asOf = report.priceUpdatedAt || report.lastUpdated;
     const via = report.priceSourceLabel
-      ? `<span class="via-source">via ${escapeHtml(report.priceSourceLabel)}</span>`
+      ? `<span class="via-source" style="margin-left:4px;">via ${escapeHtml(report.priceSourceLabel)}</span>`
       : "";
     // News source line only when we have sources; missing news is a caveat badge.
-    const newsNote =
-      !report.newsPending && report.newsSourceLabel
-        ? `<div class="news-via">via ${escapeHtml(report.newsSourceLabel)}</div>`
-        : "";
-    const analysisVia = report.analysisSourceLabel
-      ? `<span class="via-source">via ${escapeHtml(report.analysisSourceLabel)}</span>`
+    const viaBits = [];
+    if (report.analysisSourceLabel) {
+      viaBits.push(
+        `<span class="via-source">via ${escapeHtml(report.analysisSourceLabel)}</span>`
+      );
+    }
+    if (!report.newsPending && report.newsSourceLabel) {
+      viaBits.push(
+        `<span class="news-via">via ${escapeHtml(report.newsSourceLabel)}</span>`
+      );
+    }
+    const viaRow = viaBits.length
+      ? `<div class="via-row">${viaBits.join("")}</div>`
       : "";
     const rangeFlagLabel = report.weekRange?.labelTag
       ? labelHtml(report.weekRange.labelTag)
@@ -752,7 +814,9 @@
         }</button>`
       : "";
 
-    return `<div class="card ${leanClass(report, status)}" data-ticker="${escapeHtml(report.ticker)}">
+    return `<div class="card ${leanClass(report, status)}${
+      options.spotlight ? " spotlight" : ""
+    }${report.stale ? " is-stale" : ""}" data-ticker="${escapeHtml(report.ticker)}">
       <div class="card-top">
         <div class="ticker-block">
           <div class="ticker">${escapeHtml(report.ticker)}</div>
@@ -774,9 +838,7 @@
       ${targetLine}
       ${discoveryBlurb}
       <div class="tags">${tagHtml}</div>
-      <div class="summary">${escapeHtml(report.analysis?.summary || "")}${
-        analysisVia ? ` ${analysisVia}` : ""
-      }${newsNote}</div>
+      <div class="summary">${escapeHtml(report.analysis?.summary || "")}${viaRow}</div>
       ${summaryCaveats}
       ${deeperBtn}
       ${deeperPanel}
@@ -914,15 +976,80 @@
     }
   }
 
+  function compactRowHtml(report, { expandable = false, whenIso = null } = {}) {
+    if (!report) return "";
+    const pct = Number(report.changePercent);
+    const color = Number.isFinite(pct) && pct < 0 ? "#E2735A" : "#4FB88A";
+    const when = timeAgo(whenIso || report.lastFieldRefresh || report.priceUpdatedAt || report.lastUpdated);
+    const cls = expandable ? "row-item expandable" : "row-item";
+    const tickerAttr = expandable
+      ? ` data-expand-ticker="${escapeHtml(report.ticker)}"`
+      : "";
+    return `<div class="${cls}"${tickerAttr}>
+      <span class="r-ticker">${escapeHtml(report.ticker)}</span>
+      <span class="r-name">${escapeHtml(report.companyName || report.name || report.ticker)}</span>
+      <span class="r-price">${formatMoney(report.price)}</span>
+      <span class="r-delta" style="color:${color};">${formatPct(report.changePercent).replace(" ", "")}</span>
+      <span class="r-when">${escapeHtml(when)}</span>
+    </div>`;
+  }
+
+  function rankForMode(report) {
+    if (!report) return -1;
+    if (currentMode === "short") {
+      return Number.isFinite(Number(report.shortTermRank))
+        ? Number(report.shortTermRank)
+        : Number(report.rankScore) || 0;
+    }
+    return Number.isFinite(Number(report.longTermRank))
+      ? Number(report.longTermRank)
+      : Number(report.rankScore) || 0;
+  }
+
+  let morePicksRows = [];
+  let morePicksExpandedTicker = null;
+
+  function renderMoreExpand() {
+    const host = document.getElementById("more-expand");
+    if (!host) return;
+    if (!morePicksExpandedTicker) {
+      host.innerHTML = "";
+      return;
+    }
+    const hit = morePicksRows.find(
+      (r) => r.report && r.report.ticker === morePicksExpandedTicker
+    );
+    host.innerHTML = hit
+      ? buildCardHtml(hit.report, hit.status)
+      : "";
+  }
+
   async function loadBoard() {
+    const spotlight = document.getElementById("spotlight-grid");
     const grid = document.getElementById("picks-grid");
+    const moreWrap = document.getElementById("more-picks-wrap");
+    const morePanel = document.getElementById("more-picks-panel");
+    const moreList = document.getElementById("more-picks-list");
+    const moreToggle = document.getElementById("more-picks-toggle");
+    const staleSection = document.getElementById("stale-section");
+    const staleGrid = document.getElementById("stale-grid");
     const label = document.getElementById("picks-label");
     label.textContent =
       currentMode === "short"
         ? "Today's picks · shorter-term leaning"
         : "Today's picks · stable, long-term leaning";
 
+    spotlight.innerHTML = "";
     grid.innerHTML = `<div class="empty-note">Loading picks…</div>`;
+    moreWrap.hidden = true;
+    morePanel.hidden = true;
+    moreList.innerHTML = "";
+    document.getElementById("more-expand").innerHTML = "";
+    morePicksRows = [];
+    morePicksExpandedTicker = null;
+    staleSection.hidden = true;
+    staleGrid.innerHTML = "";
+
     try {
       const res = await fetch(`/api/board?mode=${encodeURIComponent(currentMode)}`);
       const board = await res.json();
@@ -930,10 +1057,54 @@
         grid.innerHTML = `<div class="empty-note">No board picks yet.</div>`;
         return;
       }
-      grid.innerHTML = board
-        .filter((row) => row.report)
-        .map((row) => buildCardHtml(row.report, row.status))
+
+      const withReports = board.filter((row) => row.report);
+      const fresh = [];
+      const stale = [];
+      for (const row of withReports) {
+        if (row.report.stale) stale.push(row);
+        else fresh.push(row);
+      }
+
+      fresh.sort((a, b) => rankForMode(b.report) - rankForMode(a.report));
+      stale.sort((a, b) => rankForMode(b.report) - rankForMode(a.report));
+
+      const top = fresh.slice(0, 3);
+      const mid = fresh.slice(3, 9);
+      const rest = fresh.slice(9, 15);
+      morePicksRows = rest;
+
+      spotlight.innerHTML = top
+        .map((row) => buildCardHtml(row.report, row.status, { spotlight: true }))
         .join("");
+
+      grid.innerHTML = mid.length
+        ? mid.map((row) => buildCardHtml(row.report, row.status)).join("")
+        : top.length
+          ? ""
+          : `<div class="empty-note">No board picks yet.</div>`;
+
+      if (rest.length) {
+        moreWrap.hidden = false;
+        moreToggle.textContent = `Show ${rest.length} more pick${rest.length === 1 ? "" : "s"}`;
+        morePanel.hidden = true;
+        moreList.innerHTML = rest
+          .map((row) =>
+            compactRowHtml(row.report, {
+              expandable: true,
+              whenIso: row.report.lastFieldRefresh || row.report.priceUpdatedAt,
+            })
+          )
+          .join("");
+      }
+
+      if (stale.length) {
+        staleSection.hidden = false;
+        staleGrid.innerHTML = stale
+          .map((row) => buildCardHtml(row.report, row.status))
+          .join("");
+      }
+
       setUpdatedNow();
     } catch (err) {
       console.error(err);
@@ -952,18 +1123,11 @@
         return;
       }
       list.innerHTML = rows
-        .map((row) => {
-          const report = row.report || {};
-          const pct = Number(report.changePercent);
-          const color = Number.isFinite(pct) && pct < 0 ? "#E2735A" : "#4FB88A";
-          return `<div class="row-item">
-            <span class="r-ticker">${escapeHtml(row.ticker)}</span>
-            <span class="r-name">${escapeHtml(report.name || row.ticker)}</span>
-            <span class="r-price">${formatMoney(report.price)}</span>
-            <span class="r-delta" style="color:${color};">${formatPct(report.changePercent).replace(" ", "")}</span>
-            <span class="r-when">${escapeHtml(timeAgo(row.lastUpdated))}</span>
-          </div>`;
-        })
+        .map((row) =>
+          compactRowHtml(row.report || { ticker: row.ticker, name: row.ticker }, {
+            whenIso: row.lastUpdated,
+          })
+        )
         .join("");
     } catch (err) {
       console.error(err);
@@ -1076,6 +1240,33 @@
   });
 
   document.addEventListener("click", (e) => {
+    const moreToggle = e.target.closest("#more-picks-toggle");
+    if (moreToggle) {
+      e.preventDefault();
+      const panel = document.getElementById("more-picks-panel");
+      const open = panel.hidden;
+      panel.hidden = !open;
+      const n = morePicksRows.length;
+      moreToggle.textContent = open
+        ? `Hide ${n} more pick${n === 1 ? "" : "s"}`
+        : `Show ${n} more pick${n === 1 ? "" : "s"}`;
+      if (!open) {
+        morePicksExpandedTicker = null;
+        renderMoreExpand();
+      }
+      return;
+    }
+
+    const expandRow = e.target.closest("[data-expand-ticker]");
+    if (expandRow) {
+      e.preventDefault();
+      const ticker = expandRow.getAttribute("data-expand-ticker");
+      morePicksExpandedTicker =
+        morePicksExpandedTicker === ticker ? null : ticker;
+      renderMoreExpand();
+      return;
+    }
+
     const glossBtn = e.target.closest(".gloss-main");
     if (glossBtn) {
       e.preventDefault();

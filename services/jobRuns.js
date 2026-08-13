@@ -33,7 +33,7 @@ const JOB_DEFS = [
     name: "Monthly cleanup + capability probe",
     schedule: "0 4 1 * * (1st of month 04:00)",
     enabled: true,
-    description: "cleanupStaleCache + joke pool + capabilityProbe",
+    description: "cleanupStaleCache + joke pool + capabilityProbe + archive 90d/40-cap",
   },
   {
     id: "manual_force_refresh",

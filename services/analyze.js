@@ -204,6 +204,8 @@ async function analyzeStock(
       short: { ...TAKE_FALLBACK },
       long: { ...TAKE_FALLBACK },
       quip,
+      shortTermRank: null,
+      longTermRank: null,
       provider,
     };
   }

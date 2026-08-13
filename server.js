@@ -41,6 +41,7 @@ const {
   listArchivedBoardPicks,
   BOARD_MAX_SIZE,
   countLiveBoard,
+  getActiveBoardTickers,
 } = require("./lib/boardPicks");
 const { LIVE_BOARD_STATUSES } = require("./lib/boardTickers");
 const { getMarketMood, loadMood } = require("./services/marketMood");
@@ -747,7 +748,7 @@ async function start() {
         const result = await cleanupStaleCache();
         await recordJobRun("monthly_cleanup_probe", {
           ok: true,
-          summary: `deleted≈${result?.deleted ?? "?"} · probe=${result?.capabilityProbe ? "ran" : "n/a"}`,
+          summary: `deleted≈${result?.deleted ?? "?"} · archivePurged=${result?.archiveCleanup?.purged?.removed?.length ?? 0} · archiveTrimmed=${result?.archiveCleanup?.trimmed?.trimmed?.length ?? 0} · probe=${result?.capabilityProbe ? "ran" : "n/a"}`,
           detail: result,
         });
       })().catch(async (err) => {
@@ -779,21 +780,55 @@ async function start() {
           console.log("[startup] board_picks empty — running refreshBoard once");
           await refreshBoard();
         }
-        return;
+      } else {
+        console.log(
+          "[startup] Running shared-cache heal v2 (invalidate fallbacks, restore quotes, refreshBoard)"
+        );
+        console.log(
+          `[startup] twelve_data key present=${hasSourceKey("twelve_data")} marketaux=${hasSourceKey("marketaux")} gemini=${hasSourceKey("gemini")}`
+        );
+        const result = await invalidateBoardStaleCaches();
+        await refreshBoard();
+        await setSetting(healKey, new Date().toISOString());
+        console.log(
+          `[startup] shared-cache heal v2 complete — aiDeleted=${result.aiDeleted}, priceInvalidated=${result.priceInvalidated}, quotesRestored=${result.quotesRestored}`
+        );
       }
 
+      // Heal live board tickers still missing a valid ai_reports row (e.g. JPM left
+      // pending after an earlier fallback-heal). Price cache hits → Gemini only.
+      const missHealKey = "missingAnalysisHeal_v1";
+      const missAlready = await getSetting(missHealKey);
+      if (missAlready) {
+        console.log(`[startup] ${missHealKey} already done at ${missAlready}`);
+        return;
+      }
+      const liveTickers = await getActiveBoardTickers();
+      const missing = [];
+      for (const ticker of liveTickers) {
+        const summary = await getCachedSummary(ticker);
+        if (!summary) missing.push(ticker);
+      }
+      if (!missing.length) {
+        await setSetting(missHealKey, new Date().toISOString());
+        console.log(`[startup] ${missHealKey}: nothing missing`);
+        return;
+      }
       console.log(
-        "[startup] Running shared-cache heal v2 (invalidate fallbacks, restore quotes, refreshBoard)"
+        `[startup] ${missHealKey}: re-analyzing ${missing.join(", ")}`
       );
-      console.log(
-        `[startup] twelve_data key present=${hasSourceKey("twelve_data")} marketaux=${hasSourceKey("marketaux")} gemini=${hasSourceKey("gemini")}`
-      );
-      const result = await invalidateBoardStaleCaches();
-      await refreshBoard();
-      await setSetting(healKey, new Date().toISOString());
-      console.log(
-        `[startup] shared-cache heal v2 complete — aiDeleted=${result.aiDeleted}, priceInvalidated=${result.priceInvalidated}, quotesRestored=${result.quotesRestored}`
-      );
+      for (const ticker of missing) {
+        try {
+          await getStockReport(ticker, "long", { skipPeers: false });
+        } catch (err) {
+          console.warn(
+            `[startup] ${missHealKey} failed for ${ticker}:`,
+            err.message
+          );
+        }
+      }
+      await setSetting(missHealKey, new Date().toISOString());
+      console.log(`[startup] ${missHealKey} complete`);
     })().catch((err) => {
       console.error("[startup] shared-cache heal failed:", err.message);
     });

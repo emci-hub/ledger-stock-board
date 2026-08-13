@@ -16,6 +16,7 @@ const {
   listAllBoardTickers,
   promotePick,
   getPick,
+  cleanupArchive,
 } = require("../lib/boardPicks");
 
 /** Neutral "roughly flat" band vs logged price (±3%). */
@@ -211,6 +212,16 @@ async function cleanupStaleCache() {
     console.warn("[cleanupStaleCache] capabilityProbe failed:", err.message);
   }
 
+  let archiveCleanup = null;
+  try {
+    archiveCleanup = await cleanupArchive();
+    console.log(
+      `[cleanupStaleCache] archive — purged=${archiveCleanup?.purged?.removed?.length || 0} trimmed=${archiveCleanup?.trimmed?.trimmed?.length || 0}`
+    );
+  } catch (err) {
+    console.warn("[cleanupStaleCache] cleanupArchive failed:", err.message);
+  }
+
   const finishedAt = new Date().toISOString();
   await setSetting("lastStaleCacheCleanup", finishedAt);
 
@@ -218,7 +229,7 @@ async function cleanupStaleCache() {
     `[cleanupStaleCache] Done — deleted≈${deleted} at ${finishedAt}`
   );
 
-  return { deleted, finishedAt, capabilityProbe };
+  return { deleted, finishedAt, capabilityProbe, archiveCleanup };
 }
 
 /**

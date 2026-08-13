@@ -98,6 +98,29 @@ function latestFreshnessIso(data) {
   return new Date(Math.max(...times)).toISOString();
 }
 
+/** Board stale window: no field refresh within 48h while still on the live board. */
+const BOARD_STALE_MS = 48 * 60 * 60 * 1000;
+
+/**
+ * True when none of the tracked fields (price/target/news/earnings/analysis)
+ * have refreshed within BOARD_STALE_MS.
+ */
+function isBoardStale(data, analysisGeneratedAt = null) {
+  const f = freshnessFromData(data || {});
+  const times = [
+    f.priceUpdatedAt,
+    f.targetUpdatedAt,
+    f.newsUpdatedAt,
+    f.earningsUpdatedAt,
+    analysisGeneratedAt,
+  ]
+    .filter(Boolean)
+    .map((t) => Date.parse(t))
+    .filter((n) => !Number.isNaN(n));
+  if (!times.length) return true;
+  return Date.now() - Math.max(...times) > BOARD_STALE_MS;
+}
+
 /**
  * Load shared cache row by ticker. Mode is display-only — ignored for storage.
  */
@@ -170,12 +193,17 @@ async function saveStockToCache(ticker, _mode, data) {
 }
 
 /**
- * Normalize dual-mode analysis (short + long + quip). Legacy single takes become both modes.
+ * Normalize dual-mode analysis (short + long + quip + mode ranks).
+ * Legacy single takes become both modes.
  */
 function normalizeDualAnalysis(parsed) {
   if (!parsed || typeof parsed !== "object") return null;
 
-  const { normalizeLabel, normalizeLabelList } = require("../lib/indicatorTags");
+  const {
+    normalizeLabel,
+    normalizeLabelList,
+  } = require("../lib/indicatorTags");
+  const { parseRank, heuristicRank } = require("../lib/aiShape");
 
   function normalizeTake(take) {
     if (!take || typeof take !== "object") return null;
@@ -189,10 +217,15 @@ function normalizeDualAnalysis(parsed) {
   }
 
   if (parsed.short && parsed.long) {
+    const short = normalizeTake(parsed.short);
+    const long = normalizeTake(parsed.long);
     return {
-      short: normalizeTake(parsed.short),
-      long: normalizeTake(parsed.long),
+      short,
+      long,
       quip: normalizeLabel(parsed.quip),
+      shortTermRank:
+        parseRank(parsed.shortTermRank) ?? heuristicRank(short),
+      longTermRank: parseRank(parsed.longTermRank) ?? heuristicRank(long),
     };
   }
 
@@ -204,10 +237,16 @@ function normalizeDualAnalysis(parsed) {
       summary: parsed.summary,
       deepDive: parsed.deepDive || null,
     });
+    const rank =
+      parseRank(parsed.shortTermRank) ??
+      parseRank(parsed.longTermRank) ??
+      heuristicRank(take);
     return {
       short: take,
       long: take,
       quip: normalizeLabel(parsed.quip),
+      shortTermRank: parseRank(parsed.shortTermRank) ?? rank,
+      longTermRank: parseRank(parsed.longTermRank) ?? rank,
     };
   }
 
@@ -245,6 +284,7 @@ async function getCachedSummary(ticker, _mode) {
     if (!dual || isFallbackAnalysis(dual)) {
       return null;
     }
+    dual.generatedAt = row.generated_at || null;
     return dual;
   } catch {
     return null;
@@ -278,6 +318,7 @@ module.exports = {
   CACHE_TTL_MS,
   TARGET_TTL_MS,
   EARNINGS_TTL_MS,
+  BOARD_STALE_MS,
   isFresh,
   emptyFreshness,
   freshnessFromData,
@@ -289,6 +330,7 @@ module.exports = {
   isEarningsDatePast,
   isFullyFresh,
   latestFreshnessIso,
+  isBoardStale,
   getStockCacheEntry,
   getCachedStock,
   getCachedStockRow,

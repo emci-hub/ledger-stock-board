@@ -12,6 +12,8 @@ const {
   freshnessFromData,
   normalizeDualAnalysis,
   pickAnalysisTake,
+  isBoardStale,
+  latestFreshnessIso,
 } = require("./cache");
 const {
   getQuoteAndIndicators,
@@ -36,6 +38,7 @@ const {
   normalizeLabel,
   normalizeLabelList,
 } = require("../lib/indicatorTags");
+const { heuristicRank, parseRank } = require("../lib/aiShape");
 const { runWithCallContext } = require("./callContext");
 const { getActiveOutcomes, getActiveBudget } = require("./quotaBudget");
 
@@ -183,6 +186,22 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     normalizeLabel(dual?.quip) ||
     normalizeLabel(analysis?.quip) ||
     null;
+  const analysisGeneratedAt =
+    analysis?.generatedAt || dual?.generatedAt || null;
+  const hasRealAnalysis = Boolean(
+    take?.summary &&
+      !String(take.summary).toLowerCase().includes("wasn't available")
+  );
+  const shortTermRank =
+    parseRank(dual?.shortTermRank ?? analysis?.shortTermRank) ??
+    heuristicRank(dual?.short || take);
+  const longTermRank =
+    parseRank(dual?.longTermRank ?? analysis?.longTermRank) ??
+    heuristicRank(dual?.long || take);
+  const modeRank = displayMode === "short" ? shortTermRank : longTermRank;
+  const lastFieldRefresh =
+    latestFreshnessIso(rawData) || analysisGeneratedAt || lastUpdated || null;
+  const stale = isBoardStale(rawData, analysisGeneratedAt);
 
   const indicatorsForMode = pickIndicatorsForMode(quote.indicators, displayMode);
   const riskLevel = take?.risk || "medium";
@@ -237,6 +256,12 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     priceUpdatedAt: freshness.priceUpdatedAt || null,
     targetUpdatedAt: freshness.targetUpdatedAt || null,
     newsUpdatedAt: freshness.newsUpdatedAt || null,
+    analysisGeneratedAt,
+    lastFieldRefresh,
+    stale,
+    shortTermRank,
+    longTermRank,
+    rankScore: modeRank,
     priceSource,
     priceSourceLabel: sourceShortCode(priceSource),
     targetSource,
@@ -245,13 +270,13 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     newsSourceLabel: formatSourceList(newsSources),
     newsPending,
     newsAgreement,
-    analysisSource: analysisProvider,
-    analysisSourceLabel,
+    analysisSource: hasRealAnalysis ? analysisProvider : null,
+    analysisSourceLabel: hasRealAnalysis ? analysisSourceLabel : null,
     weekRange: weekRangeOut,
     earnings,
     peers,
     priceHistory,
-    quip,
+    quip: hasRealAnalysis ? quip : null,
     labels: {
       analystTarget: buildTag("analyst_target"),
       week52Range: buildTag("week52_range"),
@@ -266,7 +291,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
         target: sourceShortCode(targetSource),
         news: formatSourceList(newsSources),
         peers: peers.length ? sourceShortCode("finnhub") : null,
-        analysis: analysisSourceLabel,
+        analysis: hasRealAnalysis ? analysisSourceLabel : null,
       },
       weekRange: weekRangeOut,
       earnings,

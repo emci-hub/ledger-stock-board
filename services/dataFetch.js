@@ -167,10 +167,16 @@ function noteRefreshed(field) {
   }
 }
 
-function consumeOrThrow(provider, action) {
+function consumeOrThrow(provider, action, n = 1) {
   const budget = getActiveBudget();
   if (!budget) return;
-  if (!budget.tryConsume(provider, 1, { action, ticker: getCallContextTicker() })) {
+  const count = Math.max(1, Math.floor(Number(n) || 1));
+  if (
+    !budget.tryConsume(provider, count, {
+      action,
+      ticker: getCallContextTicker(),
+    })
+  ) {
     const err = budget.skipError(provider);
     noteQuotaSkip(provider, action, err.reason);
     throw err;
@@ -299,17 +305,23 @@ async function callMarketaux(pathname, params = {}) {
 
 /**
  * Sole Twelve Data HTTP entry point — always increments twelve_data usage.
+ * opts.credits — bill N credits for multi-symbol batch (TD bills 1 credit / symbol).
  */
-async function callTwelveData(pathname, params = {}) {
-  consumeOrThrow(PROVIDERS.TWELVE, pathname || "twelve_data");
+async function callTwelveData(pathname, params = {}, opts = {}) {
+  const credits = Math.max(1, Math.floor(Number(opts.credits) || 1));
+  consumeOrThrow(PROVIDERS.TWELVE, pathname || "twelve_data", credits);
   await incrementUsage(PROVIDERS.TWELVE, {
     action: pathname || "twelve_data",
+    count: credits,
+    ticker: opts.ticker || getCallContextTicker(),
+    detail: credits > 1 ? `batch_credits=${credits}` : null,
   });
 
   let data;
   try {
     const res = await axios.get(`${TWELVE_DATA_BASE}${pathname}`, {
       params: { ...params, apikey: getTwelveKey() },
+      timeout: opts.timeoutMs || 60000,
     });
     data = res.data;
   } catch (err) {
@@ -537,6 +549,90 @@ async function getPriceHistoryFromTwelveData(ticker) {
 
   return buildQuoteFromBars(symbol, bars, "twelve_data", data.meta || null);
 }
+
+/** Max symbols per Twelve Data multi-symbol /time_series request (API allows up to 120). */
+const TWELVE_BATCH_CHUNK = 15;
+
+/**
+ * Resolve one symbol's payload from a TD single- or multi-symbol response.
+ */
+function twelvePayloadForSymbol(data, symbol, batchSize) {
+  if (!data || typeof data !== "object") return null;
+  if (batchSize === 1 && Array.isArray(data.values)) return data;
+  if (data[symbol] && typeof data[symbol] === "object") return data[symbol];
+  // Some responses nest under uppercase keys only.
+  const upper = String(symbol).toUpperCase();
+  if (data[upper] && typeof data[upper] === "object") return data[upper];
+  return null;
+}
+
+/**
+ * Multi-symbol Twelve Data /time_series — as few HTTP calls as the chunk size allows.
+ * TD still bills 1 credit per symbol; our usage counter matches that.
+ * @returns {{ byTicker: Record<string, object|null>, httpCalls: number, credits: number }}
+ */
+async function getPriceHistoryFromTwelveDataBatch(tickers) {
+  const symbols = normalizeTickerList(tickers);
+  const byTicker = Object.fromEntries(symbols.map((s) => [s, null]));
+  let httpCalls = 0;
+  let credits = 0;
+  if (!symbols.length) return { byTicker, httpCalls, credits };
+  if (!hasTwelveKey()) return { byTicker, httpCalls, credits };
+
+  for (const chunk of chunkList(symbols, TWELVE_BATCH_CHUNK)) {
+    try {
+      const data = await callTwelveData(
+        "/time_series",
+        {
+          symbol: chunk.join(","),
+          interval: "1day",
+          outputsize: DAILY_HISTORY_BARS,
+          order: "DESC",
+        },
+        { credits: chunk.length, ticker: chunk.join(",") }
+      );
+      httpCalls += 1;
+      credits += chunk.length;
+
+      for (const symbol of chunk) {
+        const payload = twelvePayloadForSymbol(data, symbol, chunk.length);
+        if (!payload || payload.status === "error" || payload.code) {
+          console.warn(
+            `[getPriceHistoryFromTwelveDataBatch] no series for ${symbol}:`,
+            payload?.message || payload?.code || "empty"
+          );
+          continue;
+        }
+        const bars = extractBarsFromTwelve(payload);
+        if (!bars.length) {
+          console.warn(
+            `[getPriceHistoryFromTwelveDataBatch] empty bars for ${symbol}`
+          );
+          continue;
+        }
+        byTicker[symbol] = buildQuoteFromBars(
+          symbol,
+          bars,
+          "twelve_data",
+          payload.meta || null
+        );
+      }
+    } catch (err) {
+      if (err instanceof QuotaSkippedError) throw err;
+      console.error(
+        `[getPriceHistoryFromTwelveDataBatch] chunk failed (${chunk.join(",")}):`,
+        err.message
+      );
+    }
+  }
+
+  const ok = Object.values(byTicker).filter(Boolean).length;
+  console.log(
+    `[getPriceHistoryFromTwelveDataBatch] http=${httpCalls} credits=${credits} ok=${ok}/${symbols.length}`
+  );
+  return { byTicker, httpCalls, credits };
+}
+
 
 async function getPriceHistoryFromAlpha(ticker) {
   const symbol = String(ticker).toUpperCase();
@@ -791,6 +887,158 @@ async function getEarningsDateFromFinnhub(ticker) {
   }
 }
 
+function normalizeTickerList(tickers) {
+  const out = [];
+  const seen = new Set();
+  for (const t of Array.isArray(tickers) ? tickers : [tickers]) {
+    const s = String(t || "")
+      .trim()
+      .toUpperCase();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+function chunkList(list, size) {
+  const n = Math.max(1, Math.floor(Number(size) || 1));
+  const out = [];
+  for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n));
+  return out;
+}
+
+/**
+ * Build Alpha Vantage news payload for one ticker from a (possibly multi-ticker) feed.
+ */
+function buildAlphaNewsFromFeed(symbol, feed) {
+  const articles = (Array.isArray(feed) ? feed : [])
+    .map((article) => {
+      const tickerSentiment = (article.ticker_sentiment || []).find(
+        (t) => String(t.ticker).toUpperCase() === symbol
+      );
+      // Keep articles that mention this ticker; drop unrelated multi-ticker hits.
+      if (
+        Array.isArray(article.ticker_sentiment) &&
+        article.ticker_sentiment.length &&
+        !tickerSentiment
+      ) {
+        return null;
+      }
+      return {
+        title: article.title || null,
+        url: article.url || null,
+        publishedAt: article.time_published || null,
+        summary: article.summary || null,
+        source: article.source || null,
+        sentimentScore: num(
+          tickerSentiment?.ticker_sentiment_score ??
+            article.overall_sentiment_score
+        ),
+        sentimentLabel:
+          tickerSentiment?.ticker_sentiment_label ||
+          article.overall_sentiment_label ||
+          null,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) =>
+      String(b.publishedAt || "").localeCompare(String(a.publishedAt || ""))
+    )
+    .slice(0, 5);
+
+  return { ticker: symbol, source: "alpha_vantage", news: articles };
+}
+
+/**
+ * Build Marketaux payload for one ticker from a (possibly multi-ticker) article list.
+ */
+function buildMarketauxFromArticles(symbol, articlesIn) {
+  const articles = Array.isArray(articlesIn) ? articlesIn : [];
+  const scored = [];
+
+  for (const article of articles) {
+    const entities = Array.isArray(article.entities) ? article.entities : [];
+    const match = entities.find(
+      (e) => String(e.symbol || "").toUpperCase() === symbol
+    );
+    if (!match) continue;
+
+    const highlight =
+      Array.isArray(match.highlights) && match.highlights[0]
+        ? match.highlights[0].highlight || null
+        : null;
+
+    scored.push({
+      title: article.title || null,
+      url: article.url || null,
+      publishedAt: article.published_at || null,
+      sentimentScore: num(match.sentiment_score),
+      highlight: highlight
+        ? String(highlight).replace(/<[^>]+>/g, "").slice(0, 220)
+        : null,
+    });
+  }
+
+  if (!scored.length) {
+    return {
+      ticker: symbol,
+      source: "marketaux",
+      articles: [],
+      sentimentScore: null,
+      highlight: null,
+    };
+  }
+
+  const scores = scored
+    .map((a) => a.sentimentScore)
+    .filter((n) => n != null && Number.isFinite(n));
+  const avg = scores.length
+    ? scores.reduce((sum, n) => sum + n, 0) / scores.length
+    : null;
+
+  return {
+    ticker: symbol,
+    source: "marketaux",
+    articles: scored.slice(0, 3),
+    sentimentScore: avg != null ? avg : scored[0].sentimentScore,
+    highlight: scored[0].highlight,
+  };
+}
+
+function marketauxPayloadOk(marketaux) {
+  return Boolean(
+    marketaux &&
+      (marketaux.sentimentScore != null ||
+        (Array.isArray(marketaux.articles) && marketaux.articles.length > 0))
+  );
+}
+
+function alphaPayloadOk(alpha) {
+  return Boolean(alpha && Array.isArray(alpha.news) && alpha.news.length > 0);
+}
+
+function assembleCombinedNews(symbol, marketaux, alpha, flags = {}) {
+  const mxOk = marketauxPayloadOk(marketaux);
+  const avOk = alphaPayloadOk(alpha);
+  const sources = [];
+  if (mxOk) sources.push("marketaux");
+  if (avOk) sources.push("alpha_vantage");
+  return {
+    alpha: avOk ? alpha : alpha || null,
+    finnhub: null,
+    marketaux: mxOk ? marketaux : null,
+    byId: {
+      marketaux: mxOk ? marketaux : null,
+      alpha_vantage: avOk ? alpha : alpha || null,
+      finnhub: null,
+    },
+    sources,
+    pending: sources.length === 0,
+    quotaSkipped: Boolean(flags.mxQuotaSkipped || flags.avQuotaSkipped),
+  };
+}
+
 /**
  * Alpha Vantage NEWS_SENTIMENT only. Soft-fail: returns null on error (non-blocking).
  */
@@ -802,40 +1050,45 @@ async function getNewsSentiment(ticker) {
       tickers: symbol,
       limit: 50,
     });
-
-    const articles = (newsData.feed || [])
-      .slice()
-      .sort((a, b) =>
-        String(b.time_published).localeCompare(String(a.time_published))
-      )
-      .slice(0, 5)
-      .map((article) => {
-        const tickerSentiment = (article.ticker_sentiment || []).find(
-          (t) => String(t.ticker).toUpperCase() === symbol
-        );
-
-        return {
-          title: article.title || null,
-          url: article.url || null,
-          publishedAt: article.time_published || null,
-          summary: article.summary || null,
-          source: article.source || null,
-          sentimentScore: num(
-            tickerSentiment?.ticker_sentiment_score ??
-              article.overall_sentiment_score
-          ),
-          sentimentLabel:
-            tickerSentiment?.ticker_sentiment_label ||
-            article.overall_sentiment_label ||
-            null,
-        };
-      });
-
-    return { ticker: symbol, source: "alpha_vantage", news: articles };
+    return buildAlphaNewsFromFeed(symbol, newsData.feed || []);
   } catch (err) {
     if (err instanceof QuotaSkippedError) throw err;
     console.error(`[getNewsSentiment] Failed for ${ticker}:`, err.message);
     return null;
+  }
+}
+
+/**
+ * One NEWS_SENTIMENT call for many tickers (counts as 1 against AV daily limit).
+ * @returns {Record<string, object|null>}
+ */
+async function getNewsSentimentBatch(tickers) {
+  const symbols = normalizeTickerList(tickers);
+  const out = Object.fromEntries(symbols.map((s) => [s, null]));
+  if (!symbols.length) return out;
+  if (symbols.length === 1) {
+    out[symbols[0]] = await getNewsSentiment(symbols[0]);
+    return out;
+  }
+
+  try {
+    const newsData = await callAlphaVantage({
+      function: "NEWS_SENTIMENT",
+      tickers: symbols.join(","),
+      limit: Math.min(1000, Math.max(50, symbols.length * 8)),
+    });
+    const feed = newsData.feed || [];
+    for (const symbol of symbols) {
+      out[symbol] = buildAlphaNewsFromFeed(symbol, feed);
+    }
+    console.log(
+      `[getNewsSentimentBatch] 1 AV call → ${symbols.length} ticker(s)`
+    );
+    return out;
+  } catch (err) {
+    if (err instanceof QuotaSkippedError) throw err;
+    console.error(`[getNewsSentimentBatch] Failed:`, err.message);
+    return out;
   }
 }
 
@@ -889,60 +1142,47 @@ async function getNewsFromMarketaux(ticker) {
     });
 
     const articles = Array.isArray(data?.data) ? data.data : [];
-    const scored = [];
-
-    for (const article of articles) {
-      const entities = Array.isArray(article.entities) ? article.entities : [];
-      const match =
-        entities.find(
-          (e) => String(e.symbol || "").toUpperCase() === symbol
-        ) || entities[0];
-      if (!match) continue;
-
-      const highlight =
-        Array.isArray(match.highlights) && match.highlights[0]
-          ? match.highlights[0].highlight || null
-          : null;
-
-      scored.push({
-        title: article.title || null,
-        url: article.url || null,
-        publishedAt: article.published_at || null,
-        sentimentScore: num(match.sentiment_score),
-        highlight: highlight
-          ? String(highlight).replace(/<[^>]+>/g, "").slice(0, 220)
-          : null,
-      });
-    }
-
-    if (!scored.length) {
-      return {
-        ticker: symbol,
-        source: "marketaux",
-        articles: [],
-        sentimentScore: null,
-        highlight: null,
-      };
-    }
-
-    const scores = scored
-      .map((a) => a.sentimentScore)
-      .filter((n) => n != null && Number.isFinite(n));
-    const avg = scores.length
-      ? scores.reduce((sum, n) => sum + n, 0) / scores.length
-      : null;
-
-    return {
-      ticker: symbol,
-      source: "marketaux",
-      articles: scored.slice(0, 3),
-      sentimentScore: avg != null ? avg : scored[0].sentimentScore,
-      highlight: scored[0].highlight,
-    };
+    return buildMarketauxFromArticles(symbol, articles);
   } catch (err) {
     if (err instanceof QuotaSkippedError) throw err;
     console.error(`[getNewsFromMarketaux] Failed for ${ticker}:`, err.message);
     return null;
+  }
+}
+
+/**
+ * One Marketaux /news/all call for many tickers (counts as 1 against MX daily limit).
+ * @returns {Record<string, object|null>}
+ */
+async function getNewsFromMarketauxBatch(tickers) {
+  const symbols = normalizeTickerList(tickers);
+  const out = Object.fromEntries(symbols.map((s) => [s, null]));
+  if (!symbols.length) return out;
+  if (!hasMarketauxKey()) return out;
+  if (symbols.length === 1) {
+    out[symbols[0]] = await getNewsFromMarketaux(symbols[0]);
+    return out;
+  }
+
+  try {
+    const data = await callMarketaux("/news/all", {
+      symbols: symbols.join(","),
+      filter_entities: true,
+      language: "en",
+      limit: Math.min(100, Math.max(10, symbols.length * 4)),
+    });
+    const articles = Array.isArray(data?.data) ? data.data : [];
+    for (const symbol of symbols) {
+      out[symbol] = buildMarketauxFromArticles(symbol, articles);
+    }
+    console.log(
+      `[getNewsFromMarketauxBatch] 1 MX call → ${symbols.length} ticker(s) (articles=${articles.length})`
+    );
+    return out;
+  } catch (err) {
+    if (err instanceof QuotaSkippedError) throw err;
+    console.error(`[getNewsFromMarketauxBatch] Failed:`, err.message);
+    return out;
   }
 }
 
@@ -954,7 +1194,7 @@ const NEWS_FETCHERS = {
 };
 
 /**
- * Marketaux primary scored news; Alpha Vantage NEWS_SENTIMENT only if Marketaux fails.
+ * Marketaux + Alpha Vantage NEWS_SENTIMENT in parallel (both are real news sources).
  * Finnhub scored /news-sentiment is free-tier blocked — not called on the live path.
  */
 async function getCombinedNews(ticker) {
@@ -964,84 +1204,121 @@ async function getCombinedNews(ticker) {
   let mxQuotaSkipped = false;
   let avQuotaSkipped = false;
 
-  if (hasMarketauxKey()) {
-    try {
-      marketaux = await getNewsFromMarketaux(symbol);
-    } catch (err) {
-      if (err instanceof QuotaSkippedError) {
-        mxQuotaSkipped = true;
-        console.warn(
-          `[getCombinedNews] ${symbol} marketaux skipped — no quota`
-        );
-      } else {
-        console.error(
-          `[getCombinedNews] ${sourceLabel("marketaux")} failed:`,
-          err.message
-        );
-      }
-      marketaux = null;
+  const mxPromise = hasMarketauxKey()
+    ? getNewsFromMarketaux(symbol).catch((err) => {
+        if (err instanceof QuotaSkippedError) {
+          mxQuotaSkipped = true;
+          console.warn(
+            `[getCombinedNews] ${symbol} marketaux skipped — no quota`
+          );
+        } else {
+          console.error(
+            `[getCombinedNews] ${sourceLabel("marketaux")} failed:`,
+            err.message
+          );
+        }
+        return null;
+      })
+    : Promise.resolve(null);
+
+  const avPromise = getNewsSentiment(symbol).catch((err) => {
+    if (err instanceof QuotaSkippedError) {
+      avQuotaSkipped = true;
+      console.warn(
+        `[getCombinedNews] ${symbol} alpha_vantage news skipped — no quota`
+      );
+    } else {
+      console.error(
+        `[getCombinedNews] ${sourceLabel("alpha_vantage")} failed:`,
+        err.message
+      );
     }
-  }
+    return null;
+  });
 
-  const marketauxOk = Boolean(
-    marketaux &&
-      (marketaux.sentimentScore != null ||
-        (Array.isArray(marketaux.articles) && marketaux.articles.length > 0))
+  [marketaux, alpha] = await Promise.all([mxPromise, avPromise]);
+
+  const combined = assembleCombinedNews(symbol, marketaux, alpha, {
+    mxQuotaSkipped,
+    avQuotaSkipped,
+  });
+  console.log(
+    `[getCombinedNews] ${symbol} sources=${combined.sources.join("+") || "none"} pending=${combined.pending}`
   );
+  return combined;
+}
 
-  if (!marketauxOk) {
-    console.log(
-      `[getCombinedNews] ${symbol} Marketaux miss — trying Alpha Vantage news fallback`
-    );
-    try {
-      alpha = await getNewsSentiment(symbol);
-    } catch (err) {
+/**
+ * Board-level news: ONE Marketaux call + ONE Alpha Vantage NEWS_SENTIMENT call
+ * for the whole ticker list, then split per symbol.
+ * @returns {{ byTicker: Record<string, object>, httpCalls: { marketaux: number, alpha_vantage: number } }}
+ */
+async function getCombinedNewsBatch(tickers) {
+  const symbols = normalizeTickerList(tickers);
+  const byTicker = {};
+  const httpCalls = { marketaux: 0, alpha_vantage: 0 };
+  if (!symbols.length) return { byTicker, httpCalls };
+
+  let mxMap = Object.fromEntries(symbols.map((s) => [s, null]));
+  let avMap = Object.fromEntries(symbols.map((s) => [s, null]));
+  let mxQuotaSkipped = false;
+  let avQuotaSkipped = false;
+
+  const mxPromise = hasMarketauxKey()
+    ? getNewsFromMarketauxBatch(symbols)
+        .then((m) => {
+          httpCalls.marketaux = 1;
+          return m;
+        })
+        .catch((err) => {
+          if (err instanceof QuotaSkippedError) {
+            mxQuotaSkipped = true;
+            console.warn(`[getCombinedNewsBatch] marketaux skipped — no quota`);
+          } else {
+            console.error(
+              `[getCombinedNewsBatch] marketaux failed:`,
+              err.message
+            );
+          }
+          return mxMap;
+        })
+    : Promise.resolve(mxMap);
+
+  const avPromise = getNewsSentimentBatch(symbols)
+    .then((m) => {
+      httpCalls.alpha_vantage = 1;
+      return m;
+    })
+    .catch((err) => {
       if (err instanceof QuotaSkippedError) {
         avQuotaSkipped = true;
         console.warn(
-          `[getCombinedNews] ${symbol} alpha_vantage news skipped — no quota`
+          `[getCombinedNewsBatch] alpha_vantage skipped — no quota`
         );
       } else {
         console.error(
-          `[getCombinedNews] ${sourceLabel("alpha_vantage")} fallback failed:`,
+          `[getCombinedNewsBatch] alpha_vantage failed:`,
           err.message
         );
       }
-      alpha = null;
-    }
-  } else {
-    console.log(
-      `[getCombinedNews] ${symbol} Marketaux ok — skipping Alpha Vantage news`
+      return avMap;
+    });
+
+  [mxMap, avMap] = await Promise.all([mxPromise, avPromise]);
+
+  for (const symbol of symbols) {
+    byTicker[symbol] = assembleCombinedNews(
+      symbol,
+      mxMap[symbol],
+      avMap[symbol],
+      { mxQuotaSkipped, avQuotaSkipped }
     );
   }
 
-  const sources = [];
-  if (marketauxOk) sources.push("marketaux");
-  if (alpha && Array.isArray(alpha.news) && alpha.news.length > 0) {
-    sources.push("alpha_vantage");
-  }
-
-  const pending = sources.length === 0;
-  if (pending && (mxQuotaSkipped || avQuotaSkipped)) {
-    // Both paths unavailable due to quota — surface as pending, not a hard throw.
-    console.warn(
-      `[getCombinedNews] ${symbol} news pending — skipped for quota (mx=${mxQuotaSkipped} av=${avQuotaSkipped})`
-    );
-  }
-
-  return {
-    alpha: alpha || null,
-    finnhub: null,
-    marketaux: marketauxOk ? marketaux : null,
-    byId: {
-      marketaux: marketauxOk ? marketaux : null,
-      alpha_vantage: alpha || null,
-      finnhub: null,
-    },
-    sources,
-    pending,
-    quotaSkipped: mxQuotaSkipped || avQuotaSkipped,
-  };
+  console.log(
+    `[getCombinedNewsBatch] tickers=${symbols.length} http MX=${httpCalls.marketaux} AV=${httpCalls.alpha_vantage}`
+  );
+  return { byTicker, httpCalls };
 }
 
 /**
@@ -1237,14 +1514,21 @@ module.exports = {
   getMarketMoversFromFmp,
   getDiscoveryMoversBundle,
   getNewsSentiment,
+  getNewsSentimentBatch,
   getNewsFromFinnhub,
   getNewsFromMarketaux,
+  getNewsFromMarketauxBatch,
   getCombinedNews,
+  getCombinedNewsBatch,
   getFundamentalsAndNews,
   getPeers,
   getPriceHistoryFromTwelveData,
+  getPriceHistoryFromTwelveDataBatch,
+  normalizeTickerList,
   AlphaVantageError,
   TwelveDataError,
   QuotaSkippedError,
   nextMidnightPacificIso,
+  TWELVE_BATCH_CHUNK,
+  DAILY_HISTORY_BARS,
 };

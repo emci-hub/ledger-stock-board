@@ -31,10 +31,11 @@ function nextMidnightPacificIso() {
 
 async function incrementUsage(provider, meta = {}) {
   const date = getPacificDateString();
+  const n = Math.max(1, Math.floor(Number(meta.count) || 1));
   await dbRun(
-    `INSERT INTO api_usage (date, provider, count) VALUES (?, ?, 1)
-     ON CONFLICT(date, provider) DO UPDATE SET count = count + 1`,
-    [date, provider]
+    `INSERT INTO api_usage (date, provider, count) VALUES (?, ?, ?)
+     ON CONFLICT(date, provider) DO UPDATE SET count = count + ?`,
+    [date, provider, n, n]
   );
   // Best-effort recent-call log for /dev-status (never block usage counting).
   try {
@@ -44,7 +45,9 @@ async function incrementUsage(provider, meta = {}) {
       action: meta.action || null,
       ticker: meta.ticker || null,
       success: meta.success !== false,
-      detail: meta.detail || null,
+      detail:
+        meta.detail ||
+        (n > 1 ? `credits=${n}` : null),
     });
   } catch {
     /* ignore */

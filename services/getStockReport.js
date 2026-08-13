@@ -526,7 +526,7 @@ async function loadSharedStockDataInner(symbol, options = {}) {
 
   if (!newsOk) {
     console.log(
-      `[getStockReport] news stale/missing for ${symbol} — Marketaux primary, AV fallback-only`
+      `[getStockReport] news stale/missing for ${symbol} — Marketaux + Alpha Vantage in parallel`
     );
     const combined = await getCombinedNews(symbol);
     rawData.fundamentals.news = combined.alpha?.news || [];
@@ -561,8 +561,23 @@ async function loadSharedStockDataInner(symbol, options = {}) {
     await saveStockToCache(symbol, null, rawData);
   }
 
+  const newsFresherThanAnalysis = (() => {
+    if (!analysis?.generatedAt) return false;
+    const newsAt = rawData?.freshness?.newsUpdatedAt;
+    if (!newsAt || rawData.fundamentals.newsPending) return false;
+    const newsMs = Date.parse(newsAt);
+    const analysisMs = Date.parse(analysis.generatedAt);
+    return (
+      Number.isFinite(newsMs) &&
+      Number.isFinite(analysisMs) &&
+      newsMs > analysisMs
+    );
+  })();
+
   const shouldAnalyze =
-    !analysis || (newsJustFetched && rawData.fundamentals.newsPending === false);
+    !analysis ||
+    (newsJustFetched && rawData.fundamentals.newsPending === false) ||
+    newsFresherThanAnalysis;
 
   if (shouldAnalyze) {
     const budget = getActiveBudget();

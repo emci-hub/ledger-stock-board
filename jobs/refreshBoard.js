@@ -245,9 +245,23 @@ async function refreshBoard(_modeOrOptions) {
   }
   const tickers = await getActiveBoardTickers();
 
+  const { prefetchBoardNewsAndPrices } = require("../services/boardBatchPrefetch");
+
   console.log(
     `[refreshBoard] Starting shared refresh for ${tickers.length} live tickers at ${new Date().toISOString()}`
   );
+
+  // Batch news (MX+AV) and TD prices once for all stale live tickers before the
+  // per-ticker getStockReport loop — avoids N×1 loops against daily quotas.
+  let batchPrefetch = null;
+  try {
+    batchPrefetch = await prefetchBoardNewsAndPrices(tickers);
+    console.log(
+      `[refreshBoard] batch prefetch — MX=${batchPrefetch.httpCalls.marketaux} AV=${batchPrefetch.httpCalls.alpha_vantage} TD_http=${batchPrefetch.httpCalls.twelve_data} TD_credits=${batchPrefetch.twelveCredits}`
+    );
+  } catch (err) {
+    console.warn(`[refreshBoard] batch prefetch failed:`, err.message);
+  }
 
   let recommended = 0;
   let watch = 0;

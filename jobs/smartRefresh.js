@@ -394,7 +394,7 @@ function summarizeTier(tiers) {
   }));
 }
 
-function estimateCallsForNeeds(needs, skippedFields = []) {
+function estimateCallsForNeeds(needs, skippedFields = [], batchCounters = null) {
   const skipped = new Set((skippedFields || []).map((s) => s.field));
   const calls = {
     twelve_data: 0,
@@ -405,9 +405,23 @@ function estimateCallsForNeeds(needs, skippedFields = []) {
     gemini: 0,
     claude: 0,
   };
+  // TD multi-symbol still bills 1 credit / symbol — count per ticker.
   if (needs.price && !skipped.has("price")) calls.twelve_data += 1;
   if (needs.target && !skipped.has("target")) calls.alpha_vantage += 1;
-  if (needs.news && !skipped.has("news")) calls.marketaux += 1;
+  if (needs.news && !skipped.has("news")) {
+    // Board batch: one MX + one AV NEWS_SENTIMENT for the whole live board.
+    // Non-board (search/recent/archive): one of each per ticker (parallel).
+    if (batchCounters) {
+      if (!batchCounters.newsBatched) {
+        calls.marketaux += 1;
+        calls.alpha_vantage += 1;
+        batchCounters.newsBatched = true;
+      }
+    } else {
+      calls.marketaux += 1;
+      calls.alpha_vantage += 1;
+    }
+  }
   if (needs.earnings && !skipped.has("earnings")) calls.finnhub += 1;
   if (needs.peers && !skipped.has("peers")) calls.finnhub += 1;
   // Analysis miss OR successful news refresh both trigger one Gemini dual call.
@@ -437,7 +451,7 @@ function emptyCalls() {
   };
 }
 
-async function assessTickerPreview(ticker, budget) {
+async function assessTickerPreview(ticker, budget, batchCounters = null) {
   const symbol = String(ticker).toUpperCase();
   const entry = await getStockCacheEntry(symbol);
   const summary = await getCachedSummary(symbol);
@@ -471,7 +485,7 @@ async function assessTickerPreview(ticker, budget) {
     };
   }
 
-  const estimatedCalls = estimateCallsForNeeds(needs, preSkips);
+  const estimatedCalls = estimateCallsForNeeds(needs, preSkips, batchCounters);
   // Soft-consume estimated calls so later tickers see shrinking budget in preview.
   for (const [provider, n] of Object.entries(estimatedCalls)) {
     if (n > 0) budget.tryConsume(provider, n, { action: "preview", ticker: symbol });
@@ -503,7 +517,7 @@ async function previewSmartRefresh() {
   const recentTickers = await listRecentNonBoardTickers(boardSet);
   const archiveTickers = await listStaleArchivedTickers(ARCHIVE_REFRESH_LIMIT);
 
-  async function previewTier(id, name, tickers) {
+  async function previewTier(id, name, tickers, { boardBatch = false } = {}) {
     const tier = {
       id,
       name,
@@ -513,8 +527,9 @@ async function previewSmartRefresh() {
       skippedReserveProtected: [],
       tickersConsidered: 0,
     };
+    const batchCounters = boardBatch ? { newsBatched: false } : null;
     for (const ticker of tickers) {
-      const row = await assessTickerPreview(ticker, budget);
+      const row = await assessTickerPreview(ticker, budget, batchCounters);
       tier.tickersConsidered += 1;
       if (row.status === "already_current") tier.alreadyCurrent.push(row);
       else if (row.status === "skipped_no_quota") tier.skippedNoQuota.push(row);
@@ -526,7 +541,9 @@ async function previewSmartRefresh() {
   }
 
   const tiers = [
-    await previewTier("priority_1_board", "Priority 1 — live board gaps", boardTickers),
+    await previewTier("priority_1_board", "Priority 1 — live board gaps", boardTickers, {
+      boardBatch: true,
+    }),
     await previewTier(
       "priority_2_recent",
       "Priority 2 — recently looked up",
@@ -636,7 +653,7 @@ async function previewSmartRefresh() {
       usedToday: usageBefore,
     },
     skipFlags,
-    note: "Shared report covers both short and long AI takes in one Gemini call when analysis/news is refreshed. Estimates assume Marketaux news succeeds (no AV news fallback).",
+    note: "Shared report covers both short and long AI takes in one Gemini call when analysis/news is refreshed. Live-board news is batched (1 Marketaux + 1 Alpha Vantage NEWS_SENTIMENT for all stale names). TD price credits remain 1/symbol even when HTTP-batched.",
   };
 }
 
@@ -691,6 +708,18 @@ async function smartRefreshAll() {
       "Priority 2 — recently looked up"
     );
     const tier3 = emptyTier("priority_3_archive", "Priority 3 — archived (1–2)");
+
+    // Batch MX+AV news and TD prices for live board gaps first (1 call each news
+    // source; TD multi-symbol HTTP). Per-ticker processTicker then fills the rest.
+    try {
+      const { prefetchBoardNewsAndPrices } = require("../services/boardBatchPrefetch");
+      const batch = await prefetchBoardNewsAndPrices(boardTickers);
+      console.log(
+        `[smartRefresh] board batch prefetch — MX=${batch.httpCalls.marketaux} AV=${batch.httpCalls.alpha_vantage} TD_http=${batch.httpCalls.twelve_data} TD_credits=${batch.twelveCredits}`
+      );
+    } catch (err) {
+      console.warn(`[smartRefresh] board batch prefetch failed:`, err.message);
+    }
 
     await runTier(tier1, boardTickers, budget, { updateBoard: true });
 

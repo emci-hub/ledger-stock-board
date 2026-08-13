@@ -918,6 +918,94 @@ async function getFundamentalsAndNews(ticker) {
 }
 
 /**
+ * Twelve Data /market_movers/{market} — many candidates per call (gainers or losers).
+ * Uses stocks + USA by default. Does not call Alpha Vantage.
+ */
+async function getMarketMoversFromTwelveData(
+  direction = "gainers",
+  { outputsize = 30, country = "USA", market = "stocks" } = {}
+) {
+  const dir = String(direction || "gainers").toLowerCase();
+  if (dir !== "gainers" && dir !== "losers") {
+    throw new Error(`Invalid market_movers direction: ${direction}`);
+  }
+
+  const data = await callTwelveData(`/market_movers/${market}`, {
+    direction: dir,
+    outputsize: Math.min(50, Math.max(1, Number(outputsize) || 30)),
+    country,
+  });
+
+  const values = Array.isArray(data?.values) ? data.values : [];
+  return values
+    .map((row) => {
+      const ticker = String(row.symbol || "")
+        .trim()
+        .toUpperCase();
+      if (!ticker) return null;
+      return {
+        ticker,
+        name: row.name || null,
+        exchange: row.exchange || null,
+        last: num(row.last),
+        volume: num(row.volume),
+        change: num(row.change),
+        percentChange: num(row.percent_change),
+        direction: dir,
+        source: "twelve_data",
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Bundle gainers + losers, and a volume-sorted "most active" view of the union.
+ * Two TD calls (gainers, losers); each returns many candidates.
+ */
+async function getDiscoveryMoversBundle(options = {}) {
+  const outputsize = options.outputsize ?? 30;
+  const country = options.country || "USA";
+
+  const [gainers, losers] = await Promise.all([
+    getMarketMoversFromTwelveData("gainers", { outputsize, country }),
+    getMarketMoversFromTwelveData("losers", { outputsize, country }),
+  ]);
+
+  const byTicker = new Map();
+  for (const row of [...gainers, ...losers]) {
+    const prev = byTicker.get(row.ticker);
+    if (!prev) {
+      byTicker.set(row.ticker, { ...row, directions: [row.direction] });
+      continue;
+    }
+    const dirs = new Set([...(prev.directions || []), row.direction]);
+    const richer =
+      Math.abs(Number(row.percentChange) || 0) >=
+      Math.abs(Number(prev.percentChange) || 0)
+        ? row
+        : prev;
+    byTicker.set(row.ticker, {
+      ...richer,
+      directions: [...dirs],
+      volume: Math.max(Number(prev.volume) || 0, Number(row.volume) || 0) || null,
+    });
+  }
+
+  const all = [...byTicker.values()];
+  const mostActive = all
+    .slice()
+    .sort((a, b) => (Number(b.volume) || 0) - (Number(a.volume) || 0));
+
+  return {
+    gainers,
+    losers,
+    mostActive,
+    all,
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+/**
  * Finnhub peers — returns 3–5 peer tickers, excluding the original.
  * Free-tier /stock/peers is generally available (unlike /news-sentiment which is often 403).
  */
@@ -970,6 +1058,8 @@ module.exports = {
   getAnalystTarget,
   getAnalystTargetFromTwelveData,
   getEarningsDateFromFinnhub,
+  getMarketMoversFromTwelveData,
+  getDiscoveryMoversBundle,
   getNewsSentiment,
   getNewsFromFinnhub,
   getNewsFromMarketaux,

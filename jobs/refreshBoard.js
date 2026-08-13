@@ -11,6 +11,12 @@ const { AlphaVantageError } = require("../services/dataFetch");
 const { ensureJokePool } = require("../services/jokes");
 const { BOARD_TICKERS } = require("../lib/boardTickers");
 const { runCapabilityProbe } = require("./capabilityProbe");
+const {
+  getActiveBoardTickers,
+  listAllBoardTickers,
+  promotePick,
+  getPick,
+} = require("../lib/boardPicks");
 
 /** Neutral "roughly flat" band vs logged price (±3%). */
 const FLAT_BAND = 0.03;
@@ -144,7 +150,14 @@ async function cleanupStaleCache() {
   const cutoff = new Date(
     Date.now() - STALE_CACHE_DAYS * 24 * 60 * 60 * 1000
   ).toISOString();
-  const board = BOARD_TICKERS.map((t) => String(t).toUpperCase());
+  // Protect seed list + every board_picks row (live and archived) so history stays intact.
+  const fromPicks = await listAllBoardTickers();
+  const board = [
+    ...new Set([
+      ...BOARD_TICKERS.map((t) => String(t).toUpperCase()),
+      ...fromPicks,
+    ]),
+  ];
   if (!board.length) {
     console.warn("[cleanupStaleCache] BOARD_TICKERS empty — refusing to delete");
     return { deleted: 0, skipped: true };
@@ -213,8 +226,16 @@ async function cleanupStaleCache() {
  * Mode arg is ignored — board_picks status always comes from the long take.
  */
 async function refreshBoard(_mode) {
+  const existingAll = await listAllBoardTickers();
+  if (!existingAll.length) {
+    for (const t of BOARD_TICKERS) {
+      await promotePick(t, { status: "watch", source: "seed" });
+    }
+  }
+  const tickers = await getActiveBoardTickers();
+
   console.log(
-    `[refreshBoard] Starting shared refresh for ${BOARD_TICKERS.length} tickers at ${new Date().toISOString()}`
+    `[refreshBoard] Starting shared refresh for ${tickers.length} live tickers at ${new Date().toISOString()}`
   );
 
   let recommended = 0;
@@ -225,7 +246,23 @@ async function refreshBoard(_mode) {
   let rateLimited = false;
   let successes = 0;
 
-  for (const ticker of BOARD_TICKERS) {
+  async function upsertLiveStatus(ticker, status, sector) {
+    const prev = await getPick(ticker);
+    await dbRun(
+      `INSERT OR REPLACE INTO board_picks
+        (ticker, status, added_at, sector, archived_at, source)
+       VALUES (?, ?, ?, ?, NULL, ?)`,
+      [
+        ticker,
+        status,
+        prev?.added_at || new Date().toISOString(),
+        sector || null,
+        prev?.source || "seed",
+      ]
+    );
+  }
+
+  for (const ticker of tickers) {
     try {
       const entry = await getStockCacheEntry(ticker);
       const summaryFresh = await getCachedSummary(ticker);
@@ -249,11 +286,7 @@ async function refreshBoard(_mode) {
           skipped += 1;
           continue;
         }
-        await dbRun(
-          `INSERT OR REPLACE INTO board_picks (ticker, status, added_at, sector)
-           VALUES (?, ?, ?, ?)`,
-          [ticker, status, new Date().toISOString(), report.sector || null]
-        );
+        await upsertLiveStatus(ticker, status, report.sector || null);
         if (status === "recommended") recommended += 1;
         else watch += 1;
         successes += 1;
@@ -286,11 +319,7 @@ async function refreshBoard(_mode) {
         continue;
       }
 
-      await dbRun(
-        `INSERT OR REPLACE INTO board_picks (ticker, status, added_at, sector)
-         VALUES (?, ?, ?, ?)`,
-        [ticker, status, new Date().toISOString(), report.sector || null]
-      );
+      await upsertLiveStatus(ticker, status, report.sector || null);
 
       if (status === "recommended") {
         recommended += 1;

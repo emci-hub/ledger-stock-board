@@ -31,6 +31,13 @@ const {
 const { AlphaVantageError } = require("./services/dataFetch");
 const { DATA_SOURCES, hasSourceKey, sourcesLegend, sourceRole } = require("./lib/dataSources");
 const { getLastCapabilityProbe } = require("./jobs/capabilityProbe");
+const { discoverHotStocks } = require("./jobs/discoverHotStocks");
+const {
+  listArchivedBoardPicks,
+  BOARD_MAX_SIZE,
+  countLiveBoard,
+} = require("./lib/boardPicks");
+const { LIVE_BOARD_STATUSES } = require("./lib/boardTickers");
 
 const app = express();
 const PORT = 3000;
@@ -132,6 +139,10 @@ async function buildStatusPayload() {
     boardRefreshStatus: await getSetting("lastBoardRefreshStatus"),
     lastCapabilityProbe: await getLastCapabilityProbe(),
     lastCapabilityProbeAt: await getSetting("lastCapabilityProbeAt"),
+    boardMaxSize: BOARD_MAX_SIZE,
+    boardLiveCount: await countLiveBoard(),
+    lastHotStockDiscoveryAt: await getSetting("lastHotStockDiscoveryAt"),
+    lastHotStockDiscoveryStatus: await getSetting("lastHotStockDiscoveryStatus"),
     resetsAt: nextMidnightPacificIso(),
   };
 }
@@ -227,8 +238,13 @@ app.get("/api/search", async (req, res) => {
 app.get("/api/board", async (req, res) => {
   try {
     const mode = normalizeMode(req.query.mode);
+    const placeholders = LIVE_BOARD_STATUSES.map(() => "?").join(", ");
     const picks = await dbAll(
-      `SELECT ticker, status, added_at, sector FROM board_picks ORDER BY added_at DESC`
+      `SELECT ticker, status, added_at, sector, source
+       FROM board_picks
+       WHERE status IN (${placeholders})
+       ORDER BY added_at DESC`,
+      LIVE_BOARD_STATUSES
     );
 
     const board = [];
@@ -244,6 +260,44 @@ app.get("/api/board", async (req, res) => {
     console.error("[GET /api/board]", err.message);
     return res.status(500).json({ error: "Failed to load board picks." });
   }
+});
+
+app.get("/api/archive", async (req, res) => {
+  try {
+    const mode = normalizeMode(req.query.mode);
+    const picks = await listArchivedBoardPicks();
+    const archive = [];
+    for (const pick of picks) {
+      archive.push({
+        ...pick,
+        report: await reportFromCache(pick.ticker, mode),
+      });
+    }
+    return res.json(archive);
+  } catch (err) {
+    console.error("[GET /api/archive]", err.message);
+    return res.status(500).json({ error: "Failed to load archive." });
+  }
+});
+
+/** Manual discovery trigger — does not run on a schedule until cron is enabled. */
+app.post("/api/discovery/run", async (req, res) => {
+  try {
+    const dryRun = Boolean(req.body?.dryRun);
+    const result = await discoverHotStocks({
+      dryRun,
+      maxNew: req.body?.maxNew,
+      warmReports: req.body?.warmReports !== false,
+    });
+    return res.json(result);
+  } catch (err) {
+    console.error("[POST /api/discovery/run]", err.message);
+    return res.status(500).json({ error: "Discovery run failed.", detail: err.message });
+  }
+});
+
+app.get("/archive", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "archive.html"));
 });
 
 app.get("/api/recent", async (req, res) => {
@@ -352,6 +406,17 @@ async function start() {
     });
     console.log(
       "[cron] Scheduled cleanupStaleCache + joke pool + capabilityProbe monthly (1st, 04:00)"
+    );
+
+    // Weekly hot-stock discovery (Sundays 06:00) — OFF until manually enabled.
+    // Uses Twelve Data market_movers; archives weakest when over BOARD_MAX_SIZE.
+    // cron.schedule("0 6 * * 0", () => {
+    //   discoverHotStocks()
+    //     .then((r) => console.log("[cron discoverHotStocks]", r?.ok ? "ok" : r?.error))
+    //     .catch((err) => console.error("[cron discoverHotStocks]", err.message));
+    // });
+    console.log(
+      "[cron] discoverHotStocks weekly schedule is DISABLED (commented) — enable when ready"
     );
 
     // One-shot heal after shared-fetch merge: drop fallback ai_reports, mark flat

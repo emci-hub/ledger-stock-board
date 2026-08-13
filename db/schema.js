@@ -100,6 +100,60 @@ async function migrateLegacyModeCache() {
   }
 }
 
+/**
+ * Recreate board_picks so CHECK allows 'archived' and optional columns exist.
+ * Idempotent via app_settings flag when the new columns are already present.
+ */
+async function migrateBoardPicksArchiveSupport() {
+  const cols = await dbAll(`PRAGMA table_info(board_picks)`);
+  const names = new Set((cols || []).map((c) => c.name));
+  const needsCols = !names.has("archived_at") || !names.has("source");
+
+  const flag = await dbGet(
+    `SELECT value FROM app_settings WHERE key = ?`,
+    ["boardPicksArchiveMigration_v1"]
+  );
+  if (flag?.value && !needsCols) return;
+
+  await dbExecute(`
+    CREATE TABLE IF NOT EXISTS board_picks_archive_mig (
+      ticker TEXT PRIMARY KEY,
+      status TEXT NOT NULL CHECK (status IN ('recommended', 'watch', 'not_recommended', 'archived')),
+      added_at TEXT NOT NULL,
+      sector TEXT,
+      archived_at TEXT,
+      source TEXT
+    )
+  `);
+
+  const existing = await dbAll(`SELECT * FROM board_picks`);
+  for (const row of existing || []) {
+    await dbExecute(
+      `INSERT OR REPLACE INTO board_picks_archive_mig
+        (ticker, status, added_at, sector, archived_at, source)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        row.ticker,
+        row.status === "archived" ? "archived" : row.status,
+        row.added_at,
+        row.sector ?? null,
+        row.archived_at ?? null,
+        row.source ?? "seed",
+      ]
+    );
+  }
+
+  await dbExecute(`DROP TABLE IF EXISTS board_picks`);
+  await dbExecute(`ALTER TABLE board_picks_archive_mig RENAME TO board_picks`);
+
+  await dbExecute(
+    `INSERT INTO app_settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ["boardPicksArchiveMigration_v1", new Date().toISOString()]
+  );
+  console.log("[db] board_picks archive support migrated");
+}
+
 async function initSchema() {
   if (initPromise) return initPromise;
 
@@ -145,9 +199,11 @@ async function initSchema() {
     await dbExecute(`
       CREATE TABLE IF NOT EXISTS board_picks (
         ticker TEXT PRIMARY KEY,
-        status TEXT NOT NULL CHECK (status IN ('recommended', 'watch', 'not_recommended')),
+        status TEXT NOT NULL CHECK (status IN ('recommended', 'watch', 'not_recommended', 'archived')),
         added_at TEXT NOT NULL,
-        sector TEXT
+        sector TEXT,
+        archived_at TEXT,
+        source TEXT
       )
     `);
 
@@ -185,6 +241,12 @@ async function initSchema() {
         value TEXT NOT NULL
       )
     `);
+
+    try {
+      await migrateBoardPicksArchiveSupport();
+    } catch (err) {
+      console.warn("[db] board_picks archive migration skipped:", err.message);
+    }
 
     await dbExecute(`
       CREATE TABLE IF NOT EXISTS price_history_log (

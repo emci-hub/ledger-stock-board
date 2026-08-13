@@ -148,7 +148,9 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
   const companyName =
     local?.name || overview.name || quote.name || null;
   const sector = local?.sector || overview.sector || null;
-  const description = local?.description || null;
+  // Curated blurbs preferred; otherwise use API overview description (non-board / discovery).
+  const description =
+    local?.description || overview.description || null;
   const priceHistory = Array.isArray(quote.priceHistory)
     ? quote.priceHistory
     : Array.isArray(rawData?.priceHistory)

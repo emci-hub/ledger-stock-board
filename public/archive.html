@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger — Archive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0D1210; --bg-line:#141B18; --surface:#151C1A; --line:#26302B;
+    --ink:#EDEFE9; --muted:#8B978F; --muted-dim:#5C6862;
+    --green:#4FB88A; --rust:#E2735A; --gold:#D9A857;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      repeating-linear-gradient(0deg, var(--bg-line) 0px, var(--bg-line) 1px, transparent 1px, transparent 64px),
+      var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 90px;}
+  header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:8px;}
+  h1{font-family:'Fraunces',serif;font-size:28px;margin:0;font-weight:600;}
+  .tick{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted-dim);margin-left:8px;}
+  .nav a{color:var(--muted);font-size:13px;text-decoration:none;border-bottom:1px solid var(--line);}
+  .nav a:hover{color:var(--ink);}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 28px;max-width:540px;line-height:1.5;}
+  .banner{
+    border:1px dashed var(--line);border-radius:10px;padding:12px 14px;
+    color:var(--muted);font-size:13px;margin-bottom:22px;background:rgba(0,0,0,0.15);
+  }
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px;}
+  .card{
+    background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;
+    opacity:0.92;
+  }
+  .card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;}
+  .ticker{font-family:'Fraunces',serif;font-weight:600;font-size:19px;}
+  .company{font-size:12px;color:var(--muted-dim);margin-top:1px;}
+  .blurb{font-size:11px;line-height:1.4;color:var(--muted-dim);margin-top:4px;max-width:220px;}
+  .badge{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--gold);
+    border:1px solid var(--line);border-radius:6px;padding:2px 6px;
+  }
+  .price{font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:600;}
+  .delta{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;margin-left:8px;}
+  .delta.up{color:var(--green);} .delta.down{color:var(--rust);}
+  .meta{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);margin-top:8px;}
+  .summary{font-size:13px;line-height:1.5;color:var(--muted);margin-top:10px;}
+  .empty-note{color:var(--muted);font-size:14px;padding:24px 0;}
+  footer{margin-top:48px;font-size:12px;color:var(--muted-dim);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Ledger <span class="tick">archive</span></h1>
+    </div>
+    <nav class="nav"><a href="/">← Back to live board</a></nav>
+  </header>
+  <p class="sub">Stocks rotated off the live board to make room for hotter names. Data and history stay intact — they can return if they trend again.</p>
+  <div class="banner">This page is separate from today's live picks. Nothing here is deleted.</div>
+  <div class="grid" id="archive-grid"><div class="empty-note">Loading archive…</div></div>
+  <footer>Not financial advice — a plain-English family board archive.</footer>
+</div>
+<script>
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+  function formatMoney(n) {
+    if (n == null || Number.isNaN(Number(n))) return "—";
+    return "$" + Number(n).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+  function formatPct(n) {
+    if (n == null || Number.isNaN(Number(n))) return "—";
+    const v = Number(n);
+    const arrow = v >= 0 ? "▲" : "▼";
+    return arrow + " " + Math.abs(v).toFixed(1) + "%";
+  }
+  function formatWhen(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleString([], { month: "short", day: "numeric", year: "numeric" });
+  }
+
+  function cardHtml(row) {
+    const report = row.report || {};
+    const pct = Number(report.changePercent);
+    const down = Number.isFinite(pct) ? pct < 0 : false;
+    const blurb = report.description
+      ? `<div class="blurb">${escapeHtml(report.description)}</div>`
+      : "";
+    return `<div class="card">
+      <div class="card-top">
+        <div>
+          <div class="ticker">${escapeHtml(row.ticker)}</div>
+          <div class="company">${escapeHtml(report.companyName || report.name || row.ticker)}</div>
+          ${blurb}
+        </div>
+        <span class="badge">Archived</span>
+      </div>
+      <div>
+        <span class="price">${formatMoney(report.price)}</span>
+        <span class="delta ${down ? "down" : "up"}">${formatPct(report.changePercent)}</span>
+      </div>
+      <div class="meta">Archived ${escapeHtml(formatWhen(row.archived_at) || "—")}${
+        row.source ? ` · via ${escapeHtml(row.source)}` : ""
+      }</div>
+      <div class="summary">${escapeHtml(report.analysis?.summary || "Last known summary not on hand.")}</div>
+    </div>`;
+  }
+
+  async function loadArchive() {
+    const grid = document.getElementById("archive-grid");
+    try {
+      const res = await fetch("/api/archive");
+      const rows = await res.json();
+      if (!Array.isArray(rows) || !rows.length) {
+        grid.innerHTML = `<div class="empty-note">No archived stocks yet. The live board still has room.</div>`;
+        return;
+      }
+      grid.innerHTML = rows.map(cardHtml).join("");
+    } catch (err) {
+      console.error(err);
+      grid.innerHTML = `<div class="empty-note">Could not load archive.</div>`;
+    }
+  }
+
+  loadArchive();
+</script>
+</body>
+</html>

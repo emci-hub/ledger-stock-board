@@ -94,6 +94,21 @@
     </div>
 
     <div class="card">
+      <h2>Deeper Look (Claude)</h2>
+      <p style="margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.45;">
+        When enabled, cards show a “Deeper look via Claude” button. When disabled, the button
+        is fully hidden on the public site (not greyed out). Defaults off if
+        <span class="mono">ANTHROPIC_API_KEY</span> is missing.
+      </p>
+      <div class="row" style="gap:12px;align-items:center;">
+        <span class="pill" id="deeper-state">—</span>
+        <button type="button" id="deeper-toggle-btn">Toggle</button>
+      </div>
+      <p class="mono" id="deeper-meta" style="margin:10px 0 0;color:var(--muted);font-size:12px;"></p>
+      <div class="err hidden" id="deeper-err"></div>
+    </div>
+
+    <div class="card">
       <h2>Smart refresh</h2>
       <p style="margin:0 0 8px;color:var(--muted);font-size:13px;line-height:1.45;">
         Quota-aware priority waterfall: fill live board gaps first, then recent lookups,
@@ -286,6 +301,33 @@
     const last = fr.lastResult;
     if (last?.tiers) {
       renderTierSummary(last);
+    }
+
+    renderDeeperToggle(data.deeperLook || {});
+  }
+
+  function renderDeeperToggle(dl) {
+    const stateEl = document.getElementById("deeper-state");
+    const metaEl = document.getElementById("deeper-meta");
+    const btn = document.getElementById("deeper-toggle-btn");
+    const errEl = document.getElementById("deeper-err");
+    if (!stateEl || !btn) return;
+    if (errEl) errEl.classList.add("hidden");
+
+    const enabled = Boolean(dl.enabled);
+    stateEl.textContent = enabled ? "Enabled" : "Disabled";
+    stateEl.className = `pill ${enabled ? "on" : "off"}`;
+    btn.textContent = enabled ? "Disable Deeper Look" : "Enable Deeper Look";
+    btn.dataset.enabled = enabled ? "1" : "0";
+    if (metaEl) {
+      const key = dl.claudeConfigured ? "ANTHROPIC_API_KEY set" : "ANTHROPIC_API_KEY missing";
+      const src = dl.source === "app_settings" ? "saved setting" : "default from key";
+      metaEl.textContent = `${key} · ${src}`;
+    }
+    if (!dl.claudeConfigured && !enabled) {
+      btn.title = "Set ANTHROPIC_API_KEY before enabling";
+    } else {
+      btn.title = "";
     }
   }
 

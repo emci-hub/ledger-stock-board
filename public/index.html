@@ -417,6 +417,8 @@
 <script>
   let currentMode = "long";
   const starred = new Set();
+  /** From /api/status — when false, Claude deeper-look button is not rendered. */
+  let deeperLookEnabled = false;
 
   function escapeHtml(value) {
     return String(value ?? "")
@@ -736,13 +738,19 @@
               : ""
           }
         </div>`
-      : `<div class="deeper-panel" data-deeper="${escapeHtml(report.ticker)}" hidden></div>`;
+      : deeperLookEnabled
+        ? `<div class="deeper-panel" data-deeper="${escapeHtml(report.ticker)}" hidden></div>`
+        : "";
 
-    const deeperBtn = `<button type="button" class="deeper-look-btn" data-deeper-look="${escapeHtml(
-      report.ticker
-    )}" title="Uses paid Claude credits — only when you ask">${
-      deeper?.analysis?.summary ? "Refresh deeper look (Claude)" : "Deeper look via Claude"
-    }</button>`;
+    const deeperBtn = deeperLookEnabled
+      ? `<button type="button" class="deeper-look-btn" data-deeper-look="${escapeHtml(
+          report.ticker
+        )}" title="Uses paid Claude credits — only when you ask">${
+          deeper?.analysis?.summary
+            ? "Refresh deeper look (Claude)"
+            : "Deeper look via Claude"
+        }</button>`
+      : "";
 
     return `<div class="card ${leanClass(report, status)}" data-ticker="${escapeHtml(report.ticker)}">
       <div class="card-top">
@@ -824,6 +832,8 @@
         : "not yet";
       const searches =
         s.newSearchesAvailableToday != null ? s.newSearchesAvailableToday : "—";
+
+      deeperLookEnabled = Boolean(s.deeperLookEnabled);
 
       if (moodEl) {
         if (s.marketMood?.text) {
@@ -1136,8 +1146,7 @@
     starTicker(btn.dataset.star, btn);
   });
 
-  loadStatus();
-  loadBoard();
+  loadStatus().then(() => loadBoard());
   loadRecent();
 </script>
 </body>

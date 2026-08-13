@@ -49,6 +49,9 @@ const {
   getDeeperLook,
   requestDeeperLook,
   ensureDeeperLookTable,
+  isDeeperLookEnabled,
+  getDeeperLookSetting,
+  setDeeperLookEnabled,
 } = require("./services/deeperLook");
 const { resolveProviderId, listProviders } = require("./lib/aiProvider");
 const {
@@ -204,6 +207,7 @@ async function buildStatusPayload() {
     claudeUsedToday: await getUsageToday(PROVIDERS.CLAUDE),
     claudeConfigured: hasSourceKey("claude"),
     claudeRole: sourceRole("claude") || "manual_deeper_look_only",
+    deeperLookEnabled: await isDeeperLookEnabled(),
     aiProviderDefault: resolveProviderId(),
     aiProviders: listProviders(),
     newSearchesAvailableToday,
@@ -364,6 +368,9 @@ app.post("/api/stock/:ticker/deeper-look", async (req, res) => {
     return res.json(result);
   } catch (err) {
     console.error("[POST deeper-look]", err.message);
+    if (err.code === "disabled") {
+      return res.status(403).json({ error: err.message, code: err.code });
+    }
     if (err.code === "not_configured") {
       return res.status(503).json({ error: err.message, code: err.code });
     }
@@ -499,6 +506,7 @@ async function buildDevStatusPayload() {
     lastForceRefreshStatus: await getSetting("lastForceRefreshStatus"),
     forceRefresh: getForceRefreshState(),
     smartRefresh: getForceRefreshState(),
+    deeperLook: await getDeeperLookSetting(),
     sources,
     lastCallByProvider: await getLastCallByProvider(),
     recentCalls: await getRecentApiCalls(30),
@@ -549,6 +557,21 @@ async function handleSmartRefresh(req, res) {
 
 app.post("/api/admin/force-refresh", handleSmartRefresh);
 app.post("/api/admin/smart-refresh", handleSmartRefresh);
+
+app.post("/api/dev/deeper-look-enabled", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    const enabled = Boolean(req.body?.enabled);
+    const result = await setDeeperLookEnabled(enabled);
+    return res.json(result);
+  } catch (err) {
+    console.error("[POST /api/dev/deeper-look-enabled]", err.message);
+    if (err.code === "not_configured") {
+      return res.status(400).json({ error: err.message, code: err.code });
+    }
+    return res.status(500).json({ error: "Failed to update Deeper Look setting." });
+  }
+});
 
 app.get("/api/admin/force-refresh", async (req, res) => {
   if (!devAuthOk(req)) return rejectDevUnauthorized(res);

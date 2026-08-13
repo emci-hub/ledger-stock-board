@@ -49,6 +49,7 @@ const { discoverHotStocks, previewDiscovery, computePromotionBudget } = require(
 const {
   listArchivedBoardPicks,
   listArchiveBrowse,
+  listLiveBoardPicks,
   BOARD_MAX_SIZE,
   countLiveBoard,
   countCandidates,
@@ -63,6 +64,7 @@ const {
 } = require("./jobs/manualAnalyze");
 const { retryMorningFailures } = require("./jobs/retryMorningFailures");
 const { LIVE_BOARD_STATUSES } = require("./lib/boardTickers");
+const { assessLongTermPlacement } = require("./lib/rankingStability");
 const { getMarketMood, loadMood } = require("./services/marketMood");
 const { getTodaysTidbit } = require("./services/didYouKnow");
 const {
@@ -357,21 +359,28 @@ app.get("/api/search", async (req, res) => {
 app.get("/api/board", async (req, res) => {
   try {
     const mode = normalizeMode(req.query.mode);
-    const placeholders = LIVE_BOARD_STATUSES.map(() => "?").join(", ");
-    const picks = await dbAll(
-      `SELECT ticker, status, added_at, sector, source, discovery_blurb
-       FROM board_picks
-       WHERE status IN (${placeholders})
-       ORDER BY added_at DESC`,
-      LIVE_BOARD_STATUSES
-    );
+    const picks = await listLiveBoardPicks();
 
     const board = [];
     for (const pick of picks) {
       const report = await reportFromCache(pick.ticker, mode);
+      const placement = assessLongTermPlacement(pick, report || {});
       if (report) {
         report.discoveryBlurb = pick.discovery_blurb || null;
         report.source = pick.source || null;
+        report.exchange = pick.exchange || report.exchange || null;
+        // Expose adjusted long-term rank + placement for UI (short unchanged).
+        report.longTermRankRaw = placement.longTermRankRaw;
+        report.longTermRank = placement.longTermRankAdjusted;
+        report.longTermEligible = placement.longTermEligible;
+        report.momentumSection = placement.momentumSection;
+        report.stabilityWarnings = placement.warnings;
+        report.trackedSince = placement.trackedSince;
+        report.trackedDays = placement.trackedDays;
+        report.longTermPenalties = placement.penalties;
+        if (mode === "long") {
+          report.rankScore = placement.longTermRankAdjusted;
+        }
         const deeper = await getDeeperLook(pick.ticker);
         report.deeperLook = deeper
           ? {
@@ -383,6 +392,10 @@ app.get("/api/board", async (req, res) => {
       }
       board.push({
         ...pick,
+        tracked_since: pick.tracked_since || pick.added_at || null,
+        longTermEligible: placement.longTermEligible,
+        momentumSection: placement.momentumSection,
+        stabilityWarnings: placement.warnings,
         report,
       });
     }

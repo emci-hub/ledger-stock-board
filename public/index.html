@@ -376,6 +376,16 @@
     color:var(--gold);border:1px solid rgba(217,168,87,0.35);
     border-radius:6px;padding:1px 6px;vertical-align:middle;
   }
+  .momentum-section{margin:28px 0 8px;}
+  .momentum-section .section-label{color:var(--gold);}
+  .momentum-sub{
+    color:var(--muted);font-size:13px;margin:0 0 12px;max-width:560px;line-height:1.45;
+  }
+  .momentum-warns{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 2px;}
+  .momentum-warn{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--gold);
+    border:1px solid rgba(217,168,87,0.35);border-radius:6px;padding:2px 6px;
+  }
 
   footer{margin-top:38px;font-size:12px;color:var(--muted-dim);text-align:center;}
   .sources-legend{
@@ -459,6 +469,11 @@
     <div class="stale-section" id="stale-section" hidden>
       <div class="section-label">Needs a refresh <span class="stale-badge">stale · 48h+</span></div>
       <div class="grid stale-grid" id="stale-grid"></div>
+    </div>
+    <div class="momentum-section" id="momentum-section" hidden>
+      <div class="section-label">Momentum · higher risk <span class="stale-badge">new / volatile</span></div>
+      <p class="momentum-sub" id="momentum-sub">Hot movers that aren’t ready for the long-term spotlight yet (new on the board, extreme day moves, pennies, or non-major exchanges).</p>
+      <div class="grid" id="momentum-grid"></div>
     </div>
   </div>
 
@@ -798,6 +813,19 @@
           )}</div>`
         : "";
 
+    const warnList = Array.isArray(report.stabilityWarnings)
+      ? report.stabilityWarnings
+      : [];
+    const stabilityWarns =
+      options.showStabilityWarnings && warnList.length
+        ? `<div class="momentum-warns">${warnList
+            .map(
+              (w) =>
+                `<span class="momentum-warn">${escapeHtml(w.text || w.id || "")}</span>`
+            )
+            .join("")}</div>`
+        : "";
+
     const deeper = report.deeperLook;
     const deeperPanel = deeper?.analysis?.summary
       ? `<div class="deeper-panel" data-deeper="${escapeHtml(report.ticker)}">
@@ -846,6 +874,7 @@
       ${sparkCaveats}
       ${targetLine}
       ${discoveryBlurb}
+      ${stabilityWarns}
       <div class="tags">${tagHtml}</div>
       <div class="summary">${escapeHtml(report.analysis?.summary || "")}${viaRow}</div>
       ${summaryCaveats}
@@ -1052,6 +1081,8 @@
     const moreToggle = document.getElementById("more-picks-toggle");
     const staleSection = document.getElementById("stale-section");
     const staleGrid = document.getElementById("stale-grid");
+    const momentumSection = document.getElementById("momentum-section");
+    const momentumGrid = document.getElementById("momentum-grid");
     const label = document.getElementById("picks-label");
     label.textContent =
       currentMode === "short"
@@ -1068,6 +1099,10 @@
     morePicksExpandedTicker = null;
     staleSection.hidden = true;
     staleGrid.innerHTML = "";
+    if (momentumSection) {
+      momentumSection.hidden = true;
+      momentumGrid.innerHTML = "";
+    }
 
     try {
       const res = await fetch(`/api/board?mode=${encodeURIComponent(currentMode)}`);
@@ -1085,12 +1120,34 @@
         else fresh.push(row);
       }
 
-      fresh.sort((a, b) => rankForMode(b.report) - rankForMode(a.report));
+      // Long mode: stocks failing the stability/history gate go to Momentum.
+      // Short mode: keep everyone in the main ranked pool (volatility can help).
+      let mainPool = fresh;
+      let momentumPool = [];
+      if (currentMode === "long") {
+        mainPool = [];
+        momentumPool = [];
+        for (const row of fresh) {
+          const momentum =
+            row.momentumSection === true ||
+            row.report.momentumSection === true ||
+            row.longTermEligible === false ||
+            row.report.longTermEligible === false;
+          if (momentum) momentumPool.push(row);
+          else mainPool.push(row);
+        }
+      }
+
+      mainPool.sort((a, b) => rankForMode(b.report) - rankForMode(a.report));
+      momentumPool.sort(
+        (a, b) =>
+          Number(b.report.shortTermRank || 0) - Number(a.report.shortTermRank || 0)
+      );
       stale.sort((a, b) => rankForMode(b.report) - rankForMode(a.report));
 
-      const top = fresh.slice(0, 3);
-      const mid = fresh.slice(3, 9);
-      const rest = fresh.slice(9, 15);
+      const top = mainPool.slice(0, 3);
+      const mid = mainPool.slice(3, 9);
+      const rest = mainPool.slice(9, 15);
       morePicksRows = rest;
 
       spotlight.innerHTML = top
@@ -1101,7 +1158,9 @@
         ? mid.map((row) => buildCardHtml(row.report, row.status)).join("")
         : top.length
           ? ""
-          : `<div class="empty-note">No board picks yet.</div>`;
+          : currentMode === "long" && momentumPool.length
+            ? `<div class="empty-note">No long-term-ready picks yet — see Momentum below. Stocks need ~7 days on the board without extreme spikes.</div>`
+            : `<div class="empty-note">No board picks yet.</div>`;
 
       if (rest.length) {
         moreWrap.hidden = false;
@@ -1121,6 +1180,17 @@
         staleSection.hidden = false;
         staleGrid.innerHTML = stale
           .map((row) => buildCardHtml(row.report, row.status))
+          .join("");
+      }
+
+      if (momentumSection && momentumPool.length) {
+        momentumSection.hidden = false;
+        momentumGrid.innerHTML = momentumPool
+          .map((row) =>
+            buildCardHtml(row.report, row.status, {
+              showStabilityWarnings: true,
+            })
+          )
           .join("");
       }
 

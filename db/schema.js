@@ -146,7 +146,8 @@ async function migrateBoardPicksCandidateSupport() {
       discovered_at TEXT,
       last_seen_at TEXT,
       miss_streak INTEGER DEFAULT 0,
-      flags_json TEXT
+      flags_json TEXT,
+      tracked_since TEXT
     )
   `);
 
@@ -164,8 +165,8 @@ async function migrateBoardPicksCandidateSupport() {
       `INSERT OR REPLACE INTO board_picks_candidate_mig
         (ticker, status, added_at, sector, archived_at, source, discovery_blurb,
          name, price, percent_change, exchange, discovered_at, last_seen_at,
-         miss_streak, flags_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         miss_streak, flags_json, tracked_since)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.ticker,
         status,
@@ -182,6 +183,10 @@ async function migrateBoardPicksCandidateSupport() {
         row.last_seen_at ?? null,
         Number(row.miss_streak || 0),
         row.flags_json ?? null,
+        row.tracked_since ??
+          (status === "recommended" || status === "watch"
+            ? row.added_at
+            : null),
       ]
     );
   }
@@ -377,6 +382,7 @@ async function initSchema() {
       "last_seen_at TEXT",
       "miss_streak INTEGER DEFAULT 0",
       "flags_json TEXT",
+      "tracked_since TEXT",
     ]) {
       try {
         await dbExecute(`ALTER TABLE board_picks ADD COLUMN ${col}`);
@@ -385,6 +391,19 @@ async function initSchema() {
           console.warn(`[db] board_picks add ${col}:`, err.message);
         }
       }
+    }
+
+    // Backfill tracked_since for live rows from added_at (one-shot safe UPDATE).
+    try {
+      await dbExecute(
+        `UPDATE board_picks
+         SET tracked_since = added_at
+         WHERE tracked_since IS NULL
+           AND status IN ('recommended', 'watch')
+           AND added_at IS NOT NULL`
+      );
+    } catch (err) {
+      console.warn("[db] tracked_since backfill:", err.message);
     }
 
     await dbExecute(`

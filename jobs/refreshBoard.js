@@ -285,16 +285,22 @@ async function refreshBoard(_modeOrOptions) {
 
   async function upsertLiveStatus(ticker, status, sector) {
     const prev = await getPick(ticker);
+    const wasLive =
+      prev && ["recommended", "watch"].includes(String(prev.status || ""));
+    const trackedSince = wasLive
+      ? prev.tracked_since || prev.added_at || new Date().toISOString()
+      : new Date().toISOString();
     await dbRun(
       `INSERT OR REPLACE INTO board_picks
-        (ticker, status, added_at, sector, archived_at, source)
-       VALUES (?, ?, ?, ?, NULL, ?)`,
+        (ticker, status, added_at, sector, archived_at, source, tracked_since)
+       VALUES (?, ?, ?, ?, NULL, ?, ?)`,
       [
         ticker,
         status,
         prev?.added_at || new Date().toISOString(),
         sector || null,
         prev?.source || "seed",
+        trackedSince,
       ]
     );
   }

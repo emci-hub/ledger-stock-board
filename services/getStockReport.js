@@ -176,7 +176,10 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     Boolean(rawData?.fundamentals?.newsPending) ||
     (!freshness.newsUpdatedAt && newsSources.length === 0);
   const priceSource = quote.source || null;
-  const targetSource = overview.analystTargetSource || null;
+  const targetSourceRaw = overview.analystTargetSource || null;
+  // Live target is Alpha Vantage only — never attribute a board target to Twelve Data.
+  const targetSource =
+    targetSourceRaw === "twelve_data" ? null : targetSourceRaw;
   const local = getTickerInfo(ticker);
   const companyName =
     local?.name || overview.name || quote.name || null;

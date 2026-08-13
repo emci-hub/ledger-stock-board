@@ -39,6 +39,10 @@ const {
   previewPromoteEligibleCandidates,
   estimatePromotionWarmCalls,
 } = require("./discoverHotStocks");
+const {
+  fillScarceFieldsByPriority,
+  scarceFillPriority,
+} = require("../services/promotionWarm");
 
 let lastResult = null;
 
@@ -746,7 +750,23 @@ async function smartRefreshAll() {
       budget.snapshot().remaining
     );
 
-    const boardTickers = await getActiveBoardTickers();
+    const boardTickersRaw = await getActiveBoardTickers();
+    // Scarce AV target fills prefer long-term-track names first.
+    const liveForOrder = [];
+    for (const t of boardTickersRaw) {
+      const entry = await getStockCacheEntry(t);
+      const pick = (await getPick(t)) || { ticker: t };
+      const pri = scarceFillPriority(pick, {
+        price: entry?.data?.quote?.price?.current ?? pick.price,
+        changePercent:
+          entry?.data?.quote?.price?.changePercent ?? pick.percent_change,
+      });
+      liveForOrder.push({ ticker: t, tier: pri.tier });
+    }
+    liveForOrder.sort(
+      (a, b) => a.tier - b.tier || String(a.ticker).localeCompare(String(b.ticker))
+    );
+    const boardTickers = liveForOrder.map((row) => row.ticker);
     const boardSet = new Set(boardTickers.map((t) => String(t).toUpperCase()));
 
     const tier1 = emptyTier("priority_1_board", "Priority 1 — live board gaps");
@@ -792,6 +812,16 @@ async function smartRefreshAll() {
         skipped: [],
         failed: [],
       };
+    }
+
+    // Scarce AV analyst-target fill: long-term first, momentum next, penny/extreme last.
+    let scarceFill = null;
+    try {
+      scarceFill = await fillScarceFieldsByPriority();
+      console.log(`[smartRefresh] scarce fill — ${scarceFill.message}`);
+    } catch (err) {
+      console.warn(`[smartRefresh] scarce fill failed:`, err.message);
+      scarceFill = { ok: false, error: err.message };
     }
 
     // Only continue waterfall if any daily-limited source still has room,
@@ -841,6 +871,7 @@ async function smartRefreshAll() {
         rePromotedCount,
         error: promoteResult?.error || null,
       },
+      scarceFill,
       totals: {
         refreshed: refreshedTotal,
         alreadyCurrent: currentTotal,
@@ -849,13 +880,16 @@ async function smartRefreshAll() {
         failed: failedTotal,
         promoted: promotedCount,
         rePromoted: rePromotedCount,
+        targetsFilled: Array.isArray(scarceFill?.filled)
+          ? scarceFill.filled.length
+          : 0,
       },
       callsBySource: calls,
       totalCalls: total,
       usageBefore,
       usageAfter,
       quota: budget.snapshot(),
-      note: "P1 batches live-board news/prices then fills gaps. P1b reuses Discovery's computePromotionBudget + promoteEligibleCandidates under this same lock. Live searches may still use reserved Alpha Vantage headroom.",
+      note: "P1 batches live-board news/prices then fills gaps (AV targets ordered long-term → momentum → penny/extreme). P1b promotes with immediate price/news catch-up; leftover AV targets use the same priority order. Live searches may still use reserved Alpha Vantage headroom.",
     };
 
     lastResult = result;

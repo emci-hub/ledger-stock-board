@@ -17,7 +17,7 @@
 
 const { setSetting, getUsageToday, PROVIDERS } = require("../services/usage");
 const { getDiscoveryMoversBundle } = require("../services/dataFetch");
-const { getStockReport } = require("../services/getStockReport");
+const { warmNewlyPromotedTicker } = require("../services/promotionWarm");
 const {
   hasSourceKey,
   smartRefreshReserve,
@@ -340,23 +340,41 @@ async function promoteEligibleCandidates(options = {}) {
     archivedOut.push(...(cap.archived || []));
 
     let report = null;
+    await promotePick(ticker, {
+      status: "watch",
+      sector: null,
+      source: `${pickSource}_repromote`,
+    });
     if (warmReports) {
       try {
-        report = await getStockReport(ticker, "long", { skipPeers: false });
+        const warm = await warmNewlyPromotedTicker(ticker, {
+          forceNews: true,
+          forcePrice: true,
+        });
+        report = warm.report || null;
+        if (!warm.ok) {
+          failed.push({
+            ticker,
+            error: warm.error || "warm_failed",
+            kind: "repromote",
+          });
+        }
       } catch (err) {
         console.warn(
-          `[promoteEligibleCandidates] warm report failed for re-promote ${ticker}:`,
+          `[promoteEligibleCandidates] warm catch-up failed for re-promote ${ticker}:`,
           err.message
         );
         failed.push({ ticker, error: err.message, kind: "repromote" });
       }
     }
     const status = report ? pickStatusFromReport(report) : "watch";
-    await promotePick(ticker, {
-      status,
-      sector: report?.sector || null,
-      source: `${pickSource}_repromote`,
-    });
+    if (status !== "watch") {
+      await promotePick(ticker, {
+        status,
+        sector: report?.sector || null,
+        source: `${pickSource}_repromote`,
+      });
+    }
     rePromoted.push({ ticker, status, mover });
     liveSet.add(ticker);
     archivedSet.delete(ticker);
@@ -428,13 +446,33 @@ async function promoteEligibleCandidates(options = {}) {
     });
     archivedOut.push(...(cap.archived || []));
 
+    // Promote first, then immediate catch-up (price/news now; target if AV allows).
+    await promotePick(ticker, {
+      status: "watch",
+      sector: null,
+      source: pickSource,
+    });
+
     let report = null;
+    let warmMeta = null;
     if (warmReports) {
       try {
-        report = await getStockReport(ticker, "long", { skipPeers: false });
+        warmMeta = await warmNewlyPromotedTicker(ticker, {
+          // Wave already batch-prefetched when possible — don't double-spend.
+          forceNews: false,
+          forcePrice: false,
+        });
+        report = warmMeta.report || null;
+        if (!warmMeta.ok) {
+          failed.push({
+            ticker,
+            error: warmMeta.error || "warm_failed",
+            kind: "promote",
+          });
+        }
       } catch (err) {
         console.warn(
-          `[promoteEligibleCandidates] warm report failed for ${ticker}:`,
+          `[promoteEligibleCandidates] warm catch-up failed for ${ticker}:`,
           err.message
         );
         failed.push({ ticker, error: err.message, kind: "promote" });
@@ -442,11 +480,13 @@ async function promoteEligibleCandidates(options = {}) {
     }
 
     const status = report ? pickStatusFromReport(report) : "watch";
-    await promotePick(ticker, {
-      status,
-      sector: report?.sector || null,
-      source: pickSource,
-    });
+    if (status !== "watch" || report?.sector) {
+      await promotePick(ticker, {
+        status,
+        sector: report?.sector || null,
+        source: pickSource,
+      });
+    }
 
     let discoveryBlurb = null;
     if (warmReports && withWriteUps) {
@@ -475,6 +515,15 @@ async function promoteEligibleCandidates(options = {}) {
       mainPool: row.mainPool,
       flags: row.flags,
       discoveryBlurb,
+      warm: warmMeta
+        ? {
+            price: warmMeta.price,
+            news: warmMeta.news,
+            target: warmMeta.target,
+            targetQueued: warmMeta.targetQueued,
+            skippedTargetReason: warmMeta.skippedTargetReason,
+          }
+        : null,
     });
     liveSet.add(ticker);
     seatsLeft -= 1;

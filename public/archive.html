@@ -133,7 +133,7 @@
     <nav class="nav"><a href="/">← Back to live board</a></nav>
   </header>
   <p class="sub">Browse archived names and not-yet-promoted candidates. Listing uses cheap discovery signals only — no API cost until you Analyze.</p>
-  <div class="banner">Candidates are FMP movers waiting for a full report. Archived stocks were rotated off the live board; their history stays intact.</div>
+  <div class="banner">Candidates are FMP movers waiting for a full report (via FMP = discovery signal only). Archived stocks were rotated off the live board; their history stays intact. Active board cards never show FMP — they use TD/MX/AV after analysis.</div>
 
   <div class="toolbar" id="analyze-toolbar">
     <div class="avail zero" id="avail-label">Checking analyses available…</div>
@@ -236,7 +236,7 @@
       ? `<div class="summary">${escapeHtml(row.summary)}</div>`
       : `<div class="summary">No full report yet — Analyze builds one using today's remaining quota.</div>`;
     const viaSignal = row.signalSourceLabel
-      ? `<span class="via-source">via ${escapeHtml(row.signalSourceLabel)}</span>`
+      ? `<span class="via-source" title="Discovered via FMP movers; price/news/target come from other sources after Analyze or promotion">via ${escapeHtml(row.signalSourceLabel)}</span>`
       : "";
     return `<details class="row" data-ticker="${escapeHtml(row.ticker)}">
       <summary class="row-sum">

@@ -90,7 +90,7 @@ const DAILY_AV_LIMIT = DATA_SOURCES.alpha_vantage.rateLimit.limit;
 const AV_CALLS_PER_SEARCH_NEWS = 1;
 const DAILY_TWELVE_LIMIT = DATA_SOURCES.twelve_data.rateLimit.limit;
 const DAILY_MARKETAUX_LIMIT = DATA_SOURCES.marketaux.rateLimit.limit;
-/** Typical Twelve Data cost per search: time_series (+ optional price_target when plan allows). */
+/** Typical Twelve Data cost per search: time_series only (target is Alpha Vantage OVERVIEW). */
 const TWELVE_CALLS_PER_SEARCH = 1;
 
 /** Dev-status gate — separate from SEARCH_PASSWORD. Never sent to the client. */

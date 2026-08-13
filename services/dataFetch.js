@@ -719,7 +719,9 @@ async function getQuoteAndIndicators(ticker, _mode) {
 }
 
 /**
- * Analyst target from Twelve Data /price_target (often plan-gated on free tier).
+ * Analyst target from Twelve Data /price_target.
+ * Grow-plan-only — used exclusively by the monthly capability probe.
+ * NEVER call this from the live board / search / promotion path.
  */
 async function getAnalystTargetFromTwelveData(ticker) {
   const symbol = String(ticker).toUpperCase();

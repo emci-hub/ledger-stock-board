@@ -49,6 +49,17 @@ function isPriceFresh(data) {
 }
 
 function isTargetFresh(data) {
+  const overview = data?.fundamentals?.overview || {};
+  const price = overview.analystTargetPrice;
+  // Null / missing target is never "fresh" — otherwise OVERVIEW misses stick for 3 days.
+  if (price == null || !Number.isFinite(Number(price))) return false;
+  // Live target is Alpha Vantage only — stale twelve_data labels must re-fetch via AV.
+  if (
+    overview.analystTargetSource &&
+    overview.analystTargetSource !== "alpha_vantage"
+  ) {
+    return false;
+  }
   return isFresh(freshnessFromData(data).targetUpdatedAt, TARGET_TTL_MS);
 }
 

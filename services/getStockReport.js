@@ -351,6 +351,9 @@ function ensureRawShape(rawData) {
  * options.newsOnly — refresh news (and re-analyze if needed); skip price/target/peers.
  * options.smartRefresh — when a QuotaBudget is active, skip sources with 0 remaining
  *   instead of failing hard; respects normal freshness (does not force stale).
+ * options.forceRefresh — morning full refresh: force Gemini re-analysis even when
+ *   data is within TTL (price/news/target still respect freshness so batch
+ *   prefetch is not wasted).
  */
 async function loadSharedStockData(ticker, options = {}) {
   const symbol = String(ticker).toUpperCase();
@@ -363,6 +366,7 @@ async function loadSharedStockDataInner(symbol, options = {}) {
   const skipPeers = Boolean(options.skipPeers);
   const newsOnly = Boolean(options.newsOnly);
   const smartRefresh = Boolean(options.smartRefresh);
+  const forceRefresh = Boolean(options.forceRefresh);
 
   const entry = await getStockCacheEntry(symbol);
   let rawData = ensureRawShape(entry?.data);
@@ -374,7 +378,9 @@ async function loadSharedStockDataInner(symbol, options = {}) {
   const earningsOk = isEarningsFresh(rawData);
   const fullyFresh = isFullyFresh(rawData);
 
-  if (fullyFresh && analysis && !newsOnly) {
+  // Morning full refresh: still reuse just-prefetched price/news, but do not
+  // short-circuit before analysis — forceRefresh only forces Gemini below.
+  if (fullyFresh && analysis && !newsOnly && !forceRefresh) {
     // Still fill missing peers — empty [] used to stick forever on full cache hits.
     if (!skipPeers && (!rawData.peers || !rawData.peers.length)) {
       console.log(
@@ -575,6 +581,7 @@ async function loadSharedStockDataInner(symbol, options = {}) {
   })();
 
   const shouldAnalyze =
+    forceRefresh ||
     !analysis ||
     (newsJustFetched && rawData.fundamentals.newsPending === false) ||
     newsFresherThanAnalysis;
@@ -635,6 +642,7 @@ async function loadSharedStockDataInner(symbol, options = {}) {
  * options.skipPeers — skip Finnhub peers when true.
  * options.newsOnly — only refresh news (+ re-analyze if needed).
  * options.smartRefresh — quota-aware path used by Smart Refresh.
+ * options.forceRefresh — morning full board refresh (price/news + force analysis).
  */
 async function getStockReport(ticker, mode, options = {}) {
   const symbol = String(ticker).toUpperCase();

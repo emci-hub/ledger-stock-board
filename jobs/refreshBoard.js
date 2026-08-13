@@ -7,6 +7,7 @@ const {
   isFullyFresh,
 } = require("../services/cache");
 const { setSetting } = require("../services/usage");
+const { saveMorningRefreshFailures } = require("../services/morningFailures");
 const { AlphaVantageError } = require("../services/dataFetch");
 const { ensureJokePool } = require("../services/jokes");
 const { BOARD_TICKERS } = require("../lib/boardTickers");
@@ -237,6 +238,13 @@ async function cleanupStaleCache() {
  * Mode arg is ignored — board_picks status always comes from the long take.
  */
 async function refreshBoard(_modeOrOptions) {
+  const opts =
+    _modeOrOptions && typeof _modeOrOptions === "object" && !Array.isArray(_modeOrOptions)
+      ? _modeOrOptions
+      : {};
+  /** Morning cron passes force:true — one full daily refresh of the active board. */
+  const force = Boolean(opts.force);
+
   const existingAll = await listAllBoardTickers();
   if (!existingAll.length) {
     for (const t of BOARD_TICKERS) {
@@ -248,14 +256,17 @@ async function refreshBoard(_modeOrOptions) {
   const { prefetchBoardNewsAndPrices } = require("../services/boardBatchPrefetch");
 
   console.log(
-    `[refreshBoard] Starting shared refresh for ${tickers.length} live tickers at ${new Date().toISOString()}`
+    `[refreshBoard] Starting shared refresh for ${tickers.length} live tickers at ${new Date().toISOString()} force=${force}`
   );
 
-  // Batch news (MX+AV) and TD prices once for all stale live tickers before the
+  // Batch news (MX+AV) and TD prices once for the active board before the
   // per-ticker getStockReport loop — avoids N×1 loops against daily quotas.
   let batchPrefetch = null;
   try {
-    batchPrefetch = await prefetchBoardNewsAndPrices(tickers);
+    batchPrefetch = await prefetchBoardNewsAndPrices(tickers, {
+      forceNews: force,
+      forcePrice: force,
+    });
     console.log(
       `[refreshBoard] batch prefetch — MX=${batchPrefetch.httpCalls.marketaux} AV=${batchPrefetch.httpCalls.alpha_vantage} TD_http=${batchPrefetch.httpCalls.twelve_data} TD_credits=${batchPrefetch.twelveCredits}`
     );
@@ -270,6 +281,7 @@ async function refreshBoard(_modeOrOptions) {
   let cacheReused = 0;
   let rateLimited = false;
   let successes = 0;
+  const failures = [];
 
   async function upsertLiveStatus(ticker, status, sector) {
     const prev = await getPick(ticker);
@@ -293,7 +305,7 @@ async function refreshBoard(_modeOrOptions) {
       const summaryFresh = await getCachedSummary(ticker);
       const fullyFresh = entry && isFullyFresh(entry.data);
 
-      if (fullyFresh && summaryFresh) {
+      if (!force && fullyFresh && summaryFresh) {
         cacheReused += 1;
         console.log(
           `[refreshBoard] ${ticker} price+target+news+earnings fresh — skipping live fetch`
@@ -327,10 +339,16 @@ async function refreshBoard(_modeOrOptions) {
       fetched += 1;
       const report = await getStockReport(ticker, "long", {
         skipPeers: false,
+        ...(force ? { forceRefresh: true } : {}),
       });
       if (!report) {
         console.warn(`[refreshBoard] No report for ${ticker} — leaving out`);
         skipped += 1;
+        failures.push({
+          ticker: String(ticker).toUpperCase(),
+          error: "no_report",
+          code: "no_report",
+        });
         continue;
       }
 
@@ -367,6 +385,11 @@ async function refreshBoard(_modeOrOptions) {
       }
       console.error(`[refreshBoard] Failed for ${ticker}:`, err.message);
       skipped += 1;
+      failures.push({
+        ticker: String(ticker).toUpperCase(),
+        error: err.message,
+        code: err.code || null,
+      });
     }
   }
 
@@ -380,8 +403,23 @@ async function refreshBoard(_modeOrOptions) {
   await setSetting("lastBoardRefreshStatus", boardRefreshStatus);
   await setSetting("lastBoardRefreshMode", "long");
 
+  // Persist failures for the 1pm lightweight retry (morning force pass only).
+  if (force) {
+    try {
+      await saveMorningRefreshFailures({
+        force: true,
+        boardRefreshStatus,
+        failures,
+        successes,
+        tickerCount: tickers.length,
+      });
+    } catch (err) {
+      console.warn(`[refreshBoard] saveMorningRefreshFailures:`, err.message);
+    }
+  }
+
   console.log(
-    `[refreshBoard] Done — recommended=${recommended}, watch=${watch}, skipped=${skipped}, fetched=${fetched}, cacheReused=${cacheReused}, status=${boardRefreshStatus}`
+    `[refreshBoard] Done — recommended=${recommended}, watch=${watch}, skipped=${skipped}, fetched=${fetched}, cacheReused=${cacheReused}, failures=${failures.length}, status=${boardRefreshStatus}`
   );
 
   return {
@@ -394,6 +432,9 @@ async function refreshBoard(_modeOrOptions) {
     boardRefreshStatus,
     successes,
     tickerCount: tickers.length,
+    failures,
+    batchPrefetch,
+    force,
   };
 }
 

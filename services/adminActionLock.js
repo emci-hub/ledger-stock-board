@@ -1,14 +1,15 @@
 /**
- * Single shared in-progress lock for admin Discovery + Smart Refresh.
+ * Single shared in-progress lock for admin Discovery + Smart Refresh + Manual Analyze.
  * Prevents overlapping runs that could double-fetch the same ticker.
  */
 
-let holder = null; // 'smart_refresh' | 'discovery' | null
+let holder = null; // 'smart_refresh' | 'discovery' | 'manual_analyze' | null
 let startedAt = null;
 
 function labelFor(action) {
   if (action === "discovery") return "Discovery";
   if (action === "smart_refresh") return "Smart Refresh";
+  if (action === "manual_analyze") return "Manual Analyze";
   return action || "another admin action";
 }
 
@@ -24,7 +25,7 @@ function getAdminActionLock() {
 }
 
 /**
- * @param {'smart_refresh'|'discovery'} action
+ * @param {'smart_refresh'|'discovery'|'manual_analyze'} action
  * @returns {{ ok: true, action: string, startedAt: string } | { ok: false, alreadyRunning: true, action: string|null, startedAt: string|null, message: string }}
  */
 function tryAcquireAdminLock(action) {

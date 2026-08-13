@@ -3,23 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ledger — Archive</title>
+<title>Ledger — Archive &amp; candidates</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg:#0D1210; --bg-line:#141B18; --surface:#151C1A; --line:#26302B;
     --ink:#EDEFE9; --muted:#8B978F; --muted-dim:#5C6862;
-    --green:#4FB88A; --rust:#E2735A; --gold:#D9A857;
+    --green:#4FB88A; --rust:#E2735A; --gold:#D9A857; --warn:#C4A35A;
   }
   *{box-sizing:border-box;}
   body{
     margin:0;
     background:
+      radial-gradient(ellipse 80% 50% at 10% -10%, rgba(79,184,138,0.08), transparent 50%),
       repeating-linear-gradient(0deg, var(--bg-line) 0px, var(--bg-line) 1px, transparent 1px, transparent 64px),
       var(--bg);
     color:var(--ink);
-    font-family:'Inter',sans-serif;
+    font-family:'Source Sans 3',sans-serif;
     -webkit-font-smoothing:antialiased;
   }
   .wrap{max-width:920px;margin:0 auto;padding:32px 20px 90px;}
@@ -28,45 +29,125 @@
   .tick{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted-dim);margin-left:8px;}
   .nav a{color:var(--muted);font-size:13px;text-decoration:none;border-bottom:1px solid var(--line);}
   .nav a:hover{color:var(--ink);}
-  .sub{color:var(--muted);font-size:14px;margin:0 0 28px;max-width:540px;line-height:1.5;}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 20px;max-width:560px;line-height:1.5;}
   .banner{
     border:1px dashed var(--line);border-radius:10px;padding:12px 14px;
-    color:var(--muted);font-size:13px;margin-bottom:22px;background:rgba(0,0,0,0.15);
+    color:var(--muted);font-size:13px;margin-bottom:18px;background:rgba(0,0,0,0.15);
   }
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px;}
-  .card{
-    background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;
-    opacity:0.92;
+  .toolbar{
+    display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;
+    margin-bottom:22px;padding:12px 14px;border:1px solid var(--line);
+    border-radius:12px;background:rgba(21,28,26,0.7);
   }
-  .card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;}
-  .ticker{font-family:'Fraunces',serif;font-weight:600;font-size:19px;}
-  .company{font-size:12px;color:var(--muted-dim);margin-top:1px;}
-  .blurb{font-size:11px;line-height:1.4;color:var(--muted-dim);margin-top:4px;max-width:220px;}
+  .avail{
+    font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--gold);
+    flex:1 1 180px;
+  }
+  .avail.zero{color:var(--muted);}
+  .toolbar button,.row-actions button{
+    font-family:'Source Sans 3',sans-serif;font-size:13px;font-weight:500;
+    color:var(--ink);background:transparent;border:1px solid var(--line);
+    border-radius:8px;padding:6px 12px;cursor:pointer;
+  }
+  .toolbar button:hover:not(:disabled),.row-actions button:hover:not(:disabled){
+    border-color:#3A4A43;background:rgba(255,255,255,0.03);
+  }
+  .toolbar button:disabled,.row-actions button:disabled{
+    opacity:0.45;cursor:not-allowed;
+  }
+  .pw-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .pw-row input{
+    font-family:'IBM Plex Mono',monospace;font-size:12px;
+    background:#0F1513;border:1px solid var(--line);border-radius:8px;
+    color:var(--ink);padding:6px 10px;width:140px;
+  }
+  .msg{font-size:12px;color:var(--muted);width:100%;}
+  .msg.err{color:var(--rust);} .msg.ok{color:var(--green);}
+  .section-label{
+    font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.04em;
+    color:var(--muted-dim);text-transform:uppercase;margin:28px 0 10px;
+  }
+  .list{display:flex;flex-direction:column;gap:6px;}
+  details.row{
+    border:1px solid var(--line);border-radius:10px;background:rgba(21,28,26,0.55);
+    overflow:hidden;
+  }
+  details.row[open]{background:var(--surface);}
+  summary.row-sum{
+    list-style:none;cursor:pointer;display:grid;
+    grid-template-columns:minmax(0,1.6fr) auto minmax(72px,auto) minmax(72px,auto) minmax(64px,auto);
+    gap:10px 12px;align-items:center;padding:10px 14px;
+  }
+  summary.row-sum::-webkit-details-marker{display:none;}
+  .id-block{min-width:0;}
+  .ticker{font-family:'Fraunces',serif;font-weight:600;font-size:17px;}
+  .name{font-size:12px;color:var(--muted-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .badge{
-    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--gold);
-    border:1px solid var(--line);border-radius:6px;padding:2px 6px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;
+    border:1px solid var(--line);border-radius:6px;padding:2px 6px;white-space:nowrap;
   }
-  .price{font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:600;}
-  .delta{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;margin-left:8px;}
+  .badge.candidate{color:var(--gold);}
+  .badge.archived{color:var(--muted);}
+  .price{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:500;text-align:right;}
+  .delta{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;text-align:right;}
   .delta.up{color:var(--green);} .delta.down{color:var(--rust);}
-  .meta{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);margin-top:8px;}
-  .summary{font-size:13px;line-height:1.5;color:var(--muted);margin-top:10px;}
-  .empty-note{color:var(--muted);font-size:14px;padding:24px 0;}
+  .exch{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted-dim);text-align:right;}
+  .body{padding:0 14px 14px;border-top:1px solid transparent;}
+  details[open] .body{border-top-color:var(--line);padding-top:12px;margin-top:0;}
+  .warns{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
+  .warn{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--warn);
+    border:1px solid rgba(196,163,90,0.35);border-radius:6px;padding:3px 7px;
+  }
+  .meta{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);margin-bottom:8px;}
+  .summary{font-size:13px;line-height:1.5;color:var(--muted);margin-bottom:12px;}
+  .row-actions{display:flex;flex-wrap:wrap;gap:8px;}
+  .empty-note{color:var(--muted);font-size:14px;padding:16px 0;}
   footer{margin-top:48px;font-size:12px;color:var(--muted-dim);}
+  @media (max-width:640px){
+    summary.row-sum{
+      grid-template-columns:1fr auto;
+      grid-template-areas:
+        "id badge"
+        "price delta"
+        "exch exch";
+    }
+    .id-block{grid-area:id;}
+    .badge-wrap{grid-area:badge;justify-self:end;}
+    .price{grid-area:price;text-align:left;}
+    .delta{grid-area:delta;}
+    .exch{grid-area:exch;text-align:left;}
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <div>
-      <h1>Ledger <span class="tick">archive</span></h1>
+      <h1>Ledger <span class="tick">archive &amp; candidates</span></h1>
     </div>
     <nav class="nav"><a href="/">← Back to live board</a></nav>
   </header>
-  <p class="sub">Stocks rotated off the live board to make room for hotter names. Data and history stay intact — they can return if they trend again.</p>
-  <div class="banner">This page is separate from today's live picks. Nothing here is deleted.</div>
-  <div class="grid" id="archive-grid"><div class="empty-note">Loading archive…</div></div>
-  <footer>Not financial advice — a plain-English family board archive.</footer>
+  <p class="sub">Browse archived names and not-yet-promoted candidates. Listing uses cheap discovery signals only — no API cost until you Analyze.</p>
+  <div class="banner">Candidates are FMP movers waiting for a full report. Archived stocks were rotated off the live board; their history stays intact.</div>
+
+  <div class="toolbar" id="analyze-toolbar">
+    <div class="avail zero" id="avail-label">Checking analyses available…</div>
+    <div class="pw-row">
+      <input id="analyze-pw" type="password" placeholder="Password" autocomplete="current-password" />
+      <button type="button" id="btn-analyze-5" disabled>Analyze next 5</button>
+      <button type="button" id="btn-analyze-all" disabled>Analyze all remaining</button>
+    </div>
+    <div class="msg" id="analyze-msg"></div>
+  </div>
+
+  <div class="section-label">Candidates <span id="cand-count"></span></div>
+  <div class="list" id="candidate-list"><div class="empty-note">Loading…</div></div>
+
+  <div class="section-label">Archived <span id="arch-count"></span></div>
+  <div class="list" id="archive-list"><div class="empty-note">Loading…</div></div>
+
+  <footer>Not financial advice — a plain-English family board archive. Warning labels reflect factual signals only (price, % move, exchange).</footer>
 </div>
 <script>
   function escapeHtml(value) {
@@ -95,51 +176,198 @@
     if (Number.isNaN(d.getTime())) return "";
     return d.toLocaleString([], { month: "short", day: "numeric", year: "numeric" });
   }
-
-  function cardHtml(row) {
-    const report = row.report || {};
-    const pct = Number(report.changePercent);
-    const down = Number.isFinite(pct) ? pct < 0 : false;
-    const blurb = report.description
-      ? `<div class="blurb">${escapeHtml(report.description)}</div>`
-      : "";
-    return `<div class="card">
-      <div class="card-top">
-        <div>
-          <div class="ticker">${escapeHtml(row.ticker)}</div>
-          <div class="company">${escapeHtml(report.companyName || report.name || row.ticker)}</div>
-          ${blurb}
-        </div>
-        <span class="badge">Archived</span>
-      </div>
-      <div>
-        <span class="price">${formatMoney(report.price)}</span>
-        <span class="delta ${down ? "down" : "up"}">${formatPct(report.changePercent)}</span>
-      </div>
-      <div class="meta">Archived ${escapeHtml(formatWhen(row.archived_at) || "—")}${
-        row.source ? ` · via ${escapeHtml(row.source)}` : ""
-      }</div>
-      <div class="summary">${escapeHtml(report.analysis?.summary || "Last known summary not on hand.")}</div>
-    </div>`;
+  function getPassword() {
+    const input = document.getElementById("analyze-pw");
+    const typed = (input && input.value) || "";
+    if (typed) {
+      sessionStorage.setItem("ledger_search_pw", typed);
+      return typed;
+    }
+    return sessionStorage.getItem("ledger_search_pw") || "";
   }
 
-  async function loadArchive() {
-    const grid = document.getElementById("archive-grid");
-    try {
-      const res = await fetch("/api/archive");
-      const rows = await res.json();
-      if (!Array.isArray(rows) || !rows.length) {
-        grid.innerHTML = `<div class="empty-note">No archived stocks yet. The live board still has room.</div>`;
-        return;
-      }
-      grid.innerHTML = rows.map(cardHtml).join("");
-    } catch (err) {
-      console.error(err);
-      grid.innerHTML = `<div class="empty-note">Could not load archive.</div>`;
+  let availability = { available: 0 };
+  let busy = false;
+
+  function setAvailability(data) {
+    availability = data || { available: 0 };
+    const n = Number(availability.available) || 0;
+    const el = document.getElementById("avail-label");
+    el.textContent = n === 1
+      ? "1 full analysis available today"
+      : `${n} full analyses available today`;
+    el.classList.toggle("zero", n <= 0);
+    const lock = availability.lock && availability.lock.inProgress;
+    const disabled = busy || n <= 0 || lock;
+    document.getElementById("btn-analyze-5").disabled = disabled;
+    document.getElementById("btn-analyze-all").disabled = disabled;
+    document.querySelectorAll("[data-analyze-ticker]").forEach((btn) => {
+      btn.disabled = disabled;
+    });
+    if (lock) {
+      document.getElementById("analyze-msg").textContent =
+        availability.lock.message || "Another admin action is in progress.";
+      document.getElementById("analyze-msg").className = "msg err";
     }
   }
 
-  loadArchive();
+  function rowHtml(row) {
+    const pct = Number(row.percentChange);
+    const down = Number.isFinite(pct) ? pct < 0 : false;
+    const tier = row.tier === "candidate" ? "candidate" : "archived";
+    const badgeLabel = tier === "candidate" ? "Candidate" : "Archived";
+    const warns = (row.warnings || [])
+      .map((w) => `<span class="warn">${escapeHtml(w.text)}</span>`)
+      .join("");
+    const metaBits = [];
+    if (tier === "candidate" && row.lastSeenAt) {
+      metaBits.push(`Seen ${formatWhen(row.lastSeenAt)}`);
+    }
+    if (tier === "archived" && row.archivedAt) {
+      metaBits.push(`Archived ${formatWhen(row.archivedAt)}`);
+    }
+    if (row.source) metaBits.push(`via ${row.source}`);
+    if (row.hasAnalysis) metaBits.push("report on hand");
+    const summary = row.summary
+      ? `<div class="summary">${escapeHtml(row.summary)}</div>`
+      : `<div class="summary">No full report yet — Analyze builds one using today's remaining quota.</div>`;
+    return `<details class="row" data-ticker="${escapeHtml(row.ticker)}">
+      <summary class="row-sum">
+        <div class="id-block">
+          <div class="ticker">${escapeHtml(row.ticker)}</div>
+          <div class="name">${escapeHtml(row.name || row.ticker)}</div>
+        </div>
+        <div class="badge-wrap"><span class="badge ${tier}">${badgeLabel}</span></div>
+        <div class="price">${formatMoney(row.price)}</div>
+        <div class="delta ${down ? "down" : "up"}">${formatPct(row.percentChange)}</div>
+        <div class="exch">${escapeHtml(row.exchange || "—")}</div>
+      </summary>
+      <div class="body">
+        ${warns ? `<div class="warns">${warns}</div>` : ""}
+        <div class="meta">${escapeHtml(metaBits.join(" · ") || "—")}</div>
+        ${summary}
+        <div class="row-actions">
+          <button type="button" data-analyze-ticker="${escapeHtml(row.ticker)}">Analyze this stock</button>
+        </div>
+      </div>
+    </details>`;
+  }
+
+  function renderList(el, rows, emptyText) {
+    if (!Array.isArray(rows) || !rows.length) {
+      el.innerHTML = `<div class="empty-note">${escapeHtml(emptyText)}</div>`;
+      return;
+    }
+    el.innerHTML = rows.map(rowHtml).join("");
+  }
+
+  async function refreshAvailability() {
+    try {
+      const res = await fetch("/api/analyze/availability");
+      const data = await res.json();
+      setAvailability(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function loadBrowse() {
+    const candEl = document.getElementById("candidate-list");
+    const archEl = document.getElementById("archive-list");
+    try {
+      const res = await fetch("/api/archive");
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const candidates = data.candidates || [];
+      const archived = data.archived || [];
+      document.getElementById("cand-count").textContent = `(${candidates.length})`;
+      document.getElementById("arch-count").textContent = `(${archived.length})`;
+      renderList(candEl, candidates, "No candidates yet — discovery hasn’t seeded the pool.");
+      renderList(archEl, archived, "No archived stocks yet. The live board still has room.");
+      if (data.availability) setAvailability(data.availability);
+      else await refreshAvailability();
+      const pw = sessionStorage.getItem("ledger_search_pw");
+      if (pw) document.getElementById("analyze-pw").value = pw;
+    } catch (err) {
+      console.error(err);
+      candEl.innerHTML = `<div class="empty-note">Could not load candidates.</div>`;
+      archEl.innerHTML = `<div class="empty-note">Could not load archive.</div>`;
+    }
+  }
+
+  async function runAnalyze(body) {
+    const msg = document.getElementById("analyze-msg");
+    const password = getPassword();
+    if (!password) {
+      msg.textContent = "Enter the search password to spend quota on Analyze.";
+      msg.className = "msg err";
+      document.getElementById("analyze-pw").focus();
+      return;
+    }
+    busy = true;
+    setAvailability(availability);
+    msg.textContent = "Analyzing…";
+    msg.className = "msg";
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...body, password }),
+      });
+      const data = await res.json();
+      if (res.status === 401) {
+        msg.textContent = "Password incorrect — try again.";
+        msg.className = "msg err";
+        sessionStorage.removeItem("ledger_search_pw");
+        return;
+      }
+      if (res.status === 409 || data.alreadyRunning) {
+        msg.textContent = data.message || "Another admin action is already running.";
+        msg.className = "msg err";
+        if (data.availability) setAvailability(data.availability);
+        return;
+      }
+      if (data.skipped && data.reason === "no_quota") {
+        msg.textContent = data.message || "No full analyses available today.";
+        msg.className = "msg err";
+        if (data.availability) setAvailability(data.availability);
+        return;
+      }
+      if (!res.ok && data.error) {
+        msg.textContent = data.error;
+        msg.className = "msg err";
+        return;
+      }
+      msg.textContent = data.message || "Done.";
+      msg.className = data.ok === false && (data.failed || []).length ? "msg err" : "msg ok";
+      if (data.availability) setAvailability(data.availability);
+      else await refreshAvailability();
+      await loadBrowse();
+    } catch (err) {
+      console.error(err);
+      msg.textContent = "Analyze request failed.";
+      msg.className = "msg err";
+    } finally {
+      busy = false;
+      setAvailability(availability);
+    }
+  }
+
+  document.getElementById("btn-analyze-5").addEventListener("click", () => {
+    runAnalyze({ count: 5 });
+  });
+  document.getElementById("btn-analyze-all").addEventListener("click", () => {
+    runAnalyze({ allRemaining: true });
+  });
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-analyze-ticker]");
+    if (!btn) return;
+    const ticker = btn.getAttribute("data-analyze-ticker");
+    if (ticker) runAnalyze({ tickers: [ticker] });
+  });
+
+  loadBrowse();
+  setInterval(refreshAvailability, 60_000);
 </script>
 </body>
 </html>

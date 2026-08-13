@@ -10,15 +10,15 @@ const JOB_DEFS = [
     schedule: "0 7 * * * (server local / UTC on Render)",
     enabled: true,
     description:
-      "refreshBoard + resolveOldRecommendations + marketMood + didYouKnow + daily discoverHotStocks",
+      "One full daily refreshBoard({force}) of active top-15 (batched price/news + analysis) + resolve + marketMood + didYouKnow + discoverHotStocks; morning failures logged for 1pm retry",
   },
   {
     id: "news_catchup_1pm",
-    name: "1pm news catch-up",
-    schedule: "not scheduled",
-    enabled: false,
+    name: "1pm morning-failure retry",
+    schedule: "0 13 * * * (server local / UTC on Render)",
+    enabled: true,
     description:
-      "Planned news-only catch-up — not wired in cron yet (newsOnly path exists in getStockReport).",
+      "Lightweight retry of tickers/fields that failed the 7am full refresh only — not a second full board pass",
   },
   {
     id: "daily_discovery",

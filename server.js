@@ -48,12 +48,20 @@ const { getLastCapabilityProbe } = require("./jobs/capabilityProbe");
 const { discoverHotStocks, previewDiscovery, computePromotionBudget } = require("./jobs/discoverHotStocks");
 const {
   listArchivedBoardPicks,
+  listArchiveBrowse,
   BOARD_MAX_SIZE,
   countLiveBoard,
   countCandidates,
   getActiveBoardTickers,
   CANDIDATE_POOL_CAP,
 } = require("./lib/boardPicks");
+const {
+  getAnalyzeAvailability,
+  analyzeTickers,
+  analyzeNext,
+  analyzeAllRemaining,
+} = require("./jobs/manualAnalyze");
+const { retryMorningFailures } = require("./jobs/retryMorningFailures");
 const { LIVE_BOARD_STATUSES } = require("./lib/boardTickers");
 const { getMarketMood, loadMood } = require("./services/marketMood");
 const { getTodaysTidbit } = require("./services/didYouKnow");
@@ -431,19 +439,88 @@ app.get("/api/stock/:ticker/deeper-look", async (req, res) => {
 
 app.get("/api/archive", async (req, res) => {
   try {
-    const mode = normalizeMode(req.query.mode);
-    const picks = await listArchivedBoardPicks();
-    const archive = [];
-    for (const pick of picks) {
-      archive.push({
-        ...pick,
-        report: await reportFromCache(pick.ticker, mode),
-      });
+    // Cheap-signal browse: candidates + archived (zero live API cost).
+    // Legacy ?legacy=1 returns the old archived+report shape.
+    if (req.query.legacy === "1") {
+      const mode = normalizeMode(req.query.mode);
+      const picks = await listArchivedBoardPicks();
+      const archive = [];
+      for (const pick of picks) {
+        archive.push({
+          ...pick,
+          report: await reportFromCache(pick.ticker, mode),
+        });
+      }
+      return res.json(archive);
     }
-    return res.json(archive);
+    const browse = await listArchiveBrowse();
+    let availability = null;
+    try {
+      availability = await getAnalyzeAvailability();
+    } catch (err) {
+      console.warn("[GET /api/archive] availability:", err.message);
+    }
+    return res.json({ ...browse, availability });
   } catch (err) {
     console.error("[GET /api/archive]", err.message);
     return res.status(500).json({ error: "Failed to load archive." });
+  }
+});
+
+app.get("/api/analyze/availability", async (req, res) => {
+  try {
+    return res.json(await getAnalyzeAvailability());
+  } catch (err) {
+    console.error("[GET /api/analyze/availability]", err.message);
+    return res.status(500).json({ error: "Failed to load analyze availability." });
+  }
+});
+
+/**
+ * Manual / bulk Analyze — spends remaining promotion budget.
+ * Auth: SEARCH_PASSWORD (same gate as live search pulls).
+ * Body: { password, tickers?: string[], count?: number, allRemaining?: boolean }
+ */
+app.post("/api/analyze", async (req, res) => {
+  if (!searchPasswordOk(req.body?.password || req.headers["x-search-password"])) {
+    return res.status(401).json({ error: "locked" });
+  }
+  try {
+    const lock = getAdminActionLock();
+    if (lock.inProgress) {
+      return res.status(409).json({
+        ok: false,
+        alreadyRunning: true,
+        action: lock.action,
+        startedAt: lock.startedAt,
+        message: lock.message,
+      });
+    }
+
+    let result;
+    if (req.body?.allRemaining) {
+      result = await analyzeAllRemaining();
+    } else if (Array.isArray(req.body?.tickers) && req.body.tickers.length) {
+      result = await analyzeTickers(req.body.tickers);
+    } else if (req.body?.count != null || req.body?.next) {
+      result = await analyzeNext(Number(req.body.count) || 5);
+    } else {
+      return res.status(400).json({
+        error: "Provide tickers[], count, or allRemaining.",
+      });
+    }
+
+    if (result?.alreadyRunning) {
+      return res.status(409).json(result);
+    }
+    return res.json(result);
+  } catch (err) {
+    console.error("[POST /api/analyze]", err.message);
+    return res.status(500).json({
+      ok: false,
+      error: "Analyze failed.",
+      detail: err.message,
+    });
   }
 });
 
@@ -767,8 +844,8 @@ async function start() {
 
     cron.schedule("0 7 * * *", () => {
       (async () => {
-        // One shared report per ticker (short + long takes in the same Gemini call).
-        const board = await refreshBoard();
+        // One consolidated full daily refresh of the active (top-15) board.
+        const board = await refreshBoard({ force: true });
         await resolveOldRecommendations();
         let moodOk = true;
         let tidbitOk = true;
@@ -811,7 +888,7 @@ async function start() {
         await recordJobRun("daily_board_refresh", {
           ok: board?.boardRefreshStatus !== "failed" &&
             board?.boardRefreshStatus !== "failed_rate_limit",
-          summary: `board=${board?.boardRefreshStatus}; ok=${board?.successes}/${board?.tickerCount}; mood=${moodOk ? "ok" : "fail"}; tidbits=${tidbitOk ? "ok" : "fail"}; discovery=${discovery?.ok === false ? "fail" : "ok"}`,
+          summary: `board=${board?.boardRefreshStatus}; ok=${board?.successes}/${board?.tickerCount}; failures=${Array.isArray(board?.failures) ? board.failures.length : 0}; mood=${moodOk ? "ok" : "fail"}; tidbits=${tidbitOk ? "ok" : "fail"}; discovery=${discovery?.ok === false ? "fail" : "ok"}`,
           detail: {
             board,
             moodOk,
@@ -832,7 +909,31 @@ async function start() {
       });
     });
     console.log(
-      "[cron] Scheduled refreshBoard + resolve + marketMood + didYouKnow + discoverHotStocks daily at 07:00"
+      "[cron] Scheduled full daily refreshBoard({force}) + resolve + marketMood + didYouKnow + discoverHotStocks at 07:00"
+    );
+
+    // Lightweight 1pm retry — only morning failures, not a second full pass.
+    cron.schedule("0 13 * * *", () => {
+      (async () => {
+        const result = await retryMorningFailures();
+        console.log(
+          "[cron retryMorningFailures]",
+          result?.message || result?.reason || "done"
+        );
+      })().catch(async (err) => {
+        console.error("[cron retryMorningFailures]", err.message);
+        try {
+          await recordJobRun("news_catchup_1pm", {
+            ok: false,
+            summary: `failed: ${err.message}`,
+          });
+        } catch {
+          /* ignore */
+        }
+      });
+    });
+    console.log(
+      "[cron] Scheduled 1pm morning-failure retry (retryMorningFailures) at 13:00"
     );
 
     cron.schedule("0 4 1 * *", () => {

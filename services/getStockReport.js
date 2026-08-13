@@ -34,6 +34,7 @@ const {
   normalizeLabel,
   normalizeLabelList,
 } = require("../lib/indicatorTags");
+const { runWithCallContext } = require("./callContext");
 
 /** In-flight shared-data loads keyed by ticker only (mode is display-only). */
 const inFlight = new Map();
@@ -307,20 +308,29 @@ function ensureRawShape(rawData) {
  * Mode is not used for fetching or storage.
  * options.skipPeers — skip Finnhub peers when true.
  * options.newsOnly — refresh news (and re-analyze if needed); skip price/target/peers.
+ * options.forceRefresh — treat every freshness check as stale (manual force only).
  */
 async function loadSharedStockData(ticker, options = {}) {
   const symbol = String(ticker).toUpperCase();
+  return runWithCallContext({ ticker: symbol }, () =>
+    loadSharedStockDataInner(symbol, options)
+  );
+}
+
+async function loadSharedStockDataInner(symbol, options = {}) {
   const skipPeers = Boolean(options.skipPeers);
   const newsOnly = Boolean(options.newsOnly);
+  const forceRefresh = Boolean(options.forceRefresh);
 
   const entry = await getStockCacheEntry(symbol);
   let rawData = ensureRawShape(entry?.data);
   let analysis = await getCachedSummary(symbol);
 
-  const priceOk = isPriceFresh(rawData);
-  const targetOk = isTargetFresh(rawData);
-  const newsOk = isNewsFresh(rawData);
-  const fullyFresh = isFullyFresh(rawData);
+  const priceOk = forceRefresh ? false : isPriceFresh(rawData);
+  const targetOk = forceRefresh ? false : isTargetFresh(rawData);
+  const newsOk = forceRefresh ? false : isNewsFresh(rawData);
+  const earningsOk = forceRefresh ? false : isEarningsFresh(rawData);
+  const fullyFresh = forceRefresh ? false : isFullyFresh(rawData);
 
   if (fullyFresh && analysis && !newsOnly) {
     // Still fill missing peers — empty [] used to stick forever on full cache hits.
@@ -349,7 +359,7 @@ async function loadSharedStockData(ticker, options = {}) {
   if (!newsOnly) {
     if (!priceOk) {
       console.log(
-        `[getStockReport] price stale/missing for ${symbol} — fetching`
+        `[getStockReport] price ${forceRefresh ? "forced" : "stale/missing"} for ${symbol} — fetching`
       );
       try {
         const quote = await getQuoteAndIndicators(symbol);
@@ -394,7 +404,7 @@ async function loadSharedStockData(ticker, options = {}) {
 
     if (!targetOk) {
       console.log(
-        `[getStockReport] target stale/missing for ${symbol} — fetching`
+        `[getStockReport] target ${forceRefresh ? "forced" : "stale/missing"} for ${symbol} — fetching`
       );
       const target = await getAnalystTarget(symbol);
       const overview = rawData.fundamentals.overview;
@@ -427,9 +437,9 @@ async function loadSharedStockData(ticker, options = {}) {
       console.log(`[getStockReport] target fresh for ${symbol}`);
     }
 
-    if (!isEarningsFresh(rawData)) {
+    if (!earningsOk) {
       console.log(
-        `[getStockReport] earnings stale/missing for ${symbol} — Finnhub calendar`
+        `[getStockReport] earnings ${forceRefresh ? "forced" : "stale/missing"} for ${symbol} — Finnhub calendar`
       );
       const earnings = await getEarningsDateFromFinnhub(symbol);
       if (earnings) {
@@ -455,7 +465,7 @@ async function loadSharedStockData(ticker, options = {}) {
 
   if (!newsOk) {
     console.log(
-      `[getStockReport] news stale/missing for ${symbol} — Marketaux primary, AV fallback-only`
+      `[getStockReport] news ${forceRefresh ? "forced" : "stale/missing"} for ${symbol} — Marketaux primary, AV fallback-only`
     );
     const combined = await getCombinedNews(symbol);
     rawData.fundamentals.news = combined.alpha?.news || [];
@@ -474,7 +484,10 @@ async function loadSharedStockData(ticker, options = {}) {
   }
 
   if (!newsOnly) {
-    if (!skipPeers && (!rawData.peers || !rawData.peers.length)) {
+    if (
+      !skipPeers &&
+      (forceRefresh || !rawData.peers || !rawData.peers.length)
+    ) {
       rawData.peers = (await getPeers(symbol)) || [];
       didFetch = true;
     } else if (skipPeers && !Array.isArray(rawData.peers)) {
@@ -489,11 +502,15 @@ async function loadSharedStockData(ticker, options = {}) {
   }
 
   const shouldAnalyze =
-    !analysis || (newsJustFetched && rawData.fundamentals.newsPending === false);
+    forceRefresh ||
+    !analysis ||
+    (newsJustFetched && rawData.fundamentals.newsPending === false);
 
   if (shouldAnalyze) {
     console.log(
-      `[getStockReport] summary ${analysis ? "refresh" : "miss"} for ${symbol} — calling Gemini once (dual+quip)`
+      `[getStockReport] summary ${
+        forceRefresh ? "force" : analysis ? "refresh" : "miss"
+      } for ${symbol} — calling Gemini once (dual+quip)`
     );
     analysis = await analyzeStock(
       symbol,
@@ -518,6 +535,7 @@ async function loadSharedStockData(ticker, options = {}) {
  * Mode is display-only: picks short/long take + indicators from the shared report.
  * options.skipPeers — skip Finnhub peers when true.
  * options.newsOnly — only refresh news (+ re-analyze if needed).
+ * options.forceRefresh — bypass all freshness TTLs (manual force only).
  */
 async function getStockReport(ticker, mode, options = {}) {
   const symbol = String(ticker).toUpperCase();

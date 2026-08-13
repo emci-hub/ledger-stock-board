@@ -224,8 +224,15 @@ async function cleanupStaleCache() {
 /**
  * Refresh the board universe once per ticker (shared report).
  * Mode arg is ignored — board_picks status always comes from the long take.
+ * Pass `{ forceRefresh: true }` to bypass all per-field freshness TTLs once.
  */
-async function refreshBoard(_mode) {
+async function refreshBoard(modeOrOptions) {
+  const options =
+    modeOrOptions && typeof modeOrOptions === "object"
+      ? modeOrOptions
+      : {};
+  const forceRefresh = Boolean(options.forceRefresh);
+
   const existingAll = await listAllBoardTickers();
   if (!existingAll.length) {
     for (const t of BOARD_TICKERS) {
@@ -235,7 +242,9 @@ async function refreshBoard(_mode) {
   const tickers = await getActiveBoardTickers();
 
   console.log(
-    `[refreshBoard] Starting shared refresh for ${tickers.length} live tickers at ${new Date().toISOString()}`
+    `[refreshBoard] Starting shared refresh for ${tickers.length} live tickers at ${new Date().toISOString()}${
+      forceRefresh ? " (FORCE — freshness bypassed)" : ""
+    }`
   );
 
   let recommended = 0;
@@ -268,7 +277,7 @@ async function refreshBoard(_mode) {
       const summaryFresh = await getCachedSummary(ticker);
       const fullyFresh = entry && isFullyFresh(entry.data);
 
-      if (fullyFresh && summaryFresh) {
+      if (!forceRefresh && fullyFresh && summaryFresh) {
         cacheReused += 1;
         console.log(
           `[refreshBoard] ${ticker} price+target+news+earnings fresh — skipping live fetch`
@@ -293,14 +302,21 @@ async function refreshBoard(_mode) {
         continue;
       }
 
-      if (entry && !fullyFresh) {
+      if (forceRefresh) {
+        console.log(
+          `[refreshBoard] ${ticker} FORCE refresh — treating all fields as stale`
+        );
+      } else if (entry && !fullyFresh) {
         console.log(
           `[refreshBoard] ${ticker} partial stale — will refresh missing pieces only`
         );
       }
 
       fetched += 1;
-      const report = await getStockReport(ticker, "long", { skipPeers: false });
+      const report = await getStockReport(ticker, "long", {
+        skipPeers: false,
+        forceRefresh,
+      });
       if (!report) {
         console.warn(`[refreshBoard] No report for ${ticker} — leaving out`);
         skipped += 1;
@@ -352,6 +368,10 @@ async function refreshBoard(_mode) {
   await setSetting("lastBoardRefresh", finishedAt);
   await setSetting("lastBoardRefreshStatus", boardRefreshStatus);
   await setSetting("lastBoardRefreshMode", "long");
+  if (forceRefresh) {
+    await setSetting("lastForceRefresh", finishedAt);
+    await setSetting("lastForceRefreshStatus", boardRefreshStatus);
+  }
 
   console.log(
     `[refreshBoard] Done — recommended=${recommended}, watch=${watch}, skipped=${skipped}, fetched=${fetched}, cacheReused=${cacheReused}, status=${boardRefreshStatus}`
@@ -365,6 +385,9 @@ async function refreshBoard(_mode) {
     fetched,
     cacheReused,
     boardRefreshStatus,
+    successes,
+    tickerCount: tickers.length,
+    forceRefresh,
   };
 }
 

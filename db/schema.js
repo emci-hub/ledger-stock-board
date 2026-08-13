@@ -286,6 +286,21 @@ async function initSchema() {
       )
     `);
 
+    await dbExecute(`
+      CREATE TABLE IF NOT EXISTS api_call_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        called_at TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        action TEXT,
+        ticker TEXT,
+        success INTEGER NOT NULL DEFAULT 1,
+        detail TEXT
+      )
+    `);
+    await dbExecute(
+      `CREATE INDEX IF NOT EXISTS idx_api_call_log_called_at ON api_call_log(called_at DESC)`
+    );
+
     try {
       await migrateLegacyModeCache();
     } catch (err) {

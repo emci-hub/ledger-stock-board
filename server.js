@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const path = require("path");
+const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const cron = require("node-cron");
@@ -19,6 +20,10 @@ const {
   resolveOldRecommendations,
   getTrackRecord,
 } = require("./jobs/refreshBoard");
+const {
+  forceRefreshAll,
+  getForceRefreshState,
+} = require("./jobs/forceRefreshAll");
 const { invalidateBoardStaleCaches } = require("./jobs/invalidateBoardCache");
 const {
   getApiUsageToday,
@@ -46,6 +51,12 @@ const {
   ensureDeeperLookTable,
 } = require("./services/deeperLook");
 const { resolveProviderId, listProviders } = require("./lib/aiProvider");
+const {
+  ensureApiCallLogTable,
+  getRecentApiCalls,
+  getLastCallByProvider,
+} = require("./services/apiCallLog");
+const { listJobStatuses, recordJobRun } = require("./services/jobRuns");
 
 const app = express();
 const PORT = 3000;
@@ -56,6 +67,55 @@ const DAILY_TWELVE_LIMIT = DATA_SOURCES.twelve_data.rateLimit.limit;
 const DAILY_MARKETAUX_LIMIT = DATA_SOURCES.marketaux.rateLimit.limit;
 /** Typical Twelve Data cost per search: time_series (+ optional price_target when plan allows). */
 const TWELVE_CALLS_PER_SEARCH = 1;
+
+/** Dev-status gate — separate from SEARCH_PASSWORD. Never sent to the client. */
+function expectedDevPassword() {
+  return process.env.DEV_STATUS_PASSWORD || "lazyemci";
+}
+
+function parseCookies(req) {
+  const header = req.headers.cookie || "";
+  const out = {};
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1).trim();
+    if (!k) continue;
+    try {
+      out[k] = decodeURIComponent(v);
+    } catch {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function makeDevToken() {
+  return crypto
+    .createHmac("sha256", expectedDevPassword())
+    .update("ledger-dev-status-v1")
+    .digest("hex");
+}
+
+function providedDevPassword(req) {
+  return (
+    req.headers["x-dev-password"] ||
+    req.body?.password ||
+    req.query?.password ||
+    ""
+  );
+}
+
+function devAuthOk(req) {
+  const cookies = parseCookies(req);
+  if (cookies.ledger_dev && cookies.ledger_dev === makeDevToken()) return true;
+  return String(providedDevPassword(req)) === expectedDevPassword();
+}
+
+function rejectDevUnauthorized(res) {
+  return res.status(401).json({ error: "unauthorized" });
+}
 
 app.use(cors());
 app.use(express.json());
@@ -349,7 +409,6 @@ app.get("/api/archive", async (req, res) => {
   }
 });
 
-/** Manual discovery trigger — does not run on a schedule until cron is enabled. */
 app.post("/api/discovery/run", async (req, res) => {
   try {
     const dryRun = Boolean(req.body?.dryRun);
@@ -358,6 +417,17 @@ app.post("/api/discovery/run", async (req, res) => {
       maxNew: req.body?.maxNew,
       warmReports: req.body?.warmReports !== false,
     });
+    try {
+      await recordJobRun("weekly_discovery", {
+        ok: Boolean(result?.ok !== false),
+        summary: dryRun
+          ? `manual dryRun · ${JSON.stringify(result?.summary || result).slice(0, 180)}`
+          : `manual run · ${JSON.stringify(result?.summary || result).slice(0, 180)}`,
+        detail: result,
+      });
+    } catch {
+      /* ignore */
+    }
     return res.json(result);
   } catch (err) {
     console.error("[POST /api/discovery/run]", err.message);
@@ -367,6 +437,108 @@ app.post("/api/discovery/run", async (req, res) => {
 
 app.get("/archive", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "archive.html"));
+});
+
+/** Dev-only status page (password gated via API; HTML itself has no password). */
+app.get("/dev-status", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "dev-status.html"));
+});
+
+app.post("/api/dev/login", (req, res) => {
+  if (String(req.body?.password || "") !== expectedDevPassword()) {
+    return rejectDevUnauthorized(res);
+  }
+  const token = makeDevToken();
+  res.setHeader(
+    "Set-Cookie",
+    `ledger_dev=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`
+  );
+  return res.json({ ok: true });
+});
+
+app.post("/api/dev/logout", (req, res) => {
+  res.setHeader(
+    "Set-Cookie",
+    "ledger_dev=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+  );
+  return res.json({ ok: true });
+});
+
+async function buildDevStatusPayload() {
+  const sources = [];
+  for (const src of Object.values(DATA_SOURCES)) {
+    const used = await getUsageToday(src.id);
+    const limit = src.rateLimit?.limit ?? null;
+    sources.push({
+      id: src.id,
+      label: src.label,
+      shortCode: src.shortCode,
+      role: src.role,
+      used,
+      limit,
+      configured: hasSourceKey(src.id),
+      notes: src.notes || null,
+    });
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    lastBoardRefresh: await getSetting("lastBoardRefresh"),
+    boardRefreshStatus: await getSetting("lastBoardRefreshStatus"),
+    lastForceRefresh: await getSetting("lastForceRefresh"),
+    lastForceRefreshStatus: await getSetting("lastForceRefreshStatus"),
+    forceRefresh: getForceRefreshState(),
+    sources,
+    lastCallByProvider: await getLastCallByProvider(),
+    recentCalls: await getRecentApiCalls(30),
+    jobs: await listJobStatuses(),
+    boardLiveCount: await countLiveBoard(),
+    boardMaxSize: BOARD_MAX_SIZE,
+    resetsAt: nextMidnightPacificIso(),
+  };
+}
+
+app.get("/api/dev/status", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    return res.json(await buildDevStatusPayload());
+  } catch (err) {
+    console.error("[GET /api/dev/status]", err.message);
+    return res.status(500).json({ error: "Failed to load dev status." });
+  }
+});
+
+app.post("/api/admin/force-refresh", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    const state = getForceRefreshState();
+    if (state.inProgress) {
+      return res.status(409).json({
+        ok: false,
+        alreadyRunning: true,
+        startedAt: state.startedAt,
+        message: "Force refresh already in progress.",
+        lastResult: state.lastResult,
+      });
+    }
+    const result = await forceRefreshAll();
+    if (result.alreadyRunning) {
+      return res.status(409).json(result);
+    }
+    return res.json(result);
+  } catch (err) {
+    console.error("[POST /api/admin/force-refresh]", err.message);
+    return res.status(500).json({
+      ok: false,
+      error: "Force refresh failed.",
+      detail: err.message,
+    });
+  }
+});
+
+app.get("/api/admin/force-refresh", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  return res.json(getForceRefreshState());
 });
 
 app.get("/api/recent", async (req, res) => {
@@ -454,6 +626,11 @@ async function start() {
   } catch (err) {
     console.warn("[startup] deeper look table:", err.message);
   }
+  try {
+    await ensureApiCallLogTable();
+  } catch (err) {
+    console.warn("[startup] api_call_log table:", err.message);
+  }
 
   app.listen(PORT, () => {
     console.log(`Ledger server listening on http://localhost:${PORT}`);
@@ -461,22 +638,44 @@ async function start() {
     cron.schedule("0 7 * * *", () => {
       (async () => {
         // One shared report per ticker (short + long takes in the same Gemini call).
-        await refreshBoard();
+        const board = await refreshBoard();
         await resolveOldRecommendations();
+        let moodOk = true;
+        let tidbitOk = true;
         try {
           const { refreshMarketMood } = require("./services/marketMood");
           await refreshMarketMood();
         } catch (err) {
+          moodOk = false;
           console.error("[cron marketMood]", err.message);
         }
         try {
           const { ensureTidbitBatch } = require("./services/didYouKnow");
           await ensureTidbitBatch();
         } catch (err) {
+          tidbitOk = false;
           console.error("[cron didYouKnow]", err.message);
         }
-      })().catch((err) => {
+        await recordJobRun("daily_board_refresh", {
+          ok: board?.boardRefreshStatus !== "failed" &&
+            board?.boardRefreshStatus !== "failed_rate_limit",
+          summary: `board=${board?.boardRefreshStatus}; ok=${board?.successes}/${board?.tickerCount}; mood=${moodOk ? "ok" : "fail"}; tidbits=${tidbitOk ? "ok" : "fail"}`,
+          detail: {
+            board,
+            moodOk,
+            tidbitOk,
+          },
+        });
+      })().catch(async (err) => {
         console.error("[cron refreshBoard]", err.message);
+        try {
+          await recordJobRun("daily_board_refresh", {
+            ok: false,
+            summary: `failed: ${err.message}`,
+          });
+        } catch {
+          /* ignore */
+        }
       });
     });
     console.log(
@@ -485,9 +684,22 @@ async function start() {
 
     cron.schedule("0 4 1 * *", () => {
       (async () => {
-        await cleanupStaleCache();
-      })().catch((err) => {
+        const result = await cleanupStaleCache();
+        await recordJobRun("monthly_cleanup_probe", {
+          ok: true,
+          summary: `deleted≈${result?.deleted ?? "?"} · probe=${result?.capabilityProbe ? "ran" : "n/a"}`,
+          detail: result,
+        });
+      })().catch(async (err) => {
         console.error("[cron cleanupStaleCache]", err.message);
+        try {
+          await recordJobRun("monthly_cleanup_probe", {
+            ok: false,
+            summary: `failed: ${err.message}`,
+          });
+        } catch {
+          /* ignore */
+        }
       });
     });
     console.log(

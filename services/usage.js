@@ -28,13 +28,26 @@ function nextMidnightPacificIso() {
   return new Date(now.getTime() + (next.getTime() - ptNow.getTime())).toISOString();
 }
 
-async function incrementUsage(provider) {
+async function incrementUsage(provider, meta = {}) {
   const date = getPacificDateString();
   await dbRun(
     `INSERT INTO api_usage (date, provider, count) VALUES (?, ?, 1)
      ON CONFLICT(date, provider) DO UPDATE SET count = count + 1`,
     [date, provider]
   );
+  // Best-effort recent-call log for /dev-status (never block usage counting).
+  try {
+    const { logApiCall } = require("./apiCallLog");
+    await logApiCall({
+      provider,
+      action: meta.action || null,
+      ticker: meta.ticker || null,
+      success: meta.success !== false,
+      detail: meta.detail || null,
+    });
+  } catch {
+    /* ignore */
+  }
 }
 
 async function getUsageToday(provider) {

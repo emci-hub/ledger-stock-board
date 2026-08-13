@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger — Dev status</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#10141a; --panel:#171d26; --line:#2a3442; --ink:#e8edf4; --muted:#8b97a8;
+    --ok:#3dba84; --bad:#e07060; --warn:#d4a24c; --accent:#5b8def;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Source Sans 3',sans-serif;
+    background-image:
+      radial-gradient(ellipse at top left, rgba(91,141,239,0.08), transparent 45%),
+      linear-gradient(180deg, #0c1016 0%, #10141a 40%);
+    min-height:100vh;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 18px 80px;}
+  h1{font-size:26px;margin:0 0 4px;font-weight:700;letter-spacing:-0.02em;}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 22px;}
+  .nav a{color:var(--muted);font-size:13px;}
+  .card{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:16px 18px; margin-bottom:16px;
+  }
+  .card h2{font-size:14px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin:0 0 12px;font-weight:600;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;}
+  .mono{font-family:'IBM Plex Mono',monospace;font-size:12px;}
+  .ok{color:var(--ok);} .bad{color:var(--bad);} .warn{color:var(--warn);}
+  .hidden{display:none !important;}
+  #login-panel label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;}
+  #login-panel input{
+    width:min(320px,100%); padding:10px 12px; border-radius:8px; border:1px solid var(--line);
+    background:#0e1319; color:var(--ink); font-size:15px;
+  }
+  button{
+    margin-top:12px; padding:10px 14px; border-radius:8px; border:1px solid var(--line);
+    background:#1e2836; color:var(--ink); font-weight:600; cursor:pointer; font-size:14px;
+  }
+  button:hover{border-color:var(--accent);}
+  button:disabled{opacity:0.55;cursor:wait;}
+  button.danger{border-color:rgba(224,112,96,0.5); color:#f2c2ba;}
+  button.danger:hover{border-color:var(--bad);}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+  .pill{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);}
+  .pill.on{color:var(--ok);border-color:rgba(61,186,132,0.4);}
+  .pill.off{color:var(--warn);}
+  #force-result{
+    margin-top:12px; white-space:pre-wrap; font-family:'IBM Plex Mono',monospace;
+    font-size:12px; background:#0e1319; border:1px solid var(--line); border-radius:8px;
+    padding:12px; max-height:320px; overflow:auto;
+  }
+  .err{color:var(--bad);font-size:13px;margin-top:8px;}
+  .toolbar{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="toolbar">
+    <div>
+      <h1>Dev status</h1>
+      <p class="sub">Internal diagnostics — not part of the family board. Password-gated separately from search.</p>
+    </div>
+    <nav class="nav"><a href="/">← Board</a></nav>
+  </div>
+
+  <div class="card" id="login-panel">
+    <h2>Sign in</h2>
+    <label for="pw">Dev password</label>
+    <input id="pw" type="password" autocomplete="current-password" />
+    <div class="row">
+      <button type="button" id="login-btn">Unlock</button>
+    </div>
+    <div class="err hidden" id="login-err"></div>
+  </div>
+
+  <div id="dash" class="hidden">
+    <div class="card">
+      <div class="row" style="justify-content:space-between;">
+        <h2 style="margin:0;">Overview</h2>
+        <div class="row">
+          <button type="button" id="refresh-btn">Reload</button>
+          <button type="button" id="logout-btn">Lock</button>
+        </div>
+      </div>
+      <p class="mono" id="overview" style="margin:12px 0 0;color:var(--muted);"></p>
+    </div>
+
+    <div class="card">
+      <h2>Force refresh all</h2>
+      <p style="margin:0 0 8px;color:var(--muted);font-size:13px;line-height:1.45;">
+        Bypasses freshness TTLs for every live board ticker once (shared short+long report).
+        Spends real API quota. Confirmation required. Double-clicks while running are ignored.
+      </p>
+      <button type="button" class="danger" id="force-btn">Force refresh all…</button>
+      <div id="force-result" class="hidden"></div>
+    </div>
+
+    <div class="card">
+      <h2>Per-source usage today</h2>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Source</th><th>Role</th><th>Used / limit</th><th>Last call</th>
+            </tr>
+          </thead>
+          <tbody id="sources-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Scheduled jobs</h2>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Job</th><th>Schedule</th><th>Last run</th><th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="jobs-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Recent API calls (~30)</h2>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>When</th><th>Source</th><th>Action</th><th>Ticker</th><th>Ok</th>
+            </tr>
+          </thead>
+          <tbody id="calls-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString([], { hour12: true });
+    } catch {
+      return String(iso);
+    }
+  }
+
+  async function api(path, opts = {}) {
+    const res = await fetch(path, {
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+      ...opts,
+    });
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+    return { res, data };
+  }
+
+  function showLogin(err) {
+    document.getElementById("login-panel").classList.remove("hidden");
+    document.getElementById("dash").classList.add("hidden");
+    const el = document.getElementById("login-err");
+    if (err) {
+      el.textContent = err;
+      el.classList.remove("hidden");
+    } else {
+      el.classList.add("hidden");
+    }
+  }
+
+  function showDash() {
+    document.getElementById("login-panel").classList.add("hidden");
+    document.getElementById("dash").classList.remove("hidden");
+  }
+
+  function render(data) {
+    const ov = document.getElementById("overview");
+    ov.textContent =
+      `Generated ${fmtTime(data.generatedAt)} · board ${data.boardLiveCount}/${data.boardMaxSize}` +
+      ` · lastBoardRefresh ${fmtTime(data.lastBoardRefresh)} (${data.boardRefreshStatus || "—"})` +
+      ` · resets ${fmtTime(data.resetsAt)}`;
+
+    const lastMap = data.lastCallByProvider || {};
+    const sourcesBody = document.getElementById("sources-body");
+    sourcesBody.innerHTML = (data.sources || [])
+      .map((s) => {
+        const last = lastMap[s.id];
+        const lim = s.limit == null ? "∞ / empirical" : String(s.limit);
+        const lastTxt = last
+          ? `${fmtTime(last.calledAt)} · ${last.action || "—"} · ${last.ticker || "—"} · ${last.success ? "ok" : "fail"}`
+          : "—";
+        return `<tr>
+          <td><strong>${escapeHtml(s.shortCode)}</strong> ${escapeHtml(s.label)}
+            <span class="pill ${s.configured ? "on" : "off"}">${s.configured ? "key" : "no key"}</span>
+          </td>
+          <td class="mono">${escapeHtml(s.role || "")}</td>
+          <td class="mono">${escapeHtml(String(s.used))} / ${escapeHtml(lim)}</td>
+          <td class="mono">${escapeHtml(lastTxt)}</td>
+        </tr>`;
+      })
+      .join("");
+
+    const jobsBody = document.getElementById("jobs-body");
+    jobsBody.innerHTML = (data.jobs || [])
+      .map((j) => {
+        const en = j.enabled
+          ? '<span class="pill on">on</span>'
+          : '<span class="pill off">off</span>';
+        const okCls =
+          j.lastOk == null ? "" : j.lastOk ? "ok" : "bad";
+        return `<tr>
+          <td>${escapeHtml(j.name)} ${en}<div style="color:var(--muted);font-size:12px;margin-top:2px;">${escapeHtml(j.description || "")}</div></td>
+          <td class="mono">${escapeHtml(j.schedule)}</td>
+          <td class="mono">${escapeHtml(fmtTime(j.lastRunAt))}</td>
+          <td class="mono ${okCls}">${escapeHtml(j.lastSummary || "—")}</td>
+        </tr>`;
+      })
+      .join("");
+
+    const callsBody = document.getElementById("calls-body");
+    const calls = data.recentCalls || [];
+    callsBody.innerHTML = calls.length
+      ? calls
+          .map(
+            (c) => `<tr>
+          <td class="mono">${escapeHtml(fmtTime(c.calledAt))}</td>
+          <td class="mono">${escapeHtml(c.provider)}</td>
+          <td class="mono">${escapeHtml(c.action || "—")}</td>
+          <td class="mono">${escapeHtml(c.ticker || "—")}</td>
+          <td class="${c.success ? "ok" : "bad"}">${c.success ? "ok" : "fail"}</td>
+        </tr>`
+          )
+          .join("")
+      : `<tr><td colspan="5" style="color:var(--muted);">No calls logged yet (new log starts after deploy).</td></tr>`;
+
+    const fr = data.forceRefresh || {};
+    const forceBtn = document.getElementById("force-btn");
+    if (fr.inProgress) {
+      forceBtn.disabled = true;
+      forceBtn.textContent = "Force refresh running…";
+    } else {
+      forceBtn.disabled = false;
+      forceBtn.textContent = "Force refresh all…";
+    }
+  }
+
+  async function loadStatus() {
+    const { res, data } = await api("/api/dev/status");
+    if (res.status === 401) {
+      showLogin();
+      return false;
+    }
+    if (!res.ok) {
+      showLogin(data?.error || "Failed to load status");
+      return false;
+    }
+    showDash();
+    render(data);
+    return true;
+  }
+
+  document.getElementById("login-btn").addEventListener("click", async () => {
+    const password = document.getElementById("pw").value;
+    const { res, data } = await api("/api/dev/login", {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    });
+    if (!res.ok) {
+      showLogin("Wrong password.");
+      return;
+    }
+    document.getElementById("pw").value = "";
+    await loadStatus();
+  });
+
+  document.getElementById("pw").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") document.getElementById("login-btn").click();
+  });
+
+  document.getElementById("logout-btn").addEventListener("click", async () => {
+    await api("/api/dev/logout", { method: "POST", body: "{}" });
+    showLogin();
+  });
+
+  document.getElementById("refresh-btn").addEventListener("click", () => loadStatus());
+
+  document.getElementById("force-btn").addEventListener("click", async () => {
+    const ok = window.confirm(
+      "Force refresh ALL live board tickers now?\n\nThis bypasses freshness caches and spends real API quota (Twelve / AV / Finnhub / Marketaux / Gemini). Runs once — not a loop."
+    );
+    if (!ok) return;
+
+    const btn = document.getElementById("force-btn");
+    const out = document.getElementById("force-result");
+    btn.disabled = true;
+    btn.textContent = "Force refresh running…";
+    out.classList.remove("hidden");
+    out.textContent = "Running single-pass force refresh…";
+
+    const { res, data } = await api("/api/admin/force-refresh", {
+      method: "POST",
+      body: "{}",
+    });
+
+    if (res.status === 409) {
+      out.textContent = JSON.stringify(data, null, 2);
+    } else if (!res.ok) {
+      out.textContent = JSON.stringify(data, null, 2);
+    } else {
+      const lines = [
+        data.message || "Done",
+        `Tickers: ${data.succeeded}/${data.tickers} succeeded (${data.failed} failed/skipped)`,
+        `Status: ${data.boardRefreshStatus}`,
+        `Total API calls this run: ${data.totalCalls}`,
+        "Calls by source:",
+        ...Object.entries(data.callsBySource || {}).map(
+          ([k, v]) => `  ${k}: ${v}`
+        ),
+      ];
+      out.textContent = lines.join("\n");
+    }
+    await loadStatus();
+  });
+
+  loadStatus();
+</script>
+</body>
+</html>

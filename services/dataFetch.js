@@ -133,7 +133,9 @@ async function callAlphaVantage(params) {
     );
   }
 
-  await incrementUsage(PROVIDERS.ALPHA);
+  await incrementUsage(PROVIDERS.ALPHA, {
+    action: params?.function || "alpha_vantage",
+  });
 
   const { data } = await axios.get(ALPHA_VANTAGE_BASE, {
     params: { ...params, apikey: getAlphaKey() },
@@ -190,7 +192,9 @@ async function acquireFinnhubSlot() {
       console.warn(
         `[callFinnhub] rate-limit delay ${waitMs}ms (${finnhubCallTimestamps.length}/${FINNHUB_SOFT_LIMIT} in 60s window)`
       );
-      await incrementUsage(PROVIDERS.FINNHUB_DELAY);
+      await incrementUsage(PROVIDERS.FINNHUB_DELAY, {
+        action: "rate_delay",
+      });
       await sleep(Math.max(waitMs, 100));
     }
   } finally {
@@ -200,7 +204,9 @@ async function acquireFinnhubSlot() {
 
 async function callFinnhub(pathname, params = {}) {
   await acquireFinnhubSlot();
-  await incrementUsage(PROVIDERS.FINNHUB);
+  await incrementUsage(PROVIDERS.FINNHUB, {
+    action: pathname || "finnhub",
+  });
 
   const { data } = await axios.get(`${FINNHUB_BASE}${pathname}`, {
     params: { ...params, token: getFinnhubKey() },
@@ -213,7 +219,9 @@ async function callFinnhub(pathname, params = {}) {
  * Sole Marketaux HTTP entry point — always increments marketaux usage.
  */
 async function callMarketaux(pathname, params = {}) {
-  await incrementUsage(PROVIDERS.MARKETAUX);
+  await incrementUsage(PROVIDERS.MARKETAUX, {
+    action: pathname || "marketaux",
+  });
 
   const { data } = await axios.get(`${MARKETAUX_BASE}${pathname}`, {
     params: { ...params, api_token: getMarketauxKey() },
@@ -234,7 +242,9 @@ async function callMarketaux(pathname, params = {}) {
  * Sole Twelve Data HTTP entry point — always increments twelve_data usage.
  */
 async function callTwelveData(pathname, params = {}) {
-  await incrementUsage(PROVIDERS.TWELVE);
+  await incrementUsage(PROVIDERS.TWELVE, {
+    action: pathname || "twelve_data",
+  });
 
   let data;
   try {

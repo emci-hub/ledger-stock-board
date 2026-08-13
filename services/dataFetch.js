@@ -1357,6 +1357,45 @@ async function getFundamentalsAndNews(ticker) {
 }
 
 /**
+ * FMP /stable/profile — company name, sector, description (free tier).
+ * Used for identity catch-up on promotion so we don't burn AV OVERVIEW.
+ */
+async function getCompanyProfileFromFmp(ticker) {
+  const symbol = String(ticker || "")
+    .trim()
+    .toUpperCase();
+  if (!symbol) return null;
+  if (!hasFmpKey()) return null;
+
+  try {
+    const data = await callFmp("/stable/profile", { symbol });
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row || typeof row !== "object") return null;
+    const name =
+      row.companyName || row.company_name || row.name || null;
+    const sector = row.sector || null;
+    const description = row.description || null;
+    if (!name && !sector && !description) return null;
+    return {
+      ticker: symbol,
+      name: name ? String(name).trim() : null,
+      sector: sector ? String(sector).trim() : null,
+      industry: row.industry ? String(row.industry).trim() : null,
+      description: description ? String(description).trim() : null,
+      exchange: row.exchange || row.exchangeFullName || null,
+      source: "fmp",
+    };
+  } catch (err) {
+    if (err instanceof QuotaSkippedError) throw err;
+    console.warn(
+      `[dataFetch] FMP profile failed for ${symbol}:`,
+      err.message
+    );
+    return null;
+  }
+}
+
+/**
  * FMP /stable/biggest-gainers|biggest-losers|most-actives — free-tier movers.
  * Does not call Twelve Data or Alpha Vantage.
  */
@@ -1513,8 +1552,10 @@ module.exports = {
   getAnalystTarget,
   getAnalystTargetFromTwelveData,
   getEarningsDateFromFinnhub,
+  getCompanyProfileFromFmp,
   getMarketMoversFromFmp,
   getDiscoveryMoversBundle,
+  hasFmpKey,
   getNewsSentiment,
   getNewsSentimentBatch,
   getNewsFromFinnhub,

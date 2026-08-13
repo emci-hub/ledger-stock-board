@@ -21,6 +21,7 @@ function emptyFreshness() {
     targetUpdatedAt: null,
     newsUpdatedAt: null,
     earningsUpdatedAt: null,
+    identityCheckedAt: null,
   };
 }
 
@@ -31,6 +32,7 @@ function freshnessFromData(data) {
     targetUpdatedAt: f.targetUpdatedAt || null,
     newsUpdatedAt: f.newsUpdatedAt || null,
     earningsUpdatedAt: f.earningsUpdatedAt || null,
+    identityCheckedAt: f.identityCheckedAt || null,
   };
 }
 

@@ -22,6 +22,7 @@ const {
 } = require("../lib/boardPicks");
 const { assessLongTermPlacement } = require("../lib/rankingStability");
 const { isPennyPrice, isExtremeMove } = require("../lib/boardTickers");
+const { ensureTickerIdentity } = require("./tickerIdentity");
 
 async function alphaVantageSpendable() {
   const used = await getUsageToday(PROVIDERS.ALPHA);
@@ -34,7 +35,8 @@ async function alphaVantageSpendable() {
 
 /**
  * Immediate catch-up after a ticker is promoted to the live board.
- * Price + news always attempted (batched helpers). Target only if AV spendable > 0.
+ * Identity (name/sector/description) + price + news always attempted.
+ * Target only if AV spendable > 0.
  */
 async function warmNewlyPromotedTicker(ticker, options = {}) {
   const symbol = String(ticker || "")
@@ -47,12 +49,26 @@ async function warmNewlyPromotedTicker(ticker, options = {}) {
   const result = {
     ok: true,
     ticker: symbol,
+    identity: false,
     price: false,
     news: false,
     target: false,
     targetQueued: false,
     skippedTargetReason: null,
   };
+
+  try {
+    const idResult = await ensureTickerIdentity(symbol, {
+      name: options.name || null,
+      sector: options.sector || null,
+      description: options.description || null,
+      force: options.forceIdentity === true,
+    });
+    result.identity = Boolean(idResult?.identity?.name);
+    result.identityMeta = idResult;
+  } catch (err) {
+    console.warn(`[warmNewlyPromoted] identity ${symbol}:`, err.message);
+  }
 
   try {
     await prefetchBoardNewsAndPrices([symbol], {
@@ -89,6 +105,16 @@ async function warmNewlyPromotedTicker(ticker, options = {}) {
     result.price = isPriceFresh(after?.data);
     result.news = isNewsFresh(after?.data);
     result.target = isTargetFresh(after?.data);
+    // Re-check identity after report (OVERVIEW may have enriched fields).
+    if (!result.identity) {
+      const idAfter = await ensureTickerIdentity(symbol, {
+        name: report?.name || report?.companyName || options.name || null,
+        sector: report?.sector || options.sector || null,
+        description: report?.description || options.description || null,
+      });
+      result.identity = Boolean(idAfter?.identity?.name);
+      result.identityMeta = idAfter;
+    }
     if (needsTarget && !result.target && !result.targetQueued) {
       result.targetQueued = true;
       result.skippedTargetReason = result.skippedTargetReason || "fetch_miss";

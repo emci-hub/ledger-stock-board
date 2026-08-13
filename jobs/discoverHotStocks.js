@@ -343,6 +343,7 @@ async function promoteEligibleCandidates(options = {}) {
     await promotePick(ticker, {
       status: "watch",
       sector: null,
+      name: mover?.name || null,
       source: `${pickSource}_repromote`,
     });
     if (warmReports) {
@@ -350,6 +351,7 @@ async function promoteEligibleCandidates(options = {}) {
         const warm = await warmNewlyPromotedTicker(ticker, {
           forceNews: true,
           forcePrice: true,
+          name: mover?.name || null,
         });
         report = warm.report || null;
         if (!warm.ok) {
@@ -368,10 +370,11 @@ async function promoteEligibleCandidates(options = {}) {
       }
     }
     const status = report ? pickStatusFromReport(report) : "watch";
-    if (status !== "watch") {
+    if (status !== "watch" || report?.sector || report?.name) {
       await promotePick(ticker, {
         status,
         sector: report?.sector || null,
+        name: report?.name || report?.companyName || mover?.name || null,
         source: `${pickSource}_repromote`,
       });
     }
@@ -446,10 +449,11 @@ async function promoteEligibleCandidates(options = {}) {
     });
     archivedOut.push(...(cap.archived || []));
 
-    // Promote first, then immediate catch-up (price/news now; target if AV allows).
+    // Promote first, then immediate catch-up (identity/price/news now; target if AV allows).
     await promotePick(ticker, {
       status: "watch",
       sector: null,
+      name: mover.name || row.name || null,
       source: pickSource,
     });
 
@@ -461,6 +465,7 @@ async function promoteEligibleCandidates(options = {}) {
           // Wave already batch-prefetched when possible — don't double-spend.
           forceNews: false,
           forcePrice: false,
+          name: mover.name || row.name || null,
         });
         report = warmMeta.report || null;
         if (!warmMeta.ok) {
@@ -480,10 +485,11 @@ async function promoteEligibleCandidates(options = {}) {
     }
 
     const status = report ? pickStatusFromReport(report) : "watch";
-    if (status !== "watch" || report?.sector) {
+    if (status !== "watch" || report?.sector || report?.name) {
       await promotePick(ticker, {
         status,
         sector: report?.sector || null,
+        name: report?.name || report?.companyName || mover.name || row.name || null,
         source: pickSource,
       });
     }

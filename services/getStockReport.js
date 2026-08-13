@@ -26,7 +26,9 @@ const {
 } = require("./dataFetch");
 const { analyzeStock } = require("./analyze");
 const { logQuoteClose } = require("./priceHistoryLog");
-const { getTickerInfo } = require("../lib/tickerInfo");
+const { getTickerInfo, resolveTickerIdentity } = require("../lib/tickerInfo");
+const { ensureTickerIdentity } = require("./tickerIdentity");
+const { getPick } = require("../lib/boardPicks");
 const { sourceShortCode, formatSourceList } = require("../lib/dataSources");
 const { resolveProviderId } = require("../lib/aiProvider");
 const { deriveDataCaveats } = require("../lib/dataCaveats");
@@ -180,13 +182,11 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
   // Live target is Alpha Vantage only — never attribute a board target to Twelve Data.
   const targetSource =
     targetSourceRaw === "twelve_data" ? null : targetSourceRaw;
-  const local = getTickerInfo(ticker);
-  const companyName =
-    local?.name || overview.name || quote.name || null;
-  const sector = local?.sector || overview.sector || null;
+  const identity = resolveTickerIdentity(ticker, overview, quote);
+  const companyName = identity.name;
+  const sector = identity.sector;
   // Curated blurbs preferred; otherwise use API overview description (non-board / discovery).
-  const description =
-    local?.description || overview.description || null;
+  const description = identity.description;
   const priceHistory = Array.isArray(quote.priceHistory)
     ? quote.priceHistory
     : Array.isArray(rawData?.priceHistory)
@@ -680,6 +680,37 @@ async function getStockReport(ticker, mode, options = {}) {
 
   const loaded = await promise;
   if (!loaded) return null;
+
+  // Identity catch-up: discovery tickers often lack curated blurbs and never
+  // hit AV OVERVIEW — fill name/sector/description from FMP profile / pick.
+  try {
+    const overview = loaded.rawData?.fundamentals?.overview || {};
+    const needsIdentity =
+      !getTickerInfo(symbol) &&
+      !(overview.name && overview.sector && overview.description);
+    if (needsIdentity) {
+      const pick = await getPick(symbol);
+      const idResult = await ensureTickerIdentity(symbol, {
+        name: pick?.name || null,
+        sector: pick?.sector || null,
+      });
+      const id = idResult?.identity;
+      if (id) {
+        if (!loaded.rawData.fundamentals) {
+          loaded.rawData.fundamentals = { overview: {}, news: [] };
+        }
+        if (!loaded.rawData.fundamentals.overview) {
+          loaded.rawData.fundamentals.overview = {};
+        }
+        const ov = loaded.rawData.fundamentals.overview;
+        if (id.name) ov.name = ov.name || id.name;
+        if (id.sector) ov.sector = ov.sector || id.sector;
+        if (id.description) ov.description = ov.description || id.description;
+      }
+    }
+  } catch (err) {
+    console.warn(`[getStockReport] identity catch-up ${symbol}:`, err.message);
+  }
 
   return buildReport(
     symbol,

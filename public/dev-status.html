@@ -702,8 +702,16 @@
     btn.dataset.enabled = enabled ? "1" : "0";
     if (metaEl) {
       const key = dl.claudeConfigured ? "ANTHROPIC_API_KEY set" : "ANTHROPIC_API_KEY missing";
-      const src = dl.source === "app_settings" ? "saved setting" : "default from key";
-      metaEl.textContent = `${key} · ${src}`;
+      const src = dl.source === "app_settings" ? "saved setting"
+        : dl.source === "hidden_unhealthy" ? "hidden — Claude unhealthy"
+        : "default from key";
+      const model = dl.model ? `model ${dl.model}` : "model ?";
+      const health = dl.health
+        ? (dl.health.ok
+          ? "health ok"
+          : `health fail (${dl.health.kind || "error"})`)
+        : "health unchecked";
+      metaEl.textContent = `${key} · ${src} · ${model} · ${health}`;
     }
     if (!dl.claudeConfigured && !enabled) {
       btn.title = "Set ANTHROPIC_API_KEY before enabling";

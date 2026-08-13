@@ -432,6 +432,9 @@ app.post("/api/stock/:ticker/deeper-look", async (req, res) => {
     return res.status(500).json({
       error: "Deeper look failed.",
       detail: err.message,
+      code: err.code || "claude_failed",
+      kind: err.claudeKind || null,
+      permanent: Boolean(err.claudePermanent),
     });
   }
 });
@@ -751,6 +754,13 @@ app.post("/api/dev/deeper-look-enabled", async (req, res) => {
     console.error("[POST /api/dev/deeper-look-enabled]", err.message);
     if (err.code === "not_configured") {
       return res.status(400).json({ error: err.message, code: err.code });
+    }
+    if (err.code === "unhealthy") {
+      return res.status(400).json({
+        error: err.message,
+        code: err.code,
+        health: err.health || null,
+      });
     }
     return res.status(500).json({ error: "Failed to update Deeper Look setting." });
   }

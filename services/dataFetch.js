@@ -27,6 +27,7 @@ const ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query";
 const FINNHUB_BASE = "https://finnhub.io/api/v1";
 const TWELVE_DATA_BASE = "https://api.twelvedata.com";
 const MARKETAUX_BASE = "https://api.marketaux.com/v1";
+const FMP_BASE = "https://financialmodelingprep.com";
 
 /** Once Twelve Data rejects price_target as plan-gated, skip further TD target calls this process. */
 let twelvePriceTargetPlanBlocked = false;
@@ -74,12 +75,22 @@ function getMarketauxKey() {
   return key;
 }
 
+function getFmpKey() {
+  const key = process.env.FMP_API_KEY;
+  if (!key) throw new Error("FMP_API_KEY is not set in .env");
+  return key;
+}
+
 function hasTwelveKey() {
   return hasSourceKey("twelve_data");
 }
 
 function hasMarketauxKey() {
   return hasSourceKey("marketaux");
+}
+
+function hasFmpKey() {
+  return hasSourceKey("fmp");
 }
 
 function num(value) {
@@ -323,6 +334,48 @@ async function callTwelveData(pathname, params = {}) {
       throw new AlphaVantageError("rate_limit", msg, nextMidnightPacificIso());
     }
     throw new TwelveDataError("error", msg);
+  }
+
+  return data;
+}
+
+/**
+ * Sole FMP HTTP entry point — always increments fmp usage.
+ * Uses /stable/* paths (legacy /api/v3/* is blocked for new free keys).
+ */
+async function callFmp(pathname, params = {}) {
+  consumeOrThrow(PROVIDERS.FMP, pathname || "fmp");
+  await incrementUsage(PROVIDERS.FMP, {
+    action: pathname || "fmp",
+  });
+
+  let data;
+  try {
+    const res = await axios.get(`${FMP_BASE}${pathname}`, {
+      params: { ...params, apikey: getFmpKey() },
+      timeout: 30000,
+    });
+    data = res.data;
+  } catch (err) {
+    const status = err.response?.status;
+    const body = err.response?.data;
+    const msg =
+      body?.["Error Message"] ||
+      body?.error ||
+      body?.message ||
+      err.message ||
+      "FMP error";
+    if (status === 403 || status === 402 || /legacy|upgrade|plan/i.test(String(msg))) {
+      throw new Error(`FMP plan/legacy: ${msg}`);
+    }
+    if (status === 429) {
+      throw new AlphaVantageError("rate_limit", String(msg), nextMidnightPacificIso());
+    }
+    throw err;
+  }
+
+  if (data && typeof data === "object" && !Array.isArray(data) && data["Error Message"]) {
+    throw new Error(String(data["Error Message"]));
   }
 
   return data;
@@ -1025,26 +1078,23 @@ async function getFundamentalsAndNews(ticker) {
 }
 
 /**
- * Twelve Data /market_movers/{market} — many candidates per call (gainers or losers).
- * Uses stocks + USA by default. Does not call Alpha Vantage.
+ * FMP /stable/biggest-gainers|biggest-losers|most-actives — free-tier movers.
+ * Does not call Twelve Data or Alpha Vantage.
  */
-async function getMarketMoversFromTwelveData(
-  direction = "gainers",
-  { outputsize = 30, country = "USA", market = "stocks" } = {}
-) {
-  const dir = String(direction || "gainers").toLowerCase();
-  if (dir !== "gainers" && dir !== "losers") {
-    throw new Error(`Invalid market_movers direction: ${direction}`);
+async function getMarketMoversFromFmp(kind = "gainers") {
+  const map = {
+    gainers: { path: "/stable/biggest-gainers", direction: "gainers" },
+    losers: { path: "/stable/biggest-losers", direction: "losers" },
+    actives: { path: "/stable/most-actives", direction: "actives" },
+  };
+  const conf = map[String(kind || "gainers").toLowerCase()];
+  if (!conf) {
+    throw new Error(`Invalid FMP movers kind: ${kind}`);
   }
 
-  const data = await callTwelveData(`/market_movers/${market}`, {
-    direction: dir,
-    outputsize: Math.min(50, Math.max(1, Number(outputsize) || 30)),
-    country,
-  });
-
-  const values = Array.isArray(data?.values) ? data.values : [];
-  return values
+  const data = await callFmp(conf.path);
+  const rows = Array.isArray(data) ? data : [];
+  return rows
     .map((row) => {
       const ticker = String(row.symbol || "")
         .trim()
@@ -1054,32 +1104,30 @@ async function getMarketMoversFromTwelveData(
         ticker,
         name: row.name || null,
         exchange: row.exchange || null,
-        last: num(row.last),
+        last: num(row.price),
         volume: num(row.volume),
         change: num(row.change),
-        percentChange: num(row.percent_change),
-        direction: dir,
-        source: "twelve_data",
+        percentChange: num(row.changesPercentage),
+        direction: conf.direction,
+        source: "fmp",
       };
     })
     .filter(Boolean);
 }
 
 /**
- * Bundle gainers + losers, and a volume-sorted "most active" view of the union.
- * Two TD calls (gainers, losers); each returns many candidates.
+ * Bundle FMP gainers + losers + most-actives into one candidate pool.
+ * Three FMP calls; union deduped by ticker.
  */
-async function getDiscoveryMoversBundle(options = {}) {
-  const outputsize = options.outputsize ?? 30;
-  const country = options.country || "USA";
-
-  const [gainers, losers] = await Promise.all([
-    getMarketMoversFromTwelveData("gainers", { outputsize, country }),
-    getMarketMoversFromTwelveData("losers", { outputsize, country }),
+async function getDiscoveryMoversBundle(_options = {}) {
+  const [gainers, losers, actives] = await Promise.all([
+    getMarketMoversFromFmp("gainers"),
+    getMarketMoversFromFmp("losers"),
+    getMarketMoversFromFmp("actives"),
   ]);
 
   const byTicker = new Map();
-  for (const row of [...gainers, ...losers]) {
+  for (const row of [...gainers, ...losers, ...actives]) {
     const prev = byTicker.get(row.ticker);
     if (!prev) {
       byTicker.set(row.ticker, { ...row, directions: [row.direction] });
@@ -1094,14 +1142,29 @@ async function getDiscoveryMoversBundle(options = {}) {
     byTicker.set(row.ticker, {
       ...richer,
       directions: [...dirs],
-      volume: Math.max(Number(prev.volume) || 0, Number(row.volume) || 0) || null,
+      volume:
+        Math.max(Number(prev.volume) || 0, Number(row.volume) || 0) || null,
     });
   }
 
   const all = [...byTicker.values()];
-  const mostActive = all
-    .slice()
-    .sort((a, b) => (Number(b.volume) || 0) - (Number(a.volume) || 0));
+  // Prefer FMP's most-actives order when present; else fall back to |% change|.
+  const activeOrder = new Map(
+    actives.map((r, i) => [r.ticker, i])
+  );
+  const mostActive = all.slice().sort((a, b) => {
+    const ai = activeOrder.has(a.ticker)
+      ? activeOrder.get(a.ticker)
+      : Number.MAX_SAFE_INTEGER;
+    const bi = activeOrder.has(b.ticker)
+      ? activeOrder.get(b.ticker)
+      : Number.MAX_SAFE_INTEGER;
+    if (ai !== bi) return ai - bi;
+    return (
+      Math.abs(Number(b.percentChange) || 0) -
+      Math.abs(Number(a.percentChange) || 0)
+    );
+  });
 
   return {
     gainers,
@@ -1109,6 +1172,7 @@ async function getDiscoveryMoversBundle(options = {}) {
     mostActive,
     all,
     fetchedAt: new Date().toISOString(),
+    source: "fmp",
   };
 }
 
@@ -1165,11 +1229,12 @@ module.exports = {
   callFinnhub,
   callTwelveData,
   callMarketaux,
+  callFmp,
   getQuoteAndIndicators,
   getAnalystTarget,
   getAnalystTargetFromTwelveData,
   getEarningsDateFromFinnhub,
-  getMarketMoversFromTwelveData,
+  getMarketMoversFromFmp,
   getDiscoveryMoversBundle,
   getNewsSentiment,
   getNewsFromFinnhub,

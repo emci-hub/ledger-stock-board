@@ -40,6 +40,7 @@ const {
   DATA_SOURCES,
   hasSourceKey,
   sourcesLegend,
+  sourcesRegistryRows,
   sourceRole,
   smartRefreshReserve,
 } = require("./lib/dataSources");
@@ -175,6 +176,7 @@ async function buildStatusPayload() {
   const finnhubDelayTriggered = await getUsageToday(PROVIDERS.FINNHUB_DELAY);
   const marketauxUsed = await getUsageToday(PROVIDERS.MARKETAUX);
   const geminiUsed = await getUsageToday(PROVIDERS.GEMINI);
+  const fmpUsed = await getUsageToday(PROVIDERS.FMP);
   const alphaRemaining = Math.max(0, DAILY_AV_LIMIT - alphaUsed);
   const twelveRemaining = Math.max(0, DAILY_TWELVE_LIMIT - twelveUsed);
   const twelveAvailable = hasSourceKey("twelve_data");
@@ -189,6 +191,18 @@ async function buildStatusPayload() {
     ? twelveBudgetSearches
     : avNewsBudgetSearches;
 
+  // Registry-driven usage rows — footer legend + header usage stay automatic.
+  const sourcesUsage = [];
+  for (const row of sourcesRegistryRows()) {
+    const used = await getUsageToday(row.id);
+    sourcesUsage.push({
+      ...row,
+      used,
+      remaining:
+        row.limit == null ? null : Math.max(0, Number(row.limit) - Number(used || 0)),
+    });
+  }
+
   return {
     alphaVantageUsedToday: alphaUsed,
     alphaVantageLimit: DAILY_AV_LIMIT,
@@ -196,9 +210,12 @@ async function buildStatusPayload() {
       sourceRole("alpha_vantage") || "analyst_target_specialist_news_fallback",
     twelveDataUsedToday: twelveUsed,
     twelveDataLimit: DAILY_TWELVE_LIMIT,
-    twelveDataRole:
-      sourceRole("twelve_data") || "price_indicators_discovery_primary",
+    twelveDataRole: sourceRole("twelve_data") || "price_indicators_primary",
     twelveDataConfigured: twelveAvailable,
+    fmpUsedToday: fmpUsed,
+    fmpLimit: DATA_SOURCES.fmp.rateLimit.limit,
+    fmpRole: sourceRole("fmp") || "discovery_primary",
+    fmpConfigured: hasSourceKey("fmp"),
     finnhubUsedToday: finnhubUsed,
     finnhubLimitPerMinute: DATA_SOURCES.finnhub.rateLimit.limit,
     finnhubSoftCapPerMinute: DATA_SOURCES.finnhub.rateLimit.softCap,
@@ -221,6 +238,7 @@ async function buildStatusPayload() {
     aiProviders: listProviders(),
     newSearchesAvailableToday,
     sourcesLegend: sourcesLegend(),
+    sourcesUsage,
     lastBoardRefresh: await getSetting("lastBoardRefresh"),
     boardRefreshStatus: await getSetting("lastBoardRefreshStatus"),
     lastCapabilityProbe: await getLastCapabilityProbe(),
@@ -537,26 +555,19 @@ app.post("/api/dev/logout", (req, res) => {
 
 async function buildDevStatusPayload() {
   const sources = [];
-  for (const src of Object.values(DATA_SOURCES)) {
-    const used = await getUsageToday(src.id);
-    const limit = src.rateLimit?.limit ?? null;
-    const reserve = smartRefreshReserve(src.id);
+  for (const row of sourcesRegistryRows()) {
+    const used = await getUsageToday(row.id);
     const remaining =
-      limit == null ? null : Math.max(0, Number(limit) - Number(used || 0));
+      row.limit == null ? null : Math.max(0, Number(row.limit) - Number(used || 0));
     const smartAvailable =
-      remaining == null ? null : Math.max(0, remaining - reserve);
+      remaining == null
+        ? null
+        : Math.max(0, remaining - Number(row.smartRefreshReserve || 0));
     sources.push({
-      id: src.id,
-      label: src.label,
-      shortCode: src.shortCode,
-      role: src.role,
+      ...row,
       used,
-      limit,
       remaining,
-      smartRefreshReserve: reserve,
       smartRefreshAvailable: smartAvailable,
-      configured: hasSourceKey(src.id),
-      notes: src.notes || null,
     });
   }
 

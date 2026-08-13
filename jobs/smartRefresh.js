@@ -37,6 +37,7 @@ let lastResult = null;
 
 const USAGE_PROVIDERS = [
   { key: "twelve_data", provider: PROVIDERS.TWELVE },
+  { key: "fmp", provider: PROVIDERS.FMP },
   { key: "alpha_vantage", provider: PROVIDERS.ALPHA },
   { key: "finnhub", provider: PROVIDERS.FINNHUB },
   { key: "marketaux", provider: PROVIDERS.MARKETAUX },
@@ -397,6 +398,7 @@ function estimateCallsForNeeds(needs, skippedFields = []) {
   const skipped = new Set((skippedFields || []).map((s) => s.field));
   const calls = {
     twelve_data: 0,
+    fmp: 0,
     alpha_vantage: 0,
     finnhub: 0,
     marketaux: 0,
@@ -426,6 +428,7 @@ function addCalls(into, add) {
 function emptyCalls() {
   return {
     twelve_data: 0,
+    fmp: 0,
     alpha_vantage: 0,
     finnhub: 0,
     marketaux: 0,

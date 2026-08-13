@@ -116,7 +116,7 @@
       </p>
       <p class="safeguard-note" style="margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#0e1319;color:var(--muted);font-size:12px;line-height:1.5;">
         <strong style="color:var(--ink);">Safeguards:</strong>
-        Discovery respects Twelve Data’s reserve and never touches Alpha Vantage.
+        Discovery respects FMP’s reserve and never touches Alpha Vantage.
         Smart Refresh respects each source’s reserve and only refreshes genuinely stale fields.
         Both share one in-progress lock so they cannot run at the same time.
       </p>
@@ -155,7 +155,7 @@
       </div>
       <p style="margin:10px 0 0;color:var(--muted);font-size:12px;line-height:1.4;">
         Reserve = headroom Smart Refresh / Discovery will not spend (live family searches may still use it).
-        Twelve Data reserve is also enforced before Discovery starts. Smart avail. = remaining after subtracting the reserve.
+        FMP reserve is also enforced before Discovery starts. Smart avail. = remaining after subtracting the reserve.
       </p>
     </div>
 
@@ -383,7 +383,10 @@
     if (!quota) return "";
     const before = quota.remainingBefore || {};
     const after = quota.remainingAfter || {};
-    const keys = [
+    // Prefer keys present in the payload so new registry sources (e.g. FMP) appear
+    // without editing this list — fall back to a stable default order.
+    const preferred = [
+      "fmp",
       "twelve_data",
       "alpha_vantage",
       "marketaux",
@@ -391,6 +394,18 @@
       "gemini",
       "claude",
     ];
+    const seen = new Set();
+    const keys = [];
+    for (const k of [
+      ...preferred,
+      ...Object.keys(before),
+      ...Object.keys(after),
+      ...Object.keys(estimatedCalls || {}),
+    ]) {
+      if (seen.has(k)) continue;
+      seen.add(k);
+      keys.push(k);
+    }
     const rows = keys
       .map((k) => {
         const b = before[k];
@@ -473,7 +488,7 @@
       ? `<p class="warn" style="margin:8px 0 0;">⚠ ${data.skipFlags
           .map((f) => escapeHtml(`${f.reason}: ${f.detail || f.source || ""}`))
           .join(" · ")}</p>`
-      : `<p class="ok" style="margin:8px 0 0;">Twelve Data headroom looks sufficient for this estimate.</p>`;
+      : `<p class="ok" style="margin:8px 0 0;">FMP headroom looks sufficient for this estimate.</p>`;
 
     const confirmDisabled = data.wouldSkipEntireRun
       ? `<p class="bad" style="margin:8px 0 0;">Confirm is blocked — discovery would be skipped entirely for quota/reserve.</p>`

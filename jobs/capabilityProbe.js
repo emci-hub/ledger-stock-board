@@ -10,6 +10,7 @@ const axios = require("axios");
 const {
   callTwelveData,
   callFinnhub,
+  getMarketMoversFromFmp,
   TwelveDataError,
 } = require("../services/dataFetch");
 const { incrementUsage, PROVIDERS, getSetting, setSetting } = require("../services/usage");
@@ -177,6 +178,35 @@ async function probeGemini() {
   }
 }
 
+async function probeFmpGainers() {
+  if (!hasSourceKey("fmp")) {
+    return { skipped: true, reason: "no_key" };
+  }
+  try {
+    const rows = await getMarketMoversFromFmp("gainers");
+    const ok = Array.isArray(rows) && rows.length > 0;
+    return {
+      expected: "ok",
+      actual: ok ? "ok" : "empty",
+      ok,
+      count: Array.isArray(rows) ? rows.length : 0,
+      sample: ok ? rows[0]?.ticker : null,
+      note: ok
+        ? "FMP biggest-gainers returned live movers"
+        : "FMP biggest-gainers returned empty array",
+    };
+  } catch (err) {
+    const c = classifyBlocked(err);
+    return {
+      expected: "ok",
+      actual: c.blocked ? "blocked" : "error",
+      ok: false,
+      reason: c.reason || err.message,
+      flagged: true,
+    };
+  }
+}
+
 /**
  * Run all probes and persist JSON under app_settings.lastCapabilityProbe.
  */
@@ -188,6 +218,7 @@ async function runCapabilityProbe() {
   const twelvePriceTarget = await probeTwelvePriceTarget();
   const twelveProfile = await probeTwelveProfile();
   const finnhubNewsSentiment = await probeFinnhubNewsSentiment();
+  const fmpGainers = await probeFmpGainers();
   const gemini = await probeGemini();
 
   const result = {
@@ -201,6 +232,9 @@ async function runCapabilityProbe() {
     finnhub: {
       news_sentiment: finnhubNewsSentiment,
     },
+    fmp: {
+      biggest_gainers: fmpGainers,
+    },
     gemini,
   };
 
@@ -213,6 +247,9 @@ async function runCapabilityProbe() {
   }
   if (finnhubNewsSentiment?.ok === false && !finnhubNewsSentiment.skipped) {
     alerts.push("finnhub.news-sentiment no longer blocked");
+  }
+  if (fmpGainers?.ok === false && !fmpGainers.skipped) {
+    alerts.push("fmp.biggest-gainers failed or blocked");
   }
   if (gemini?.rateLimited || gemini?.flagged) {
     alerts.push("gemini rate-limited during probe");

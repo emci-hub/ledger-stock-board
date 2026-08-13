@@ -35,6 +35,7 @@ class QuotaSkippedError extends Error {
 /** Sources with a hard daily limit (Finnhub is per-minute — soft run budget below). */
 const DAILY_LIMITS = {
   twelve_data: DATA_SOURCES.twelve_data.rateLimit.limit,
+  fmp: DATA_SOURCES.fmp.rateLimit.limit,
   alpha_vantage: DATA_SOURCES.alpha_vantage.rateLimit.limit,
   marketaux: DATA_SOURCES.marketaux.rateLimit.limit,
   // No published free-tier daily Gemini cap — never block on quota.
@@ -48,6 +49,7 @@ const FINNHUB_RUN_BUDGET = 40;
 function buildReserves() {
   return {
     twelve_data: smartRefreshReserve("twelve_data"),
+    fmp: smartRefreshReserve("fmp"),
     alpha_vantage: smartRefreshReserve("alpha_vantage"),
     marketaux: smartRefreshReserve("marketaux"),
     finnhub: smartRefreshReserve("finnhub"),
@@ -65,6 +67,7 @@ class QuotaBudget {
     this.usedAtStart = { ...usedToday };
     this.spent = {
       twelve_data: 0,
+      fmp: 0,
       alpha_vantage: 0,
       finnhub: 0,
       marketaux: 0,
@@ -73,6 +76,7 @@ class QuotaBudget {
     };
     this.limits = {
       twelve_data: DAILY_LIMITS.twelve_data,
+      fmp: DAILY_LIMITS.fmp,
       alpha_vantage: DAILY_LIMITS.alpha_vantage,
       marketaux: DAILY_LIMITS.marketaux,
       gemini: DAILY_LIMITS.gemini,
@@ -184,6 +188,7 @@ class QuotaBudget {
 async function createQuotaBudget() {
   const usedToday = {
     twelve_data: await getUsageToday(PROVIDERS.TWELVE),
+    fmp: await getUsageToday(PROVIDERS.FMP),
     alpha_vantage: await getUsageToday(PROVIDERS.ALPHA),
     finnhub: await getUsageToday(PROVIDERS.FINNHUB),
     marketaux: await getUsageToday(PROVIDERS.MARKETAUX),

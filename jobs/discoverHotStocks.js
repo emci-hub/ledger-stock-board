@@ -1,10 +1,11 @@
 /**
- * Hot-stock discovery via Twelve Data market movers.
+ * Hot-stock discovery via FMP free-tier movers
+ * (/stable/biggest-gainers, /stable/biggest-losers, /stable/most-actives).
  * Compares movers to the live board, re-promotes archived hits, and
  * adds genuinely new candidates under BOARD_MAX_SIZE (archiving weakest).
  *
  * Scheduled daily right after the 7am board refresh (see server.js).
- * Never calls Alpha Vantage. Respects Twelve Data smartRefreshReserve.
+ * Never calls Alpha Vantage or Twelve Data for movers.
  */
 
 const { setSetting, getUsageToday, PROVIDERS } = require("../services/usage");
@@ -34,8 +35,8 @@ const MAX_NEW_PER_RUN = Math.max(
   Number.parseInt(process.env.DISCOVERY_MAX_NEW || "3", 10) || 3
 );
 
-/** Twelve Data calls for gainers + losers movers bundle. */
-const MOVERS_TD_CALLS = 2;
+/** FMP calls for gainers + losers + most-actives. */
+const MOVERS_FMP_CALLS = 3;
 
 function statusFromAnalysis(lean, risk) {
   const l = String(lean || "").toLowerCase();
@@ -45,8 +46,8 @@ function statusFromAnalysis(lean, risk) {
   return "watch";
 }
 
-function hasTwelve() {
-  return hasSourceKey("twelve_data");
+function hasFmp() {
+  return hasSourceKey("fmp");
 }
 
 function pickStatusFromReport(report) {
@@ -55,40 +56,42 @@ function pickStatusFromReport(report) {
   return statusFromAnalysis(lean, risk);
 }
 
-function tdLimit() {
-  return Number(DATA_SOURCES.twelve_data?.rateLimit?.limit) || 800;
+function fmpLimit() {
+  return Number(DATA_SOURCES.fmp?.rateLimit?.limit) || 250;
 }
 
-function tdReserve() {
-  return smartRefreshReserve("twelve_data");
+function fmpReserve() {
+  return smartRefreshReserve("fmp");
 }
 
-async function twelveQuotaSnapshot() {
-  const used = await getUsageToday(PROVIDERS.TWELVE);
-  const limit = tdLimit();
+async function fmpQuotaSnapshot() {
+  const used = await getUsageToday(PROVIDERS.FMP);
+  const limit = fmpLimit();
   const remaining = Math.max(0, limit - Number(used || 0));
-  const reserve = tdReserve();
+  const reserve = fmpReserve();
   const spendable = Math.max(0, remaining - reserve);
   return { used, limit, remaining, reserve, spendable };
 }
 
 /**
- * Conservative TD estimate for a full discovery run:
- * 2 movers + 1 price warm per possible new ticker (re-promotes may add more).
+ * Conservative estimate for a full discovery run:
+ * 3 FMP movers + warm-report side effects for up to maxNew names.
+ * Warm reports may use TD/MX/FH/Gemini — not FMP. Discovery never uses AV.
  */
 function estimateDiscoveryCalls(maxNew = MAX_NEW_PER_RUN) {
   const n = Math.max(1, Number(maxNew) || MAX_NEW_PER_RUN);
   return {
-    twelve_data: MOVERS_TD_CALLS + n,
+    fmp: MOVERS_FMP_CALLS,
+    twelve_data: n, // possible price warm for new tickers
     alpha_vantage: 0,
-    finnhub: n, // peers/earnings possible on warm getStockReport
-    marketaux: n, // news possible on warm
-    gemini: n, // discovery write-up per new add
+    finnhub: n,
+    marketaux: n,
+    gemini: n,
     claude: 0,
   };
 }
 
-function blockReasonForTd(snapshot, need) {
+function blockReasonForFmp(snapshot, need) {
   if (snapshot.remaining < need) return "no_quota";
   if (snapshot.spendable < need) return "reserve_protected";
   return null;
@@ -101,12 +104,12 @@ async function previewDiscovery(options = {}) {
   const maxNew = options.maxNew ?? MAX_NEW_PER_RUN;
   const startedAt = new Date().toISOString();
 
-  if (!hasTwelve()) {
+  if (!hasFmp()) {
     return {
       ok: false,
       preview: true,
       spendsNothing: true,
-      error: "TWELVE_DATA_API_KEY not configured",
+      error: "FMP_API_KEY not configured",
       startedAt,
       finishedAt: new Date().toISOString(),
     };
@@ -116,33 +119,38 @@ async function previewDiscovery(options = {}) {
   const archived = await listArchivedBoardPicks();
   const liveCount = live.length;
   const freeSlots = Math.max(0, BOARD_MAX_SIZE - liveCount);
-  const td = await twelveQuotaSnapshot();
+  const fmp = await fmpQuotaSnapshot();
   const estimatedCalls = estimateDiscoveryCalls(maxNew);
-  const needTd = estimatedCalls.twelve_data;
-  const skipReason = blockReasonForTd(td, needTd);
+  const needFmp = estimatedCalls.fmp;
+  const skipReason = blockReasonForFmp(fmp, needFmp);
 
   const archivePreview = await previewArchivesForSlots(maxNew, { protect: [] });
 
+  const mxUsed = await getUsageToday(PROVIDERS.MARKETAUX);
+  const avUsed = await getUsageToday(PROVIDERS.ALPHA);
+  const tdUsed = await getUsageToday(PROVIDERS.TWELVE);
+  const mxLimit = Number(DATA_SOURCES.marketaux?.rateLimit?.limit) || 100;
+  const avLimit = Number(DATA_SOURCES.alpha_vantage?.rateLimit?.limit) || 25;
+  const tdLimitVal = Number(DATA_SOURCES.twelve_data?.rateLimit?.limit) || 800;
+  const mxRem = Math.max(0, mxLimit - Number(mxUsed || 0));
+  const avRem = Math.max(0, avLimit - Number(avUsed || 0));
+  const tdRem = Math.max(0, tdLimitVal - Number(tdUsed || 0));
+
   const remainingAfter = {
-    twelve_data: Math.max(0, td.remaining - (skipReason ? 0 : needTd)),
-    alpha_vantage: null,
+    fmp: skipReason ? fmp.remaining : Math.max(0, fmp.remaining - needFmp),
+    twelve_data: Math.max(
+      0,
+      tdRem - (skipReason ? 0 : estimatedCalls.twelve_data || 0)
+    ),
+    alpha_vantage: avRem,
+    marketaux: Math.max(
+      0,
+      mxRem - (skipReason ? 0 : estimatedCalls.marketaux || 0)
+    ),
     finnhub: null,
-    marketaux: null,
     gemini: null,
     claude: null,
   };
-  // Fill daily-limited sources we track
-  const mxUsed = await getUsageToday(PROVIDERS.MARKETAUX);
-  const avUsed = await getUsageToday(PROVIDERS.ALPHA);
-  const mxLimit = Number(DATA_SOURCES.marketaux?.rateLimit?.limit) || 100;
-  const avLimit = Number(DATA_SOURCES.alpha_vantage?.rateLimit?.limit) || 25;
-  const mxRem = Math.max(0, mxLimit - Number(mxUsed || 0));
-  const avRem = Math.max(0, avLimit - Number(avUsed || 0));
-  remainingAfter.marketaux = Math.max(
-    0,
-    mxRem - (skipReason ? 0 : estimatedCalls.marketaux)
-  );
-  remainingAfter.alpha_vantage = avRem; // discovery never spends AV
 
   return {
     ok: true,
@@ -151,8 +159,8 @@ async function previewDiscovery(options = {}) {
     mode: "discovery_preview",
     message: skipReason
       ? skipReason === "reserve_protected"
-        ? "Skipped — reserve protected: Twelve Data spendable headroom is below this run's estimate."
-        : "Skipped — no quota: Twelve Data remaining is below this run's estimate."
+        ? "Skipped — reserve protected: FMP spendable headroom is below this run's estimate."
+        : "Skipped — no quota: FMP remaining is below this run's estimate."
       : "Preview only — no API calls spent. Exact new tickers are unknown until confirm (movers not fetched). Confirm to run for real.",
     startedAt,
     finishedAt: new Date().toISOString(),
@@ -164,7 +172,7 @@ async function previewDiscovery(options = {}) {
       maxNew,
     },
     wouldAdd: {
-      note: "Determined at confirm from Twelve Data movers (gainers + losers). Up to maxNew brand-new names.",
+      note: "Determined at confirm from FMP movers (gainers + losers + most-actives). Up to maxNew brand-new names.",
       upTo: maxNew,
       tickers: null,
     },
@@ -177,32 +185,31 @@ async function previewDiscovery(options = {}) {
     totalEstimatedCalls: Object.values(estimatedCalls).reduce((a, b) => a + b, 0),
     quota: {
       remainingBefore: {
-        twelve_data: td.remaining,
+        fmp: fmp.remaining,
+        twelve_data: tdRem,
         alpha_vantage: avRem,
         marketaux: mxRem,
         finnhub: null,
         gemini: null,
         claude: null,
       },
-      remainingAfter: {
-        ...remainingAfter,
-        // If skipped, after === before for TD/MX estimates
-        twelve_data: skipReason ? td.remaining : remainingAfter.twelve_data,
-        marketaux: skipReason ? mxRem : remainingAfter.marketaux,
-      },
+      remainingAfter,
       spendableBefore: {
-        twelve_data: td.spendable,
+        fmp: fmp.spendable,
+        twelve_data: Math.max(0, tdRem - smartRefreshReserve("twelve_data")),
         alpha_vantage: Math.max(
           0,
           avRem - smartRefreshReserve("alpha_vantage")
         ),
       },
       reserves: {
-        twelve_data: td.reserve,
+        fmp: fmp.reserve,
+        twelve_data: smartRefreshReserve("twelve_data"),
         alpha_vantage: smartRefreshReserve("alpha_vantage"),
       },
       usedToday: {
-        twelve_data: td.used,
+        fmp: fmp.used,
+        twelve_data: tdUsed,
         alpha_vantage: avUsed,
         marketaux: mxUsed,
       },
@@ -210,18 +217,18 @@ async function previewDiscovery(options = {}) {
     skipFlags: skipReason
       ? [
           {
-            source: "twelve_data",
+            source: "fmp",
             reason: skipReason,
             detail:
               skipReason === "reserve_protected"
-                ? `need≈${needTd} TD · spendable=${td.spendable} (reserve ${td.reserve})`
-                : `need≈${needTd} TD · remaining=${td.remaining}`,
+                ? `need≈${needFmp} FMP · spendable=${fmp.spendable} (reserve ${fmp.reserve})`
+                : `need≈${needFmp} FMP · remaining=${fmp.remaining}`,
           },
         ]
       : [],
     wouldSkipEntireRun: Boolean(skipReason),
     alphaVantageTouched: false,
-    note: "Discovery never touches Alpha Vantage. Movers use Twelve Data only; warm reports may use MX/FH/Gemini for new names.",
+    note: "Discovery never touches Alpha Vantage. Movers use FMP only; warm reports may use TD/MX/FH/Gemini for new names.",
   };
 }
 
@@ -252,10 +259,10 @@ async function discoverHotStocks(options = {}) {
     return previewDiscovery({ maxNew });
   }
 
-  if (!hasTwelve()) {
+  if (!hasFmp()) {
     const result = {
       ok: false,
-      error: "TWELVE_DATA_API_KEY not configured",
+      error: "FMP_API_KEY not configured",
       startedAt,
       finishedAt: new Date().toISOString(),
     };
@@ -265,12 +272,11 @@ async function discoverHotStocks(options = {}) {
     return result;
   }
 
-  // Quota-aware gate (same spirit as Smart Refresh): refuse to start if TD
-  // spendable headroom cannot cover the conservative estimate.
-  const td = await twelveQuotaSnapshot();
+  // Quota-aware gate: refuse to start if FMP spendable headroom cannot cover movers.
+  const fmp = await fmpQuotaSnapshot();
   const estimatedCalls = estimateDiscoveryCalls(maxNew);
-  const needTd = estimatedCalls.twelve_data;
-  const skipReason = blockReasonForTd(td, needTd);
+  const needFmp = estimatedCalls.fmp;
+  const skipReason = blockReasonForFmp(fmp, needFmp);
   if (skipReason) {
     const result = {
       ok: false,
@@ -278,11 +284,11 @@ async function discoverHotStocks(options = {}) {
       reason: skipReason,
       message:
         skipReason === "reserve_protected"
-          ? "Skipped — reserve protected for twelve_data"
-          : "Skipped — no quota for twelve_data",
-      detail: `need≈${needTd} · remaining=${td.remaining} · spendable=${td.spendable} · reserve=${td.reserve}`,
+          ? "Skipped — reserve protected for fmp"
+          : "Skipped — no quota for fmp",
+      detail: `need≈${needFmp} · remaining=${fmp.remaining} · spendable=${fmp.spendable} · reserve=${fmp.reserve}`,
       estimatedCalls,
-      quota: td,
+      quota: fmp,
       startedAt,
       finishedAt: new Date().toISOString(),
       alphaVantageTouched: false,
@@ -331,7 +337,7 @@ async function discoverHotStocksInner({
 }) {
   let movers;
   try {
-    movers = await getDiscoveryMoversBundle({ outputsize: 30, country: "USA" });
+    movers = await getDiscoveryMoversBundle();
   } catch (err) {
     const result = {
       ok: false,
@@ -511,5 +517,5 @@ module.exports = {
   previewDiscovery,
   estimateDiscoveryCalls,
   MAX_NEW_PER_RUN,
-  MOVERS_TD_CALLS,
+  MOVERS_FMP_CALLS,
 };

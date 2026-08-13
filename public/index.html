@@ -921,11 +921,6 @@
       }
 
       const legend = Array.isArray(s.sourcesLegend) ? s.sourcesLegend : [];
-      const shortOf = (id, fallback) => {
-        const hit = legend.find((x) => x.id === id);
-        return hit?.shortCode || fallback;
-      };
-
       if (legendEl) {
         legendEl.innerHTML = legend.length
           ? legend
@@ -939,36 +934,51 @@
           : "";
       }
 
-      const twelve =
-        s.twelveDataUsedToday != null && s.twelveDataLimit != null
-          ? `${s.twelveDataUsedToday}/${s.twelveDataLimit} ${shortOf("twelve_data", "TD")}`
-          : null;
-      const alpha =
-        s.alphaVantageUsedToday != null && s.alphaVantageLimit != null
-          ? `${s.alphaVantageUsedToday}/${s.alphaVantageLimit} ${shortOf("alpha_vantage", "AV")} target`
-          : null;
-      const finnhub =
-        s.finnhubUsedToday != null
-          ? `${s.finnhubUsedToday} ${shortOf("finnhub", "FH")}` +
-            (s.finnhubRateDelayTriggeredToday
-              ? ` (${s.finnhubRateDelayTriggeredToday} delays)`
-              : "")
-          : null;
-      const marketaux =
-        s.marketauxUsedToday != null && s.marketauxLimit != null
-          ? `${s.marketauxUsedToday}/${s.marketauxLimit} ${shortOf("marketaux", "MX")}`
-          : null;
-      const gemini =
-        s.geminiUsedToday != null
-          ? `${s.geminiUsedToday} ${shortOf("gemini", "AI")}`
-          : null;
-      const claude =
-        s.claudeUsedToday != null
-          ? `${s.claudeUsedToday} ${shortOf("claude", "CL")}`
-          : null;
-      const usageBits = [twelve, alpha, finnhub, marketaux, gemini, claude]
-        .filter(Boolean)
-        .join(" · ");
+      // Usage line from registry-driven sourcesUsage (falls back to legacy fields).
+      let usageBits = "";
+      if (Array.isArray(s.sourcesUsage) && s.sourcesUsage.length) {
+        usageBits = s.sourcesUsage
+          .map((src) => {
+            if (src.limit == null) {
+              return src.used != null
+                ? `${src.used} ${src.shortCode}`
+                : null;
+            }
+            return `${src.used ?? 0}/${src.limit} ${src.shortCode}`;
+          })
+          .filter(Boolean)
+          .join(" · ");
+      } else {
+        const shortOf = (id, fallback) => {
+          const hit = legend.find((x) => x.id === id);
+          return hit?.shortCode || fallback;
+        };
+        usageBits = [
+          s.twelveDataUsedToday != null && s.twelveDataLimit != null
+            ? `${s.twelveDataUsedToday}/${s.twelveDataLimit} ${shortOf("twelve_data", "TD")}`
+            : null,
+          s.fmpUsedToday != null && s.fmpLimit != null
+            ? `${s.fmpUsedToday}/${s.fmpLimit} ${shortOf("fmp", "FMP")}`
+            : null,
+          s.alphaVantageUsedToday != null && s.alphaVantageLimit != null
+            ? `${s.alphaVantageUsedToday}/${s.alphaVantageLimit} ${shortOf("alpha_vantage", "AV")}`
+            : null,
+          s.finnhubUsedToday != null
+            ? `${s.finnhubUsedToday} ${shortOf("finnhub", "FH")}`
+            : null,
+          s.marketauxUsedToday != null && s.marketauxLimit != null
+            ? `${s.marketauxUsedToday}/${s.marketauxLimit} ${shortOf("marketaux", "MX")}`
+            : null,
+          s.geminiUsedToday != null
+            ? `${s.geminiUsedToday} ${shortOf("gemini", "AI")}`
+            : null,
+          s.claudeUsedToday != null
+            ? `${s.claudeUsedToday} ${shortOf("claude", "CL")}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      }
       el.innerHTML = `<span class="dot"></span><span class="meta-line">Board last refreshed: ${escapeHtml(refreshed)}</span><span class="meta-line">New stock searches available today: ${escapeHtml(searches)}</span>${usageBits ? `<span class="meta-line">${escapeHtml(usageBits)}</span>` : ""}`;
     } catch (err) {
       console.error(err);

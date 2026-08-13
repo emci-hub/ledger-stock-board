@@ -127,16 +127,24 @@ function isPlanRestrictedMessage(msg, data) {
   );
 }
 
-function noteQuotaSkip(provider, action) {
+function noteQuotaSkip(provider, action, reason = "no_quota") {
   const outcomes = getActiveOutcomes();
   if (!outcomes) return;
   if (!Array.isArray(outcomes.skippedNoQuota)) outcomes.skippedNoQuota = [];
-  outcomes.skippedNoQuota.push({
+  if (!Array.isArray(outcomes.skippedReserveProtected)) {
+    outcomes.skippedReserveProtected = [];
+  }
+  const entry = {
     field: action || provider,
-    reason: "no_quota",
+    reason: reason === "reserve_protected" ? "reserve_protected" : "no_quota",
     provider,
     ticker: getCallContextTicker(),
-  });
+  };
+  if (entry.reason === "reserve_protected") {
+    outcomes.skippedReserveProtected.push(entry);
+  } else {
+    outcomes.skippedNoQuota.push(entry);
+  }
 }
 
 function noteRefreshed(field) {
@@ -152,8 +160,9 @@ function consumeOrThrow(provider, action) {
   const budget = getActiveBudget();
   if (!budget) return;
   if (!budget.tryConsume(provider, 1, { action, ticker: getCallContextTicker() })) {
-    noteQuotaSkip(provider, action);
-    throw new QuotaSkippedError(provider);
+    const err = budget.skipError(provider);
+    noteQuotaSkip(provider, action, err.reason);
+    throw err;
   }
 }
 

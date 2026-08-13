@@ -40,7 +40,7 @@ const JOB_DEFS = [
     schedule: "on demand (dev-status only)",
     enabled: true,
     description:
-      "Quota-aware priority waterfall: board gaps → recent lookups → 1–2 archived. Respects freshness; skips sources with 0 remaining quota.",
+      "Quota-aware priority waterfall with per-source reserves (AV keeps 3 for live searches). Board gaps → recent → archive.",
   },
 ];
 

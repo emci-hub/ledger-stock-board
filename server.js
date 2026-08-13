@@ -34,7 +34,7 @@ const {
   PROVIDERS,
 } = require("./services/usage");
 const { AlphaVantageError } = require("./services/dataFetch");
-const { DATA_SOURCES, hasSourceKey, sourcesLegend, sourceRole } = require("./lib/dataSources");
+const { DATA_SOURCES, hasSourceKey, sourcesLegend, sourceRole, smartRefreshReserve } = require("./lib/dataSources");
 const { getLastCapabilityProbe } = require("./jobs/capabilityProbe");
 const { discoverHotStocks } = require("./jobs/discoverHotStocks");
 const {
@@ -469,6 +469,11 @@ async function buildDevStatusPayload() {
   for (const src of Object.values(DATA_SOURCES)) {
     const used = await getUsageToday(src.id);
     const limit = src.rateLimit?.limit ?? null;
+    const reserve = smartRefreshReserve(src.id);
+    const remaining =
+      limit == null ? null : Math.max(0, Number(limit) - Number(used || 0));
+    const smartAvailable =
+      remaining == null ? null : Math.max(0, remaining - reserve);
     sources.push({
       id: src.id,
       label: src.label,
@@ -476,6 +481,9 @@ async function buildDevStatusPayload() {
       role: src.role,
       used,
       limit,
+      remaining,
+      smartRefreshReserve: reserve,
+      smartRefreshAvailable: smartAvailable,
       configured: hasSourceKey(src.id),
       notes: src.notes || null,
     });

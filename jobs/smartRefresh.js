@@ -51,6 +51,7 @@ function emptyTier(id, name) {
     refreshed: [],
     alreadyCurrent: [],
     skippedNoQuota: [],
+    skippedReserveProtected: [],
     failed: [],
     tickersConsidered: 0,
   };
@@ -125,9 +126,17 @@ function preflightQuotaSkips(needs, budget) {
     const sources = sourcesForNeed(key);
     const anyOk = sources.some((s) => budget.hasQuota(s));
     if (!anyOk) {
+      // Prefer reserve_protected if every blocked source is only reserve-blocked
+      // (not fully exhausted). Mixed / all-zero → no_quota.
+      const reasons = sources.map((s) => budget.blockReason(s, 1));
+      const allReserve =
+        reasons.length > 0 &&
+        reasons.every((r) => r === "reserve_protected" || r == null) &&
+        reasons.some((r) => r === "reserve_protected");
+      const reason = allReserve ? "reserve_protected" : "no_quota";
       skipped.push({
         field: key,
-        reason: "no_quota",
+        reason,
         sources,
       });
     }
@@ -215,11 +224,15 @@ async function processTicker(ticker, budget, { updateBoard = false } = {}) {
   );
 
   if (!actionable.length) {
+    const reserveOnly = preSkips.every((s) => s.reason === "reserve_protected");
     return {
       ticker: symbol,
-      status: "skipped_no_quota",
-      detail: "Stale fields present but every required source has 0 remaining quota",
-      skippedFields: preSkips,
+      status: reserveOnly ? "skipped_reserve_protected" : "skipped_no_quota",
+      detail: reserveOnly
+        ? "Stale fields present but required sources are reserve-protected for Smart Refresh"
+        : "Stale fields present but every required source has 0 remaining quota",
+      skippedFields: preSkips.filter((s) => s.reason === "no_quota"),
+      skippedReserveFields: preSkips.filter((s) => s.reason === "reserve_protected"),
       needed: needs,
     };
   }
@@ -227,7 +240,10 @@ async function processTicker(ticker, budget, { updateBoard = false } = {}) {
   const outcomes = {
     ticker: symbol,
     refreshedFields: [],
-    skippedNoQuota: [...preSkips],
+    skippedNoQuota: preSkips.filter((s) => s.reason === "no_quota"),
+    skippedReserveProtected: preSkips.filter(
+      (s) => s.reason === "reserve_protected"
+    ),
     failedFields: [],
   };
 
@@ -245,6 +261,7 @@ async function processTicker(ticker, budget, { updateBoard = false } = {}) {
         status: "failed",
         detail: "No report returned",
         skippedFields: outcomes.skippedNoQuota,
+        skippedReserveFields: outcomes.skippedReserveProtected,
       };
     }
 
@@ -260,12 +277,18 @@ async function processTicker(ticker, budget, { updateBoard = false } = {}) {
       }
     }
 
-    const status =
-      outcomes.skippedNoQuota.length && outcomes.refreshedFields.length
-        ? "partial"
-        : outcomes.skippedNoQuota.length && !outcomes.refreshedFields.length
-          ? "skipped_no_quota"
-          : "refreshed";
+    const blocked =
+      (outcomes.skippedNoQuota?.length || 0) +
+      (outcomes.skippedReserveProtected?.length || 0);
+    let status = "refreshed";
+    if (blocked && outcomes.refreshedFields.length) status = "partial";
+    else if (blocked && !outcomes.refreshedFields.length) {
+      status =
+        (outcomes.skippedReserveProtected?.length || 0) >=
+        (outcomes.skippedNoQuota?.length || 0)
+          ? "skipped_reserve_protected"
+          : "skipped_no_quota";
+    }
 
     return {
       ticker: symbol,
@@ -274,10 +297,13 @@ async function processTicker(ticker, budget, { updateBoard = false } = {}) {
         status === "refreshed"
           ? `Refreshed: ${(outcomes.refreshedFields || []).join(", ") || "data"}`
           : status === "partial"
-            ? `Partial refresh; some fields skipped — no quota`
-            : "Skipped — no quota",
+            ? "Partial refresh; some fields skipped (quota or reserve)"
+            : status === "skipped_reserve_protected"
+              ? "Skipped — reserve protected"
+              : "Skipped — no quota",
       refreshedFields: outcomes.refreshedFields,
       skippedFields: outcomes.skippedNoQuota,
+      skippedReserveFields: outcomes.skippedReserveProtected,
       needed: needs,
     };
   } catch (err) {
@@ -286,6 +312,7 @@ async function processTicker(ticker, budget, { updateBoard = false } = {}) {
       status: "failed",
       detail: err.message,
       skippedFields: outcomes.skippedNoQuota,
+      skippedReserveFields: outcomes.skippedReserveProtected,
     };
   }
 }
@@ -296,16 +323,23 @@ function applyTickerResult(tier, result) {
     tier.alreadyCurrent.push(result);
   } else if (result.status === "skipped_no_quota") {
     tier.skippedNoQuota.push(result);
+  } else if (result.status === "skipped_reserve_protected") {
+    tier.skippedReserveProtected.push(result);
   } else if (result.status === "failed") {
     tier.failed.push(result);
   } else {
     // refreshed | partial
     tier.refreshed.push(result);
-    if (result.status === "partial" && result.skippedFields?.length) {
-      // Also surface quota skips at tier level for clarity
+    if (result.skippedFields?.length) {
       tier.skippedNoQuota.push({
         ...result,
         status: "partial_no_quota",
+      });
+    }
+    if (result.skippedReserveFields?.length) {
+      tier.skippedReserveProtected.push({
+        ...result,
+        status: "partial_reserve_protected",
       });
     }
   }
@@ -332,6 +366,7 @@ function summarizeTier(tiers) {
     refreshedCount: t.refreshed.length,
     alreadyCurrentCount: t.alreadyCurrent.length,
     skippedNoQuotaCount: t.skippedNoQuota.length,
+    skippedReserveProtectedCount: t.skippedReserveProtected.length,
     failedCount: t.failed.length,
     refreshed: t.refreshed.map((r) => ({
       ticker: r.ticker,
@@ -343,6 +378,13 @@ function summarizeTier(tiers) {
       ticker: r.ticker,
       detail: r.detail,
       fields: (r.skippedFields || []).map((f) => f.field || f),
+    })),
+    skippedReserveProtected: t.skippedReserveProtected.map((r) => ({
+      ticker: r.ticker,
+      detail: r.detail,
+      fields: (r.skippedReserveFields || r.skippedFields || []).map(
+        (f) => f.field || f
+      ),
     })),
     failed: t.failed.map((r) => ({ ticker: r.ticker, detail: r.detail })),
   }));
@@ -412,6 +454,10 @@ async function smartRefreshAll() {
     const refreshedTotal = tiers.reduce((n, t) => n + t.refreshedCount, 0);
     const currentTotal = tiers.reduce((n, t) => n + t.alreadyCurrentCount, 0);
     const quotaSkipTotal = tiers.reduce((n, t) => n + t.skippedNoQuotaCount, 0);
+    const reserveSkipTotal = tiers.reduce(
+      (n, t) => n + t.skippedReserveProtectedCount,
+      0
+    );
     const failedTotal = tiers.reduce((n, t) => n + t.failedCount, 0);
 
     const result = {
@@ -421,12 +467,13 @@ async function smartRefreshAll() {
       startedAt,
       finishedAt: new Date().toISOString(),
       message:
-        "Smart refresh completed — freshness respected, quota checked before each source.",
+        "Smart refresh completed — freshness respected; quota + reserve checked before each source.",
       tiers,
       totals: {
         refreshed: refreshedTotal,
         alreadyCurrent: currentTotal,
         skippedNoQuota: quotaSkipTotal,
+        skippedReserveProtected: reserveSkipTotal,
         failed: failedTotal,
       },
       callsBySource: calls,
@@ -434,7 +481,7 @@ async function smartRefreshAll() {
       usageBefore,
       usageAfter,
       quota: budget.snapshot(),
-      note: "Shared report covers both short and long AI takes in one Gemini call when analysis is refreshed.",
+      note: "Shared report covers both short and long AI takes in one Gemini call when analysis is refreshed. Live searches may still use reserved Alpha Vantage headroom.",
     };
 
     lastResult = result;
@@ -445,12 +492,12 @@ async function smartRefreshAll() {
     );
     await recordJobRun("manual_force_refresh", {
       ok: true,
-      summary: `smart · refreshed=${refreshedTotal} current=${currentTotal} noQuota=${quotaSkipTotal} fail=${failedTotal} · ${total} calls`,
+      summary: `smart · refreshed=${refreshedTotal} current=${currentTotal} noQuota=${quotaSkipTotal} reserve=${reserveSkipTotal} fail=${failedTotal} · ${total} calls`,
       detail: result,
     });
 
     console.log(
-      `[smartRefresh] Done — refreshed=${refreshedTotal} current=${currentTotal} noQuota=${quotaSkipTotal} calls=${total}`
+      `[smartRefresh] Done — refreshed=${refreshedTotal} current=${currentTotal} noQuota=${quotaSkipTotal} reserve=${reserveSkipTotal} calls=${total}`
     );
     return result;
   } catch (err) {

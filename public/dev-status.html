@@ -98,7 +98,8 @@
       <p style="margin:0 0 8px;color:var(--muted);font-size:13px;line-height:1.45;">
         Quota-aware priority waterfall: fill live board gaps first, then recent lookups,
         then 1–2 archived names. Respects freshness TTLs (does not force everything stale).
-        Sources with 0 remaining quota are skipped and reported. Confirmation required.
+        Sources with 0 remaining quota, or only reserve headroom left, are skipped and reported.
+        Confirmation required.
       </p>
       <button type="button" class="danger" id="force-btn">Smart refresh…</button>
       <div id="force-result" class="hidden"></div>
@@ -111,12 +112,16 @@
         <table>
           <thead>
             <tr>
-              <th>Source</th><th>Role</th><th>Used / limit</th><th>Last call</th>
+              <th>Source</th><th>Role</th><th>Used / limit</th><th>Reserve</th><th>Smart avail.</th><th>Last call</th>
             </tr>
           </thead>
           <tbody id="sources-body"></tbody>
         </table>
       </div>
+      <p style="margin:10px 0 0;color:var(--muted);font-size:12px;line-height:1.4;">
+        Reserve = headroom Smart Refresh will not spend (live family searches may still use it).
+        Smart avail. = remaining after subtracting the reserve.
+      </p>
     </div>
 
     <div class="card">
@@ -209,6 +214,16 @@
       .map((s) => {
         const last = lastMap[s.id];
         const lim = s.limit == null ? "∞ / empirical" : String(s.limit);
+        const reserve =
+          s.smartRefreshReserve != null && Number(s.smartRefreshReserve) > 0
+            ? String(s.smartRefreshReserve)
+            : "—";
+        const smartAvail =
+          s.limit == null
+            ? "∞"
+            : s.smartRefreshAvailable != null
+              ? String(s.smartRefreshAvailable)
+              : "—";
         const lastTxt = last
           ? `${fmtTime(last.calledAt)} · ${last.action || "—"} · ${last.ticker || "—"} · ${last.success ? "ok" : "fail"}`
           : "—";
@@ -218,6 +233,8 @@
           </td>
           <td class="mono">${escapeHtml(s.role || "")}</td>
           <td class="mono">${escapeHtml(String(s.used))} / ${escapeHtml(lim)}</td>
+          <td class="mono">${escapeHtml(reserve)}</td>
+          <td class="mono">${escapeHtml(smartAvail)}</td>
           <td class="mono">${escapeHtml(lastTxt)}</td>
         </tr>`;
       })
@@ -281,12 +298,14 @@
     box.classList.remove("hidden");
     const totals = result.totals || {};
     const quota = result.quota?.remaining || {};
+    const spendable = result.quota?.spendable || {};
+    const reserves = result.quota?.reserves || {};
     box.innerHTML = `
       <h2 style="margin-top:0;">Last smart refresh breakdown</h2>
       <p class="mono" style="color:var(--muted);margin:0 0 10px;">
         refreshed=${totals.refreshed ?? "—"} · already current=${totals.alreadyCurrent ?? "—"} ·
-        no quota=${totals.skippedNoQuota ?? "—"} · failed=${totals.failed ?? "—"} ·
-        calls=${result.totalCalls ?? "—"}
+        no quota=${totals.skippedNoQuota ?? "—"} · reserve protected=${totals.skippedReserveProtected ?? "—"} ·
+        failed=${totals.failed ?? "—"} · calls=${result.totalCalls ?? "—"}
       </p>
       ${(result.tiers || [])
         .map((t) => {
@@ -307,6 +326,14 @@
                 }`
             )
             .join(", ") || "—";
+          const reserved = (t.skippedReserveProtected || [])
+            .map(
+              (r) =>
+                `${escapeHtml(r.ticker)}${
+                  r.fields?.length ? ` [${escapeHtml(r.fields.join(", "))}]` : ""
+                }`
+            )
+            .join(", ") || "—";
           const failed = (t.failed || [])
             .map((r) => escapeHtml(r.ticker))
             .join(", ") || "—";
@@ -316,17 +343,19 @@
               <div><span class="ok">Refreshed</span>: ${refreshed}</div>
               <div>Already current: ${current}</div>
               <div><span class="warn">Skipped — no quota</span>: ${skipped}</div>
+              <div><span class="warn">Skipped — reserve protected</span>: ${reserved}</div>
               <div><span class="bad">Failed</span>: ${failed}</div>
             </div>
           </div>`;
         })
         .join("")}
       <p class="mono" style="color:var(--muted);font-size:11px;margin:8px 0 0;">
-        Remaining after run:
-        TD=${quota.twelve_data ?? "∞"} ·
-        AV=${quota.alpha_vantage ?? "∞"} ·
-        MX=${quota.marketaux ?? "∞"} ·
+        Remaining after run (raw / spendable):
+        TD=${quota.twelve_data ?? "∞"}/${spendable.twelve_data ?? "∞"} ·
+        AV=${quota.alpha_vantage ?? "∞"}/${spendable.alpha_vantage ?? "∞"} ·
+        MX=${quota.marketaux ?? "∞"}/${spendable.marketaux ?? "∞"} ·
         FH(run)=${quota.finnhub ?? "∞"}
+        · reserves AV=${reserves.alpha_vantage ?? 0}
       </p>`;
   }
 
@@ -372,7 +401,7 @@
 
   document.getElementById("force-btn").addEventListener("click", async () => {
     const ok = window.confirm(
-      "Run Smart Refresh now?\n\nFills genuine board gaps first (respecting freshness), then recent lookups, then 1–2 archived names — only while quota remains. Sources at 0 remaining are skipped. Runs once."
+      "Run Smart Refresh now?\n\nFills genuine board gaps first (respecting freshness), then recent lookups, then 1–2 archived names — only while quota remains above each source's reserve. Reserve-protected and zero-quota sources are skipped. Runs once."
     );
     if (!ok) return;
 
@@ -394,7 +423,7 @@
       const t = data.totals || {};
       const lines = [
         data.message || "Done",
-        `Totals: refreshed=${t.refreshed ?? 0} · already current=${t.alreadyCurrent ?? 0} · no quota=${t.skippedNoQuota ?? 0} · failed=${t.failed ?? 0}`,
+        `Totals: refreshed=${t.refreshed ?? 0} · already current=${t.alreadyCurrent ?? 0} · no quota=${t.skippedNoQuota ?? 0} · reserve protected=${t.skippedReserveProtected ?? 0} · failed=${t.failed ?? 0}`,
         `Total API calls this run: ${data.totalCalls}`,
         "Calls by source:",
         ...Object.entries(data.callsBySource || {}).map(

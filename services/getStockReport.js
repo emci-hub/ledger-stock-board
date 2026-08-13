@@ -537,17 +537,28 @@ async function loadSharedStockDataInner(symbol, options = {}) {
   if (shouldAnalyze) {
     const budget = getActiveBudget();
     if (smartRefresh && budget && !budget.hasQuota("gemini")) {
+      const reason = budget.blockReason("gemini", 1) || "no_quota";
       console.warn(
-        `[getStockReport] analysis skipped — no Gemini quota for ${symbol}`
+        `[getStockReport] analysis skipped — ${reason} for ${symbol}`
       );
       const outcomes = getActiveOutcomes();
       if (outcomes) {
-        if (!Array.isArray(outcomes.skippedNoQuota)) outcomes.skippedNoQuota = [];
-        outcomes.skippedNoQuota.push({
+        const entry = {
           field: "analysis",
-          reason: "no_quota",
+          reason,
           provider: "gemini",
-        });
+        };
+        if (reason === "reserve_protected") {
+          if (!Array.isArray(outcomes.skippedReserveProtected)) {
+            outcomes.skippedReserveProtected = [];
+          }
+          outcomes.skippedReserveProtected.push(entry);
+        } else {
+          if (!Array.isArray(outcomes.skippedNoQuota)) {
+            outcomes.skippedNoQuota = [];
+          }
+          outcomes.skippedNoQuota.push(entry);
+        }
       }
     } else {
       console.log(

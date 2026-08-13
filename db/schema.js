@@ -248,6 +248,26 @@ async function initSchema() {
       console.warn("[db] board_picks archive migration skipped:", err.message);
     }
 
+    try {
+      await dbExecute(
+        `ALTER TABLE board_picks ADD COLUMN discovery_blurb TEXT`
+      );
+    } catch (err) {
+      // Column already exists — ignore
+      if (!/duplicate column/i.test(err.message || "")) {
+        console.warn("[db] discovery_blurb column:", err.message);
+      }
+    }
+
+    await dbExecute(`
+      CREATE TABLE IF NOT EXISTS ai_deeper_looks (
+        ticker TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        summary_json TEXT NOT NULL,
+        generated_at TEXT NOT NULL
+      )
+    `);
+
     await dbExecute(`
       CREATE TABLE IF NOT EXISTS price_history_log (
         ticker TEXT NOT NULL,

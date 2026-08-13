@@ -218,6 +218,53 @@
     display:inline-flex;align-items:center;gap:4px;margin-left:6px;
     vertical-align:middle;
   }
+  .mood-line{
+    font-family:'Fraunces',serif;font-size:17px;font-weight:500;line-height:1.45;
+    color:#F5F6F1;margin:0 0 10px;padding:12px 0 4px;
+    border-top:1px solid var(--line-soft);
+  }
+  .mood-line .mood-label{
+    display:block;font-family:'IBM Plex Mono',monospace;font-size:10px;
+    color:var(--muted-dim);letter-spacing:0.04em;margin-bottom:4px;font-weight:500;
+  }
+  .dyk{
+    font-size:13px;line-height:1.5;color:var(--muted);margin:0 0 18px;
+    padding:10px 12px;border-left:2px solid var(--gold);
+    background:rgba(217,168,87,0.06);
+  }
+  .dyk strong{color:var(--gold);font-weight:600;font-size:11px;
+    font-family:'IBM Plex Mono',monospace;display:block;margin-bottom:4px;}
+  .discovery-blurb{
+    font-size:12px;line-height:1.45;color:var(--muted);
+    margin:0 0 10px;padding:8px 10px;
+    border:1px dashed var(--line);border-radius:8px;
+    background:rgba(79,184,138,0.06);
+  }
+  .discovery-blurb .db-label{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--green);
+    display:block;margin-bottom:3px;
+  }
+  .deeper-look-btn{
+    display:inline-flex;align-items:center;gap:6px;
+    margin:8px 0 4px;padding:6px 10px;
+    font-family:'IBM Plex Mono',monospace;font-size:11px;
+    color:#C4B5FD;background:rgba(124,58,237,0.12);
+    border:1px solid rgba(167,139,250,0.35);border-radius:8px;
+    cursor:pointer;
+  }
+  .deeper-look-btn:hover{border-color:rgba(167,139,250,0.7);}
+  .deeper-look-btn:disabled{opacity:0.55;cursor:wait;}
+  .deeper-panel{
+    margin:8px 0 10px;padding:10px 12px;border-radius:10px;
+    border:1px solid rgba(167,139,250,0.35);
+    background:rgba(124,58,237,0.08);
+  }
+  .deeper-panel .dl-via{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:#C4B5FD;
+    margin-bottom:6px;
+  }
+  .deeper-panel .dl-body{font-size:13px;line-height:1.5;color:var(--muted);}
+
   .deep-dive{
     margin:10px 0 4px;border-top:1px solid var(--line-soft);padding-top:8px;
   }
@@ -328,6 +375,9 @@
     </div>
   </header>
   <p class="sub">A quiet daily read on stocks worth knowing about — plus anything you want to look up yourself.</p>
+
+  <div id="mood-line" class="mood-line" hidden></div>
+  <div id="did-you-know" class="dyk" hidden></div>
 
   <div class="controls">
     <div class="mode-toggle">
@@ -655,6 +705,32 @@
       </div>`
         : `<div class="target-line">${targetCaveats}</div>`;
 
+    const discoveryBlurb =
+      report.discoveryBlurb || report.discovery_blurb
+        ? `<div class="discovery-blurb"><span class="db-label">New on the board</span>${escapeHtml(
+            report.discoveryBlurb || report.discovery_blurb
+          )}</div>`
+        : "";
+
+    const deeper = report.deeperLook;
+    const deeperPanel = deeper?.analysis?.summary
+      ? `<div class="deeper-panel" data-deeper="${escapeHtml(report.ticker)}">
+          <div class="dl-via">via Claude · Deeper look</div>
+          <div class="dl-body">${escapeHtml(deeper.analysis.summary)}</div>
+          ${
+            deeper.analysis.deepDive
+              ? `<div class="dl-body" style="margin-top:8px;">${escapeHtml(deeper.analysis.deepDive)}</div>`
+              : ""
+          }
+        </div>`
+      : `<div class="deeper-panel" data-deeper="${escapeHtml(report.ticker)}" hidden></div>`;
+
+    const deeperBtn = `<button type="button" class="deeper-look-btn" data-deeper-look="${escapeHtml(
+      report.ticker
+    )}" title="Uses paid Claude credits — only when you ask">${
+      deeper?.analysis?.summary ? "Refresh deeper look (Claude)" : "Deeper look via Claude"
+    }</button>`;
+
     return `<div class="card ${leanClass(report, status)}" data-ticker="${escapeHtml(report.ticker)}">
       <div class="card-top">
         <div class="ticker-block">
@@ -675,9 +751,12 @@
       ${sparklineSvg(report.priceHistory, report.price, target, down)}
       ${sparkCaveats}
       ${targetLine}
+      ${discoveryBlurb}
       <div class="tags">${tagHtml}</div>
       <div class="summary">${escapeHtml(report.analysis?.summary || "")}${newsNote}</div>
       ${summaryCaveats}
+      ${deeperBtn}
+      ${deeperPanel}
       ${deepHtml}
       ${lighterHtml}
       <div class="card-foot">
@@ -720,6 +799,8 @@
   async function loadStatus() {
     const el = document.getElementById("updated-label");
     const legendEl = document.getElementById("sources-legend");
+    const moodEl = document.getElementById("mood-line");
+    const dykEl = document.getElementById("did-you-know");
     try {
       const res = await fetch("/api/status");
       const s = await res.json();
@@ -728,6 +809,29 @@
         : "not yet";
       const searches =
         s.newSearchesAvailableToday != null ? s.newSearchesAvailableToday : "—";
+
+      if (moodEl) {
+        if (s.marketMood?.text) {
+          moodEl.hidden = false;
+          moodEl.innerHTML = `<span class="mood-label">Today's market mood</span>${escapeHtml(
+            s.marketMood.text
+          )}`;
+        } else {
+          moodEl.hidden = true;
+          moodEl.innerHTML = "";
+        }
+      }
+      if (dykEl) {
+        if (s.didYouKnow?.text) {
+          dykEl.hidden = false;
+          dykEl.innerHTML = `<strong>Did you know?</strong>${escapeHtml(
+            s.didYouKnow.text
+          )}`;
+        } else {
+          dykEl.hidden = true;
+          dykEl.innerHTML = "";
+        }
+      }
 
       const legend = Array.isArray(s.sourcesLegend) ? s.sourcesLegend : [];
       const shortOf = (id, fallback) => {
@@ -769,7 +873,11 @@
         s.geminiUsedToday != null
           ? `${s.geminiUsedToday} ${shortOf("gemini", "AI")}`
           : null;
-      const usageBits = [twelve, alpha, finnhub, marketaux, gemini]
+      const claude =
+        s.claudeUsedToday != null
+          ? `${s.claudeUsedToday} ${shortOf("claude", "CL")}`
+          : null;
+      const usageBits = [twelve, alpha, finnhub, marketaux, gemini, claude]
         .filter(Boolean)
         .join(" · ");
       el.innerHTML = `<span class="dot"></span><span class="meta-line">Board last refreshed: ${escapeHtml(refreshed)}</span><span class="meta-line">New stock searches available today: ${escapeHtml(searches)}</span>${usageBits ? `<span class="meta-line">${escapeHtml(usageBits)}</span>` : ""}`;
@@ -950,6 +1058,62 @@
       glossBtn.setAttribute("aria-expanded", open ? "true" : "false");
       return;
     }
+
+    const deeperBtn = e.target.closest("[data-deeper-look]");
+    if (deeperBtn) {
+      e.preventDefault();
+      const ticker = deeperBtn.getAttribute("data-deeper-look");
+      if (!ticker) return;
+      (async () => {
+        deeperBtn.disabled = true;
+        const prev = deeperBtn.textContent;
+        deeperBtn.textContent = "Asking Claude…";
+        try {
+          const res = await fetch(
+            `/api/stock/${encodeURIComponent(ticker)}/deeper-look`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ mode: currentMode }),
+            }
+          );
+          const data = await res.json();
+          if (!res.ok) {
+            alert(
+              data.error ||
+                "Deeper look failed. Check ANTHROPIC_API_KEY if Claude isn't configured."
+            );
+            return;
+          }
+          const panel = document.querySelector(
+            `.deeper-panel[data-deeper="${CSS.escape(ticker)}"]`
+          );
+          if (panel && data.analysis) {
+            panel.hidden = false;
+            panel.innerHTML = `<div class="dl-via">via Claude · Deeper look</div>
+              <div class="dl-body">${escapeHtml(data.analysis.summary || "")}</div>
+              ${
+                data.analysis.deepDive
+                  ? `<div class="dl-body" style="margin-top:8px;">${escapeHtml(
+                      data.analysis.deepDive
+                    )}</div>`
+                  : ""
+              }`;
+          }
+          deeperBtn.textContent = "Refresh deeper look (Claude)";
+        } catch (err) {
+          console.error(err);
+          alert("Deeper look failed.");
+        } finally {
+          deeperBtn.disabled = false;
+          if (deeperBtn.textContent === "Asking Claude…") {
+            deeperBtn.textContent = prev;
+          }
+        }
+      })();
+      return;
+    }
+
     const btn = e.target.closest("[data-star]");
     if (!btn) return;
     starTicker(btn.dataset.star, btn);

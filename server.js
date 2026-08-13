@@ -38,6 +38,14 @@ const {
   countLiveBoard,
 } = require("./lib/boardPicks");
 const { LIVE_BOARD_STATUSES } = require("./lib/boardTickers");
+const { getMarketMood, loadMood } = require("./services/marketMood");
+const { getTodaysTidbit } = require("./services/didYouKnow");
+const {
+  getDeeperLook,
+  requestDeeperLook,
+  ensureDeeperLookTable,
+} = require("./services/deeperLook");
+const { resolveProviderId, listProviders } = require("./lib/aiProvider");
 
 const app = express();
 const PORT = 3000;
@@ -130,9 +138,14 @@ async function buildStatusPayload() {
     marketauxConfigured: hasSourceKey("marketaux"),
     geminiUsedToday: geminiUsed,
     geminiLimit: null,
-    geminiRole: sourceRole("gemini") || "synthesis_only",
+    geminiRole: sourceRole("gemini") || "synthesis_default",
     geminiLimitNote:
       "Free-tier daily limit unclear externally — tracked empirically via api_usage",
+    claudeUsedToday: await getUsageToday(PROVIDERS.CLAUDE),
+    claudeConfigured: hasSourceKey("claude"),
+    claudeRole: sourceRole("claude") || "manual_deeper_look_only",
+    aiProviderDefault: resolveProviderId(),
+    aiProviders: listProviders(),
     newSearchesAvailableToday,
     sourcesLegend: sourcesLegend(),
     lastBoardRefresh: await getSetting("lastBoardRefresh"),
@@ -143,6 +156,9 @@ async function buildStatusPayload() {
     boardLiveCount: await countLiveBoard(),
     lastHotStockDiscoveryAt: await getSetting("lastHotStockDiscoveryAt"),
     lastHotStockDiscoveryStatus: await getSetting("lastHotStockDiscoveryStatus"),
+    // Cached only — never spend Gemini on status polls
+    marketMood: await loadMood(),
+    didYouKnow: await getTodaysTidbit().catch(() => null),
     resetsAt: nextMidnightPacificIso(),
   };
 }
@@ -240,7 +256,7 @@ app.get("/api/board", async (req, res) => {
     const mode = normalizeMode(req.query.mode);
     const placeholders = LIVE_BOARD_STATUSES.map(() => "?").join(", ");
     const picks = await dbAll(
-      `SELECT ticker, status, added_at, sector, source
+      `SELECT ticker, status, added_at, sector, source, discovery_blurb
        FROM board_picks
        WHERE status IN (${placeholders})
        ORDER BY added_at DESC`,
@@ -249,9 +265,22 @@ app.get("/api/board", async (req, res) => {
 
     const board = [];
     for (const pick of picks) {
+      const report = await reportFromCache(pick.ticker, mode);
+      if (report) {
+        report.discoveryBlurb = pick.discovery_blurb || null;
+        report.source = pick.source || null;
+        const deeper = await getDeeperLook(pick.ticker);
+        report.deeperLook = deeper
+          ? {
+              provider: deeper.provider,
+              generatedAt: deeper.generatedAt,
+              analysis: deeper.long || deeper.short,
+            }
+          : null;
+      }
       board.push({
         ...pick,
-        report: await reportFromCache(pick.ticker, mode),
+        report,
       });
     }
 
@@ -259,6 +288,46 @@ app.get("/api/board", async (req, res) => {
   } catch (err) {
     console.error("[GET /api/board]", err.message);
     return res.status(500).json({ error: "Failed to load board picks." });
+  }
+});
+
+app.post("/api/stock/:ticker/deeper-look", async (req, res) => {
+  try {
+    const ticker = String(req.params.ticker || "")
+      .trim()
+      .toUpperCase();
+    if (!ticker) {
+      return res.status(400).json({ error: "Ticker is required." });
+    }
+    const mode = normalizeMode(req.body?.mode || req.query.mode);
+    const result = await requestDeeperLook(ticker, { mode });
+    return res.json(result);
+  } catch (err) {
+    console.error("[POST deeper-look]", err.message);
+    if (err.code === "not_configured") {
+      return res.status(503).json({ error: err.message, code: err.code });
+    }
+    if (err.code === "no_data") {
+      return res.status(404).json({ error: err.message, code: err.code });
+    }
+    return res.status(500).json({
+      error: "Deeper look failed.",
+      detail: err.message,
+    });
+  }
+});
+
+app.get("/api/stock/:ticker/deeper-look", async (req, res) => {
+  try {
+    const ticker = String(req.params.ticker || "")
+      .trim()
+      .toUpperCase();
+    const deeper = await getDeeperLook(ticker);
+    if (!deeper) return res.status(404).json({ error: "No deeper look yet." });
+    return res.json(deeper);
+  } catch (err) {
+    console.error("[GET deeper-look]", err.message);
+    return res.status(500).json({ error: "Failed to load deeper look." });
   }
 });
 
@@ -380,6 +449,11 @@ app.get("/api/watchlist", async (req, res) => {
 
 async function start() {
   await initSchema();
+  try {
+    await ensureDeeperLookTable();
+  } catch (err) {
+    console.warn("[startup] deeper look table:", err.message);
+  }
 
   app.listen(PORT, () => {
     console.log(`Ledger server listening on http://localhost:${PORT}`);
@@ -389,12 +463,24 @@ async function start() {
         // One shared report per ticker (short + long takes in the same Gemini call).
         await refreshBoard();
         await resolveOldRecommendations();
+        try {
+          const { refreshMarketMood } = require("./services/marketMood");
+          await refreshMarketMood();
+        } catch (err) {
+          console.error("[cron marketMood]", err.message);
+        }
+        try {
+          const { ensureTidbitBatch } = require("./services/didYouKnow");
+          await ensureTidbitBatch();
+        } catch (err) {
+          console.error("[cron didYouKnow]", err.message);
+        }
       })().catch((err) => {
         console.error("[cron refreshBoard]", err.message);
       });
     });
     console.log(
-      "[cron] Scheduled refreshBoard (shared) + resolveOldRecommendations daily at 07:00"
+      "[cron] Scheduled refreshBoard + resolve + marketMood + didYouKnow batch check daily at 07:00"
     );
 
     cron.schedule("0 4 1 * *", () => {

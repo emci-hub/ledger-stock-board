@@ -11,6 +11,10 @@ const { getDiscoveryMoversBundle } = require("../services/dataFetch");
 const { getStockReport } = require("../services/getStockReport");
 const { hasSourceKey } = require("../lib/dataSources");
 const {
+  generateDiscoveryWriteUp,
+  saveDiscoveryBlurb,
+} = require("../services/discoveryWriteUp");
+const {
   listLiveBoardPicks,
   listArchivedBoardPicks,
   ensureBoardCapacity,
@@ -182,11 +186,30 @@ async function discoverHotStocks(options = {}) {
       sector: report?.sector || null,
       source: "discovery",
     });
+
+    let discoveryBlurb = null;
+    try {
+      discoveryBlurb = await generateDiscoveryWriteUp({
+        ticker: mover.ticker,
+        name: mover.name || report?.companyName || report?.name,
+        sector: report?.sector || null,
+        percentChange: mover.percentChange,
+        mover,
+      });
+      await saveDiscoveryBlurb(mover.ticker, discoveryBlurb);
+    } catch (err) {
+      console.warn(
+        `[discoverHotStocks] discovery write-up failed for ${mover.ticker}:`,
+        err.message
+      );
+    }
+
     added.push({
       ticker: mover.ticker,
       status,
       name: mover.name,
       percentChange: mover.percentChange,
+      discoveryBlurb,
     });
     addedCount += 1;
     liveSet.add(mover.ticker);

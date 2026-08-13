@@ -9,6 +9,7 @@ const PROVIDERS = {
   TWELVE: USAGE_KEYS.twelve_data,
   MARKETAUX: USAGE_KEYS.marketaux,
   GEMINI: USAGE_KEYS.gemini,
+  CLAUDE: USAGE_KEYS.claude,
 };
 
 function getPacificDateString(date = new Date()) {

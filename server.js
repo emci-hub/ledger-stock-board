@@ -418,11 +418,11 @@ app.post("/api/discovery/run", async (req, res) => {
       warmReports: req.body?.warmReports !== false,
     });
     try {
-      await recordJobRun("weekly_discovery", {
+      await recordJobRun("daily_discovery", {
         ok: Boolean(result?.ok !== false),
         summary: dryRun
           ? `manual dryRun · ${JSON.stringify(result?.summary || result).slice(0, 180)}`
-          : `manual run · ${JSON.stringify(result?.summary || result).slice(0, 180)}`,
+          : `manual run · added=${Array.isArray(result?.added) ? result.added.length : 0}`,
         detail: result,
       });
     } catch {
@@ -682,7 +682,7 @@ async function start() {
             ok: Boolean(discovery?.ok !== false && !discovery?.error),
             summary: discovery?.error
               ? `failed: ${discovery.error}`
-              : `added=${discovery?.added?.length ?? discovery?.addedCount ?? 0} · promoted=${discovery?.rePromoted?.length ?? discovery?.rePromotedCount ?? 0} · archived=${discovery?.archived?.length ?? discovery?.archivedCount ?? 0}`,
+              : `added=${Array.isArray(discovery?.added) ? discovery.added.length : 0} · rePromoted=${Array.isArray(discovery?.rePromoted) ? discovery.rePromoted.length : 0} · archived=${Array.isArray(discovery?.archived) ? discovery.archived.length : 0}`,
             detail: discovery,
           });
         } catch (err) {

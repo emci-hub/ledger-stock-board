@@ -592,6 +592,9 @@
       !report.newsPending && report.newsSourceLabel
         ? `<div class="news-via">via ${escapeHtml(report.newsSourceLabel)}</div>`
         : "";
+    const analysisVia = report.analysisSourceLabel
+      ? `<span class="via-source">via ${escapeHtml(report.analysisSourceLabel)}</span>`
+      : "";
     const rangeFlagLabel = report.weekRange?.labelTag
       ? labelHtml(report.weekRange.labelTag)
       : report.weekRange?.label
@@ -663,7 +666,11 @@
         }
         <div class="deep-label">${peersLabel || "Peers"}</div>
         ${peerHtml}
-        <div class="deep-label">AI deep dive</div>
+        <div class="deep-label">AI deep dive ${
+          report.analysisSourceLabel
+            ? `<span class="via-source">via ${escapeHtml(report.analysisSourceLabel)}</span>`
+            : ""
+        }</div>
         <div class="deep-ai">${escapeHtml(report.analysis?.deepDive || "A longer AI deep dive wasn't available for this name yet.")}</div>
       </div>
     </details>`;
@@ -753,7 +760,9 @@
       ${targetLine}
       ${discoveryBlurb}
       <div class="tags">${tagHtml}</div>
-      <div class="summary">${escapeHtml(report.analysis?.summary || "")}${newsNote}</div>
+      <div class="summary">${escapeHtml(report.analysis?.summary || "")}${
+        analysisVia ? ` ${analysisVia}` : ""
+      }${newsNote}</div>
       ${summaryCaveats}
       ${deeperBtn}
       ${deeperPanel}
@@ -842,10 +851,12 @@
       if (legendEl) {
         legendEl.innerHTML = legend.length
           ? legend
-              .map(
-                (src) =>
-                  `<span class="leg-item"><span class="leg-code">${escapeHtml(src.shortCode)}</span> = ${escapeHtml(src.label)}</span>`
-              )
+              .map((src) => {
+                const detail = src.legendLabel || src.label;
+                return `<span class="leg-item"><span class="leg-code">${escapeHtml(
+                  src.shortCode
+                )}</span> = ${escapeHtml(detail)}</span>`;
+              })
               .join("")
           : "";
       }

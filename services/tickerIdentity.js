@@ -25,15 +25,67 @@ const {
 const IDENTITY_RETRY_MS = 24 * 60 * 60 * 1000;
 const DESCRIPTION_MAX_LEN = 180;
 
+/** Common corporate abbreviations whose periods are not sentence ends. */
+const ABBREV_BEFORE_PERIOD =
+  /\b(?:Inc|Corp|Ltd|LLC|Co|Mr|Mrs|Ms|Dr|Jr|Sr|vs|etc|U\.S|U\.K)$/i;
+
 /**
- * Word-boundary truncation — never split on abbreviation periods (Inc./Corp.).
+ * Strip a leading FMP-style appositive opener ("Name, a media company, …")
+ * so the card blurb doesn't repeat the title line. Leaves other formats alone
+ * (e.g. "Name, together with…" or "Name is a …").
  */
-function shortenDescription(text, maxLen = DESCRIPTION_MAX_LEN) {
-  if (!text) return null;
+function stripLeadingCompanyName(text, companyName) {
+  if (!text || !companyName) return text;
+  const name = String(companyName).trim();
+  if (!name) return text;
   const cleaned = String(text).replace(/\s+/g, " ").trim();
+  if (!cleaned.toLowerCase().startsWith(name.toLowerCase())) return cleaned;
+  const after = cleaned.slice(name.length);
+  const appositive = after.match(/^,\s+((?:a|an|the)\b[\s\S]+)$/i);
+  if (!appositive) return cleaned;
+  const rest = appositive[1].trim();
+  if (!rest) return cleaned;
+  return rest.charAt(0).toUpperCase() + rest.slice(1);
+}
+
+/**
+ * Prefer a complete sentence within the limit; otherwise word-boundary cut.
+ * Never treats "Inc." / "Corp." / similar as sentence endings.
+ */
+function shortenDescription(text, maxLen = DESCRIPTION_MAX_LEN, options = {}) {
+  if (!text) return null;
+  let cleaned = String(text).replace(/\s+/g, " ").trim();
   if (!cleaned) return null;
+
+  if (options.name) {
+    cleaned = stripLeadingCompanyName(cleaned, options.name);
+  }
+
   const limit = Math.max(40, Number(maxLen) || DESCRIPTION_MAX_LEN);
   if (cleaned.length <= limit) return cleaned;
+
+  // Prefer the last real sentence end that still fits (min ~50 chars of substance).
+  let bestSentenceEnd = -1;
+  for (let i = 0; i < cleaned.length && i < limit; i += 1) {
+    const ch = cleaned[i];
+    if (ch !== "." && ch !== "!" && ch !== "?") continue;
+    const after = cleaned[i + 1];
+    if (after && after !== " ") continue;
+    const before = cleaned.slice(Math.max(0, i - 6), i);
+    if (ABBREV_BEFORE_PERIOD.test(before)) continue;
+    // Skip initials / decimal-like "A.I." single-letter before period
+    if (/[A-Za-z]$/.test(before) && before.length >= 1) {
+      const lastWord = before.split(/\s/).pop() || "";
+      if (lastWord.length <= 2 && /[A-Za-z]\.?$/.test(lastWord) && lastWord.replace(/\./g, "").length <= 1) {
+        continue;
+      }
+    }
+    if (i + 1 >= 50) bestSentenceEnd = i + 1;
+  }
+  if (bestSentenceEnd > 0) {
+    return cleaned.slice(0, bestSentenceEnd).trim();
+  }
+
   const slice = cleaned.slice(0, limit);
   const lastSpace = slice.lastIndexOf(" ");
   const cut =
@@ -90,7 +142,8 @@ function mergeIdentity(...parts) {
       out.sector = String(part.sector).trim() || null;
     }
     if (!out.description && part.description) {
-      out.description = shortenDescription(part.description);
+      // Final name-aware shorten happens after merge; keep raw-ish here.
+      out.description = String(part.description).replace(/\s+/g, " ").trim();
     }
     if (!out.industry && part.industry) {
       out.industry = String(part.industry).trim() || null;
@@ -121,6 +174,27 @@ function mergeIdentity(...parts) {
     if (!out.source && part.source) out.source = part.source;
   }
   return out;
+}
+
+function finalizeIdentityDescription(identity) {
+  if (!identity || !identity.description) return identity;
+  const opts = {};
+  // FMP blurbs often open with "Company Name, a …" — strip that so the card
+  // doesn't repeat the title line. Curated blurbs use "Name — …" and are left alone.
+  if (
+    identity.name &&
+    String(identity.description)
+      .toLowerCase()
+      .startsWith(`${String(identity.name).toLowerCase()},`)
+  ) {
+    opts.name = identity.name;
+  }
+  identity.description = shortenDescription(
+    identity.description,
+    DESCRIPTION_MAX_LEN,
+    opts
+  );
+  return identity;
 }
 
 async function persistIdentity(ticker, identity, { force = false } = {}) {
@@ -378,6 +452,7 @@ async function ensureTickerIdentity(ticker, hints = {}) {
     !hasProfileExtras(identity);
 
   if (!needFetch) {
+    finalizeIdentityDescription(identity);
     await persistIdentity(symbol, identity, { force });
     return {
       ok: true,
@@ -389,6 +464,7 @@ async function ensureTickerIdentity(ticker, hints = {}) {
   }
 
   if (!force && recentlyChecked(data?.freshness) && identityCoreComplete(identity)) {
+    finalizeIdentityDescription(identity);
     await persistIdentity(symbol, identity, { force });
     return {
       ok: Boolean(identity.name),
@@ -430,18 +506,19 @@ async function ensureTickerIdentity(ticker, hints = {}) {
     // Prefer a fuller FMP description over a previously mangled short one
     // (old period-splitter left values like "Gaxos.ai Inc.").
     if (profile.description) {
-      const fresh = shortenDescription(profile.description);
+      const freshRaw = String(profile.description).replace(/\s+/g, " ").trim();
       if (
-        fresh &&
+        freshRaw &&
         (!beforeDesc ||
           force ||
-          fresh.length > String(beforeDesc).length + 15)
+          freshRaw.length > String(beforeDesc).length + 15)
       ) {
-        identity.description = fresh;
+        identity.description = freshRaw;
       }
     }
   }
 
+  finalizeIdentityDescription(identity);
   await persistIdentity(symbol, identity, { force });
 
   return {
@@ -464,5 +541,6 @@ module.exports = {
   isIpoWithinLastYear,
   instrumentLabelFromFlags,
   resolveDisplayLogo,
+  stripLeadingCompanyName,
   DESCRIPTION_MAX_LEN,
 };

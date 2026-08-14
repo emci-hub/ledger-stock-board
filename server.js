@@ -74,6 +74,7 @@ const {
   isDeeperLookEnabled,
   getDeeperLookSetting,
   setDeeperLookEnabled,
+  clearFailedDeeperLooks,
 } = require("./services/deeperLook");
 const { resolveProviderId, listProviders } = require("./lib/aiProvider");
 const {
@@ -381,14 +382,21 @@ app.get("/api/board", async (req, res) => {
         if (mode === "long") {
           report.rankScore = placement.longTermRankAdjusted;
         }
-        const deeper = await getDeeperLook(pick.ticker);
-        report.deeperLook = deeper
-          ? {
-              provider: deeper.provider,
-              generatedAt: deeper.generatedAt,
-              analysis: deeper.long || deeper.short,
-            }
-          : null;
+        const deeperEnabled = await isDeeperLookEnabled();
+        if (deeperEnabled) {
+          const deeper = await getDeeperLook(pick.ticker);
+          report.deeperLook = deeper
+            ? {
+                provider: deeper.provider,
+                generatedAt: deeper.generatedAt,
+                analysis: deeper.long || deeper.short,
+              }
+            : null;
+        } else {
+          // Toggle fully governs visibility — never attach cached deeper looks
+          // (including prior failures) when the feature is off.
+          report.deeperLook = null;
+        }
       }
       board.push({
         ...pick,
@@ -441,6 +449,9 @@ app.post("/api/stock/:ticker/deeper-look", async (req, res) => {
 
 app.get("/api/stock/:ticker/deeper-look", async (req, res) => {
   try {
+    if (!(await isDeeperLookEnabled())) {
+      return res.status(404).json({ error: "Deeper Look is disabled." });
+    }
     const ticker = String(req.params.ticker || "")
       .trim()
       .toUpperCase();
@@ -853,6 +864,7 @@ async function start() {
   await initSchema();
   try {
     await ensureDeeperLookTable();
+    await clearFailedDeeperLooks();
   } catch (err) {
     console.warn("[startup] deeper look table:", err.message);
   }

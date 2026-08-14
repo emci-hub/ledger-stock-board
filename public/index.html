@@ -874,8 +874,10 @@
         : "";
 
     const deeper = report.deeperLook;
-    const deeperPanel = deeper?.analysis?.summary
-      ? `<div class="deeper-panel" data-deeper="${escapeHtml(report.ticker)}">
+    // Toggle fully owns visibility — never show a prior Claude panel when off.
+    const deeperPanel =
+      deeperLookEnabled && deeper?.analysis?.summary
+        ? `<div class="deeper-panel" data-deeper="${escapeHtml(report.ticker)}">
           <div class="dl-via">via Claude · Deeper look</div>
           <div class="dl-body">${escapeHtml(deeper.analysis.summary)}</div>
           ${
@@ -884,15 +886,15 @@
               : ""
           }
         </div>`
-      : deeperLookEnabled
-        ? `<div class="deeper-panel" data-deeper="${escapeHtml(report.ticker)}" hidden></div>`
-        : "";
+        : deeperLookEnabled
+          ? `<div class="deeper-panel" data-deeper="${escapeHtml(report.ticker)}" hidden></div>`
+          : "";
 
     const deeperBtn = deeperLookEnabled
       ? `<button type="button" class="deeper-look-btn" data-deeper-look="${escapeHtml(
           report.ticker
         )}" title="Uses paid Claude credits — only when you ask">${
-          deeper?.analysis?.summary
+          deeperLookEnabled && deeper?.analysis?.summary
             ? "Refresh deeper look (Claude)"
             : "Deeper look via Claude"
         }</button>`

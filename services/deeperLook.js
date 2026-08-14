@@ -8,7 +8,7 @@
  *   until a successful probe or enable clears it
  */
 
-const { dbGet, dbRun, dbExecute } = require("../db/schema");
+const { dbGet, dbRun, dbExecute, dbAll } = require("../db/schema");
 const { getStockCacheEntry, pickAnalysisTake, normalizeDualAnalysis } = require("./cache");
 const { hasSourceKey } = require("../lib/dataSources");
 const { getSetting, setSetting } = require("./usage");
@@ -221,6 +221,8 @@ async function setDeeperLookEnabled(enabled) {
     }
   }
   await setSetting(DEEPER_LOOK_SETTING, on ? "1" : "0");
+  // Always scrub failed/fallback rows so a later re-enable gets clean retries.
+  await clearFailedDeeperLooks();
   return getDeeperLookSetting();
 }
 
@@ -233,7 +235,17 @@ async function getDeeperLook(ticker) {
   );
   if (!row) return null;
   try {
-    const dual = normalizeDualAnalysis(JSON.parse(row.summary_json));
+    const parsed = JSON.parse(row.summary_json);
+    if (isFallbackAnalysis(parsed)) {
+      // Failed/fallback rows should not surface on cards — delete so a later
+      // enable gets a clean retry instead of the old failure.
+      await dbRun(`DELETE FROM ai_deeper_looks WHERE ticker = ?`, [symbol]);
+      console.warn(
+        `[deeperLook] Cleared failed/fallback deeper look for ${symbol}`
+      );
+      return null;
+    }
+    const dual = normalizeDualAnalysis(parsed);
     return {
       ticker: symbol,
       provider: row.provider,
@@ -252,10 +264,39 @@ function isFallbackAnalysis(analysis) {
   const longSum = dual?.long?.summary || analysis?.long?.summary || "";
   const shortSum = dual?.short?.summary || analysis?.short?.summary || "";
   const snippet = String(TAKE_FALLBACK.summary || "wasn't available").toLowerCase();
-  return (
-    String(longSum).toLowerCase().includes(snippet) &&
-    String(shortSum).toLowerCase().includes(snippet)
+  const longHit = String(longSum).toLowerCase().includes(snippet);
+  const shortHit = String(shortSum).toLowerCase().includes(snippet);
+  // Treat as failed if either take is the canned fallback (or both).
+  return longHit || shortHit;
+}
+
+/**
+ * Delete stored Claude results that are canned fallbacks / failures.
+ * Successful deeper looks are left intact.
+ */
+async function clearFailedDeeperLooks() {
+  await ensureDeeperLookTable();
+  const rows = await dbAll(
+    `SELECT ticker, summary_json FROM ai_deeper_looks`
   );
+  const cleared = [];
+  for (const row of rows || []) {
+    try {
+      const parsed = JSON.parse(row.summary_json);
+      if (!isFallbackAnalysis(parsed)) continue;
+      await dbRun(`DELETE FROM ai_deeper_looks WHERE ticker = ?`, [row.ticker]);
+      cleared.push(String(row.ticker).toUpperCase());
+    } catch {
+      await dbRun(`DELETE FROM ai_deeper_looks WHERE ticker = ?`, [row.ticker]);
+      cleared.push(String(row.ticker).toUpperCase());
+    }
+  }
+  if (cleared.length) {
+    console.log(
+      `[deeperLook] Cleared ${cleared.length} failed deeper look(s): ${cleared.join(", ")}`
+    );
+  }
+  return { cleared };
 }
 
 /**
@@ -358,6 +399,8 @@ module.exports = {
   refreshClaudeHealth,
   recordClaudeFailure,
   recordClaudeSuccess,
+  clearFailedDeeperLooks,
+  isFallbackAnalysis,
   readHealth,
   DEEPER_LOOK_SETTING,
 };

@@ -81,7 +81,7 @@ const nvdaFresh = assessBoardPlacement(
 );
 assert.strictEqual(nvdaFresh.boardSection, BOARD_SECTIONS.LONG);
 
-// --- Hot mover: extreme day → penny section even with long IPO ---
+// --- Hot mover: extreme day, price ≥$5 → short (not penny, not long) ---
 const hot = assessBoardPlacement(
   {
     ticker: "RRGB",
@@ -101,7 +101,7 @@ const hot = assessBoardPlacement(
     historyBars: 200,
   }
 );
-assert.strictEqual(hot.boardSection, BOARD_SECTIONS.PENNY);
+assert.strictEqual(hot.boardSection, BOARD_SECTIONS.SHORT);
 
 // --- Obscure thin history, calm day → short (not long) ---
 const thin = assessBoardPlacement(
@@ -127,7 +127,7 @@ const thin = assessBoardPlacement(
 assert.strictEqual(thin.boardSection, BOARD_SECTIONS.SHORT);
 assert.ok(thin.signals.thinMarketHistory);
 
-// --- Too thin to classify reliably → penny (priority 1) ---
+// --- Too thin to classify reliably → unclassified (not penny/short/long) ---
 const unclassifiable = assessBoardPlacement(
   {
     ticker: "TINY",
@@ -148,7 +148,7 @@ const unclassifiable = assessBoardPlacement(
     indicators: { long: { sma: { sma200: null } } },
   }
 );
-assert.strictEqual(unclassifiable.boardSection, BOARD_SECTIONS.PENNY);
+assert.strictEqual(unclassifiable.boardSection, BOARD_SECTIONS.UNCLASSIFIED);
 assert.ok(unclassifiable.signals.insufficientToClassify);
 
 // Vol helper sanity

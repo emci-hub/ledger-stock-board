@@ -152,9 +152,11 @@ const placement = assessLongTermPlacement(discoveryPick, {
   peRatio: null,
   analystTarget: null,
   exchange: "NASDAQ",
+  priceHistory: Array.from({ length: 40 }, (_, i) => 10 + i * 0.05),
+  historyBars: 40,
 });
 assert.strictEqual(placement.longTermEligible, false);
-assert.strictEqual(placement.boardSection, "penny");
+assert.strictEqual(placement.boardSection, "short");
 assert.ok(placement.momentumSection);
 assert.ok(placement.longTermRankAdjusted < 40);
 

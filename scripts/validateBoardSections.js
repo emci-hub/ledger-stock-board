@@ -1,5 +1,6 @@
 /**
- * Validate three-category board placement (long | short | penny).
+ * Validate board placement (long | short | penny | unclassified).
+ * Penny = price <$5 only. Extreme movers ≥$5 → short.
  * No live market APIs.
  */
 require("dotenv").config();
@@ -8,7 +9,6 @@ const {
   assessBoardPlacement,
   BOARD_SECTIONS,
   partitionBoardBySection,
-  buildSectionPayload,
   statusFromBoardSection,
   THIN_HISTORY_LONG_RANK_CAP,
 } = require("../lib/rankingStability");
@@ -49,7 +49,7 @@ assert.strictEqual(stable.boardSection, BOARD_SECTIONS.LONG);
 assert.ok(stable.longTermEligible);
 assert.strictEqual(stable.sectionRank, stable.longTermRankAdjusted);
 
-// --- Extreme mover → penny section, never long ---
+// --- Extreme mover ≥$5 → short (not penny, not long) ---
 const hot = assessBoardPlacement(
   {
     ticker: "RRGB",
@@ -68,11 +68,11 @@ const hot = assessBoardPlacement(
     historyBars: 200,
   }
 );
-assert.strictEqual(hot.boardSection, BOARD_SECTIONS.PENNY);
+assert.strictEqual(hot.boardSection, BOARD_SECTIONS.SHORT);
 assert.strictEqual(hot.longTermEligible, false);
-assert.notStrictEqual(hot.sectionRank, hot.shortTermRank);
+assert.strictEqual(hot.sectionRank, hot.shortTermRank);
 
-// --- Penny price → penny section ---
+// --- Penny price → penny section (even if calm) ---
 const penny = assessBoardPlacement(
   {
     ticker: "PNY",
@@ -116,7 +116,7 @@ const thin = assessBoardPlacement(
 assert.strictEqual(thin.boardSection, BOARD_SECTIONS.SHORT);
 assert.strictEqual(thin.sectionRank, thin.shortTermRank);
 
-// --- Too thin to classify (< SHORT_MIN bars, no IPO/SMA) → penny/volatile ---
+// --- Too thin to classify (< SHORT_MIN bars, no IPO/SMA) → unclassified ---
 const unclassifiable = assessBoardPlacement(
   {
     ticker: "TINY",
@@ -136,8 +136,9 @@ const unclassifiable = assessBoardPlacement(
     indicators: { long: { sma: { sma200: null } } },
   }
 );
-assert.strictEqual(unclassifiable.boardSection, BOARD_SECTIONS.PENNY);
+assert.strictEqual(unclassifiable.boardSection, BOARD_SECTIONS.UNCLASSIFIED);
 assert.ok(unclassifiable.signals.insufficientToClassify);
+assert.ok(unclassifiable.needsBackfill);
 
 const rows = [
   {
@@ -174,8 +175,12 @@ const rows = [
 const parts = partitionBoardBySection(rows);
 assert.strictEqual(parts.long.length, 1);
 assert.strictEqual(parts.long[0].ticker, "STBL");
+assert.strictEqual(parts.short.length, 2);
+assert.ok(parts.short.some((r) => r.ticker === "RRGB"));
 assert.ok(!parts.long.some((r) => r.ticker === "RRGB" || r.ticker === "PNY"));
-assert.strictEqual(parts.penny.filter((r) => r.ticker === "TINY").length, 1);
+assert.strictEqual(parts.penny.length, 1);
+assert.strictEqual(parts.unclassified.length, 1);
+assert.strictEqual(parts.unclassified[0].ticker, "TINY");
 
 assert.strictEqual(
   statusFromBoardSection("bullish", "low", BOARD_SECTIONS.PENNY),
@@ -184,6 +189,10 @@ assert.strictEqual(
 assert.strictEqual(
   statusFromBoardSection("bullish", "low", BOARD_SECTIONS.LONG),
   "recommended"
+);
+assert.strictEqual(
+  statusFromBoardSection("bullish", "low", BOARD_SECTIONS.UNCLASSIFIED),
+  "watch"
 );
 
 console.log("OK validateBoardSections");

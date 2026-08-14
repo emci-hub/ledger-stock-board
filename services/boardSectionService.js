@@ -175,7 +175,7 @@ async function reclassifyLiveBoard(options = {}) {
   const startedAt = new Date().toISOString();
   const picks = await listBoardDisplayPicks();
   const results = [];
-  const counts = { long: 0, short: 0, penny: 0 };
+  const counts = { long: 0, short: 0, penny: 0, unclassified: 0 };
 
   for (const pick of picks) {
     try {
@@ -213,6 +213,9 @@ async function reclassifyLiveBoard(options = {}) {
         .map((r) => r.ticker),
       penny: results
         .filter((r) => r.boardSection === "penny")
+        .map((r) => r.ticker),
+      unclassified: results
+        .filter((r) => r.boardSection === "unclassified")
         .map((r) => r.ticker),
     },
     errors: results.filter((r) => r.error).map((r) => ({
@@ -266,11 +269,9 @@ async function validateBoardSectionIntegrity(options = {}) {
       okRows.push(pick.ticker);
     }
 
-    // Hard invariant: penny criteria must never sit in long/short (computed).
+    // Hard invariant: true penny (price<$5) must never sit in long/short.
     if (
-      (placement.signals.penny ||
-        placement.signals.extremeMove ||
-        placement.signals.insufficientToClassify) &&
+      placement.signals.penny &&
       placement.boardSection !== BOARD_SECTIONS.PENNY
     ) {
       mismatches.push({
@@ -278,7 +279,20 @@ async function validateBoardSectionIntegrity(options = {}) {
         stored,
         computed: placement.boardSection,
         fatal: true,
-        detail: "penny/volatile criteria but not boardSection=penny",
+        detail: "penny price criteria but not boardSection=penny",
+      });
+    }
+    // Insufficient history must not land in a display bucket.
+    if (
+      placement.signals.insufficientToClassify &&
+      placement.boardSection !== BOARD_SECTIONS.UNCLASSIFIED
+    ) {
+      mismatches.push({
+        ticker: pick.ticker,
+        stored,
+        computed: placement.boardSection,
+        fatal: true,
+        detail: "insufficient history but not boardSection=unclassified",
       });
     }
   }

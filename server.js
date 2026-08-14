@@ -446,11 +446,22 @@ app.get("/api/board", async (req, res) => {
       penny: buildSectionPayload(partitioned[BOARD_SECTIONS.PENNY]),
     };
 
+    // Unclassified (needs backfill) stay off the three display buckets.
+    const displayBoard = board.filter(
+      (row) =>
+        row.boardSection === BOARD_SECTIONS.LONG ||
+        row.boardSection === BOARD_SECTIONS.SHORT ||
+        row.boardSection === BOARD_SECTIONS.PENNY
+    );
+
     return res.json({
       mode,
       sections,
       /** Flat list kept for diagnostics; UI must render from sections only. */
-      board,
+      board: displayBoard,
+      unclassified: (partitioned[BOARD_SECTIONS.UNCLASSIFIED] || []).map(
+        (row) => row.ticker
+      ),
     });
   } catch (err) {
     console.error("[GET /api/board]", err.message);

@@ -496,10 +496,10 @@
       <div class="section-label">Needs a refresh <span class="stale-badge">stale · 48h+</span></div>
       <div class="grid stale-grid" id="stale-grid"></div>
     </div>
-    <!-- Short-term only: penny / most-volatile sub-category (own spotlight + rank) -->
+    <!-- Short-term only: penny sub-category (own spotlight + rank) -->
     <div class="momentum-section" id="penny-section" hidden>
-      <div class="section-label">Penny / most volatile <span class="stale-badge">higher risk</span></div>
-      <p class="momentum-sub" id="penny-sub">Sub-$5 names and extreme single-day movers — ranked separately from general short-term picks.</p>
+      <div class="section-label">Penny stocks <span class="stale-badge">higher risk</span></div>
+      <p class="momentum-sub" id="penny-sub">Sub-$5 names — ranked separately from general short-term picks.</p>
       <div class="spotlight-grid" id="penny-spotlight"></div>
       <div class="grid" id="penny-grid"></div>
     </div>
@@ -1249,7 +1249,7 @@
             rest: longSec.rest || (longSec.items || []).slice(3),
           },
           emptyNote:
-            "No long-term-ready picks yet. Names need established real market history (IPO age or ~6+ months of price data), a major exchange, and no penny/extreme single-day spikes.",
+            "No long-term-ready picks yet. Names need established real market history (IPO age or ~6+ months of price data), a major exchange, and price of $5+.",
         });
 
         const stale = longSec.stale || [];

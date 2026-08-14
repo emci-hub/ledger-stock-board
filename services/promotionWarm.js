@@ -34,7 +34,7 @@ async function alphaVantageSpendable() {
 
 /**
  * Priority rank for scarce fills (lower = sooner):
- * 0 long, 1 short (general), 2 penny/extreme last.
+ * 0 long, 1 short (general), 2 penny, 3 unclassified/needs-backfill last.
  */
 function scarceFillPriority(pick, reportLike = {}) {
   const placement = assessBoardPlacement(pick, reportLike);
@@ -42,7 +42,10 @@ function scarceFillPriority(pick, reportLike = {}) {
     return { tier: 0, label: "long_term_track" };
   }
   if (placement.boardSection === BOARD_SECTIONS.PENNY) {
-    return { tier: 2, label: "penny_or_extreme" };
+    return { tier: 2, label: "penny" };
+  }
+  if (placement.boardSection === BOARD_SECTIONS.UNCLASSIFIED) {
+    return { tier: 3, label: "needs_backfill" };
   }
   return { tier: 1, label: "short_general" };
 }

@@ -7,10 +7,7 @@
 
 const { dbAll, dbGet, dbRun } = require("../db/schema");
 const { getSetting, setSetting } = require("./usage");
-const {
-  getUsCommonStocksFromTwelve,
-  hasSourceKey,
-} = require("./dataFetch");
+const { getUsCommonStocksFromTwelve } = require("./dataFetch");
 const {
   UNIVERSE_MAJOR_EXCHANGES,
   UNIVERSE_REFRESH_MAX_AGE_MS,
@@ -21,11 +18,15 @@ const {
   CANDIDATE_POOL_CAP,
   isMajorExchange,
 } = require("../lib/boardTickers");
-const {
-  upsertCandidateFromUniverse,
-  countCandidates,
-  getPick,
-} = require("../lib/boardPicks");
+
+function boardPicks() {
+  // Lazy require — avoid circular init with lib/boardPicks ↔ jobs/discoverHotStocks.
+  return require("../lib/boardPicks");
+}
+
+function hasTwelveKey() {
+  return Boolean(process.env.TWELVE_DATA_API_KEY);
+}
 
 function isUniverseMajorExchange(exchange) {
   const ex = String(exchange || "")
@@ -74,7 +75,7 @@ async function refreshDiscoveryUniverse(options = {}) {
   const dryRun = Boolean(options.dryRun);
   const startedAt = new Date().toISOString();
 
-  if (!hasSourceKey("twelve_data")) {
+  if (!hasTwelveKey()) {
     return {
       ok: false,
       skipped: true,
@@ -257,6 +258,7 @@ async function upsertUniverseCandidateBatch(options = {}) {
     };
   }
 
+  const { countCandidates, getPick, upsertCandidateFromUniverse } = boardPicks();
   const currentCandidates = await countCandidates();
   const headroom = Math.max(0, poolCap - currentCandidates);
   const target = Math.min(batchSize, headroom > 0 ? Math.max(headroom, 0) : 0);

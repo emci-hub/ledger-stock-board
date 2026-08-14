@@ -49,7 +49,7 @@ const JOB_DEFS = [
     schedule: "after refresh/discovery/smart-refresh + daily 08:15",
     enabled: true,
     description:
-      "Re-persists boardSection from assessBoardPlacement and validates every live ticker has exactly one section; flags penny criteria sitting in long/short.",
+      "Re-persists boardSection via assessBoardPlacement for live+archived display tickers; validates exactly one section each; flags penny criteria sitting in long/short.",
   },
 ];
 

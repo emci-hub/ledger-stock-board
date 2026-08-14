@@ -22,7 +22,7 @@ const {
 } = require("./cache");
 const { buildReport } = require("./getStockReport");
 const { getQuoteAndIndicators } = require("./dataFetch");
-const { listLiveBoardPicks, getPick } = require("../lib/boardPicks");
+const { listBoardDisplayPicks, getPick } = require("../lib/boardPicks");
 const { setSetting, getSetting } = require("./usage");
 const { recordJobRun } = require("./jobRuns");
 
@@ -168,11 +168,12 @@ async function classifyAndPersistTicker(ticker, options = {}) {
 }
 
 /**
- * Reclassify every live board ticker from cache (backfill only when too thin).
+ * Reclassify every display-board ticker (live + archived) from cache.
+ * Backfill only when explicitly allowed and history is too thin.
  */
 async function reclassifyLiveBoard(options = {}) {
   const startedAt = new Date().toISOString();
-  const picks = await listLiveBoardPicks();
+  const picks = await listBoardDisplayPicks();
   const results = [];
   const counts = { long: 0, short: 0, penny: 0 };
 
@@ -226,12 +227,12 @@ async function reclassifyLiveBoard(options = {}) {
 }
 
 /**
- * Integrity self-check: every live ticker has exactly one valid section;
- * no penny/volatile signals sitting in long/short.
+ * Integrity self-check: every display ticker (live + archived) has exactly one
+ * valid section; no penny/volatile signals sitting in long/short.
  */
 async function validateBoardSectionIntegrity(options = {}) {
   const startedAt = new Date().toISOString();
-  const picks = await listLiveBoardPicks();
+  const picks = await listBoardDisplayPicks();
   const mismatches = [];
   const missing = [];
   const invalid = [];

@@ -16,8 +16,13 @@
  */
 
 const { setSetting, getUsageToday, PROVIDERS } = require("../services/usage");
-const { getDiscoveryMoversBundle } = require("../services/dataFetch");
+const {
+  getDiscoveryMoversBundle,
+  getCompanyProfileFromFmp,
+  hasFmpKey,
+} = require("../services/dataFetch");
 const { warmNewlyPromotedTicker } = require("../services/promotionWarm");
+const { ensureTickerIdentity } = require("../services/tickerIdentity");
 const {
   hasSourceKey,
   smartRefreshReserve,
@@ -268,6 +273,55 @@ async function previewPromoteEligibleCandidates(options = {}) {
 }
 
 /**
+ * Prefetch FMP profile for promotion: retain extras + block inactive listings.
+ * Returns { ok, profile, identity, skipReason } — skipReason set when inactive.
+ */
+async function preparePromotionIdentity(ticker, hints = {}) {
+  const symbol = String(ticker || "")
+    .trim()
+    .toUpperCase();
+  let profile = null;
+  if (hasFmpKey()) {
+    try {
+      profile = await getCompanyProfileFromFmp(symbol);
+    } catch (err) {
+      console.warn(
+        `[promoteEligibleCandidates] FMP profile precheck failed for ${symbol}:`,
+        err.message
+      );
+    }
+  }
+
+  if (profile && profile.isActivelyTrading === false) {
+    console.warn(
+      `[promoteEligibleCandidates] Excluding ${symbol} from promotion — FMP isActivelyTrading=false (inactive listing)`
+    );
+    return {
+      ok: false,
+      skipReason: "not_actively_trading",
+      profile,
+      identity: null,
+    };
+  }
+
+  const idResult = await ensureTickerIdentity(symbol, {
+    name: hints.name || profile?.name || null,
+    sector: hints.sector || profile?.sector || null,
+    description: hints.description || profile?.description || null,
+    exchange: hints.exchange || profile?.exchange || null,
+    profile: profile || undefined,
+    force: !profile,
+  });
+
+  return {
+    ok: true,
+    profile,
+    identity: idResult?.identity || null,
+    idResult,
+  };
+}
+
+/**
  * Promote top-ranked candidates up to computePromotionBudget().
  * Does NOT fetch FMP movers and does NOT acquire the admin lock — caller
  * (Discovery Stage 2 or Smart Refresh) must hold the shared lock.
@@ -334,16 +388,32 @@ async function promoteEligibleCandidates(options = {}) {
       seatsLeft -= 1;
       continue;
     }
+
+    const prepared = await preparePromotionIdentity(ticker, {
+      name: mover?.name || null,
+      exchange: mover?.exchange || null,
+    });
+    if (!prepared.ok) {
+      skipped.push({
+        ticker,
+        reason: prepared.skipReason || "identity_blocked",
+        kind: "repromote",
+      });
+      continue;
+    }
+
     const cap = await ensureBoardCapacity(1, {
       protect: rePromoteTickers,
     });
     archivedOut.push(...(cap.archived || []));
 
     let report = null;
+    const id = prepared.identity || {};
     await promotePick(ticker, {
       status: "watch",
-      sector: null,
-      name: mover?.name || null,
+      sector: id.sector || null,
+      name: id.name || mover?.name || null,
+      exchange: id.exchange || mover?.exchange || null,
       source: `${pickSource}_repromote`,
     });
     if (warmReports) {
@@ -351,7 +421,9 @@ async function promoteEligibleCandidates(options = {}) {
         const warm = await warmNewlyPromotedTicker(ticker, {
           forceNews: true,
           forcePrice: true,
-          name: mover?.name || null,
+          name: id.name || mover?.name || null,
+          sector: id.sector || null,
+          exchange: id.exchange || mover?.exchange || null,
         });
         report = warm.report || null;
         if (!warm.ok) {
@@ -370,11 +442,17 @@ async function promoteEligibleCandidates(options = {}) {
       }
     }
     const status = report ? pickStatusFromReport(report) : "watch";
-    if (status !== "watch" || report?.sector || report?.name) {
+    if (
+      status !== "watch" ||
+      report?.sector ||
+      report?.name ||
+      report?.exchange
+    ) {
       await promotePick(ticker, {
         status,
-        sector: report?.sector || null,
-        name: report?.name || report?.companyName || mover?.name || null,
+        sector: report?.sector || id.sector || null,
+        name: report?.name || report?.companyName || id.name || mover?.name || null,
+        exchange: report?.exchange || id.exchange || mover?.exchange || null,
         source: `${pickSource}_repromote`,
       });
     }
@@ -440,6 +518,21 @@ async function promoteEligibleCandidates(options = {}) {
       continue;
     }
 
+    const prepared = await preparePromotionIdentity(ticker, {
+      name: mover.name || row.name || null,
+      exchange: mover.exchange || row.exchange || null,
+    });
+    if (!prepared.ok) {
+      skipped.push({
+        ticker,
+        reason: prepared.skipReason || "identity_blocked",
+        kind: "promote",
+        mainPool: row.mainPool,
+      });
+      continue;
+    }
+    const id = prepared.identity || {};
+
     const cap = await ensureBoardCapacity(1, {
       protect: [
         ...rePromoteTickers,
@@ -449,11 +542,12 @@ async function promoteEligibleCandidates(options = {}) {
     });
     archivedOut.push(...(cap.archived || []));
 
-    // Promote first, then immediate catch-up (identity/price/news now; target if AV allows).
+    // Promote first, then immediate catch-up (identity already filled; price/news/target next).
     await promotePick(ticker, {
       status: "watch",
-      sector: null,
-      name: mover.name || row.name || null,
+      sector: id.sector || null,
+      name: id.name || mover.name || row.name || null,
+      exchange: id.exchange || mover.exchange || row.exchange || null,
       source: pickSource,
     });
 
@@ -465,7 +559,9 @@ async function promoteEligibleCandidates(options = {}) {
           // Wave already batch-prefetched when possible — don't double-spend.
           forceNews: false,
           forcePrice: false,
-          name: mover.name || row.name || null,
+          name: id.name || mover.name || row.name || null,
+          sector: id.sector || null,
+          exchange: id.exchange || mover.exchange || row.exchange || null,
         });
         report = warmMeta.report || null;
         if (!warmMeta.ok) {
@@ -485,11 +581,24 @@ async function promoteEligibleCandidates(options = {}) {
     }
 
     const status = report ? pickStatusFromReport(report) : "watch";
-    if (status !== "watch" || report?.sector || report?.name) {
+    if (
+      status !== "watch" ||
+      report?.sector ||
+      report?.name ||
+      report?.exchange
+    ) {
       await promotePick(ticker, {
         status,
-        sector: report?.sector || null,
-        name: report?.name || report?.companyName || mover.name || row.name || null,
+        sector: report?.sector || id.sector || null,
+        name:
+          report?.name ||
+          report?.companyName ||
+          id.name ||
+          mover.name ||
+          row.name ||
+          null,
+        exchange:
+          report?.exchange || id.exchange || mover.exchange || row.exchange || null,
         source: pickSource,
       });
     }

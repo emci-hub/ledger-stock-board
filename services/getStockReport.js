@@ -27,7 +27,13 @@ const {
 const { analyzeStock } = require("./analyze");
 const { logQuoteClose } = require("./priceHistoryLog");
 const { getTickerInfo, resolveTickerIdentity } = require("../lib/tickerInfo");
-const { ensureTickerIdentity } = require("./tickerIdentity");
+const {
+  ensureTickerIdentity,
+  formatMarketCapLabel,
+  instrumentLabelFromFlags,
+  resolveDisplayLogo,
+  hasProfileExtras,
+} = require("./tickerIdentity");
 const { getPick } = require("../lib/boardPicks");
 const { sourceShortCode, formatSourceList } = require("../lib/dataSources");
 const { resolveProviderId } = require("../lib/aiProvider");
@@ -187,6 +193,17 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
   const sector = identity.sector;
   // Curated blurbs preferred; otherwise use API overview description (non-board / discovery).
   const description = identity.description;
+  const logo = resolveDisplayLogo(overview);
+  const marketCap =
+    overview.marketCap != null && Number.isFinite(Number(overview.marketCap))
+      ? Number(overview.marketCap)
+      : null;
+  const marketCapLabel = formatMarketCapLabel(marketCap);
+  const ipoDate = overview.ipoDate || null;
+  const exchange = overview.exchange || null;
+  const isEtf = overview.isEtf === true;
+  const isFund = overview.isFund === true;
+  const instrumentLabel = instrumentLabelFromFlags(overview);
   const priceHistory = Array.isArray(quote.priceHistory)
     ? quote.priceHistory
     : Array.isArray(rawData?.priceHistory)
@@ -263,6 +280,18 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     name: companyName,
     companyName,
     description,
+    logo,
+    logoFallback: String(ticker || "?")
+      .trim()
+      .charAt(0)
+      .toUpperCase() || "?",
+    marketCap,
+    marketCapLabel,
+    ipoDate,
+    exchange,
+    isEtf,
+    isFund,
+    instrumentLabel,
     price,
     change: quote.price?.change ?? null,
     changePercent: quote.price?.changePercent ?? null,
@@ -682,17 +711,20 @@ async function getStockReport(ticker, mode, options = {}) {
   if (!loaded) return null;
 
   // Identity catch-up: discovery tickers often lack curated blurbs and never
-  // hit AV OVERVIEW — fill name/sector/description from FMP profile / pick.
+  // hit AV OVERVIEW — fill name/sector/description + FMP profile extras.
   try {
     const overview = loaded.rawData?.fundamentals?.overview || {};
-    const needsIdentity =
+    const missingCore =
       !getTickerInfo(symbol) &&
       !(overview.name && overview.sector && overview.description);
-    if (needsIdentity) {
+    const missingExtras = !hasProfileExtras(overview);
+    if (missingCore || missingExtras) {
       const pick = await getPick(symbol);
       const idResult = await ensureTickerIdentity(symbol, {
         name: pick?.name || null,
         sector: pick?.sector || null,
+        exchange: pick?.exchange || null,
+        force: missingExtras,
       });
       const id = idResult?.identity;
       if (id) {
@@ -705,7 +737,29 @@ async function getStockReport(ticker, mode, options = {}) {
         const ov = loaded.rawData.fundamentals.overview;
         if (id.name) ov.name = ov.name || id.name;
         if (id.sector) ov.sector = ov.sector || id.sector;
-        if (id.description) ov.description = ov.description || id.description;
+        if (id.description) {
+          if (
+            !ov.description ||
+            String(id.description).length > String(ov.description).length + 15
+          ) {
+            ov.description = id.description;
+          }
+        }
+        if (id.industry) ov.industry = ov.industry || id.industry;
+        if (id.exchange) ov.exchange = ov.exchange || id.exchange;
+        if (id.logo) ov.logo = ov.logo || id.logo;
+        if (id.defaultImage != null && ov.defaultImage == null) {
+          ov.defaultImage = id.defaultImage;
+        }
+        if (id.marketCap != null && ov.marketCap == null) {
+          ov.marketCap = id.marketCap;
+        }
+        if (id.ipoDate) ov.ipoDate = ov.ipoDate || id.ipoDate;
+        if (id.isActivelyTrading != null) {
+          ov.isActivelyTrading = id.isActivelyTrading;
+        }
+        if (id.isEtf != null) ov.isEtf = id.isEtf;
+        if (id.isFund != null) ov.isFund = id.isFund;
       }
     }
   } catch (err) {

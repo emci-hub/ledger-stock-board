@@ -121,11 +121,37 @@
   .card.lean-watch::before{background:var(--gold);}
   .card.lean-risk::before{background:var(--rust);}
 
-  .card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;}
+  .card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:10px;}
+  .card-top-main{display:flex;align-items:flex-start;gap:10px;min-width:0;flex:1;}
+  .logo-box{
+    width:36px;height:36px;border-radius:8px;flex-shrink:0;
+    background:rgba(245,246,241,0.06);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;overflow:hidden;
+  }
+  .logo-box img{
+    width:100%;height:100%;object-fit:contain;display:block;
+  }
+  .logo-fallback{
+    font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:14px;
+    color:var(--muted);line-height:1;
+  }
+  .ticker-block{min-width:0;}
   .ticker-block .ticker{font-family:'Fraunces',serif;font-weight:600;font-size:19px;color:#F5F6F1;}
   .ticker-block .company{font-size:12px;color:var(--muted-dim);margin-top:1px;}
   .ticker-block .blurb{
     font-size:11px;line-height:1.4;color:var(--muted-dim);margin-top:4px;max-width:220px;
+  }
+  .ticker-meta{
+    display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:5px;
+  }
+  .market-cap{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+  }
+  .instrument-tag{
+    font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;
+    letter-spacing:0.04em;text-transform:uppercase;
+    color:var(--gold);border:1px solid rgba(212,162,76,0.45);
+    background:rgba(212,162,76,0.12);border-radius:5px;padding:1px 6px;
   }
   .sector{
     font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);
@@ -699,6 +725,27 @@
     const blurb = report.description
       ? `<div class="blurb">${escapeHtml(report.description)}</div>`
       : "";
+    const marketCapLine = report.marketCapLabel
+      ? `<span class="market-cap">${escapeHtml(report.marketCapLabel)}</span>`
+      : "";
+    const instrumentTag = report.instrumentLabel
+      ? `<span class="instrument-tag" title="This is a ${escapeHtml(
+          report.instrumentLabel
+        )}, not a single-company stock">${escapeHtml(report.instrumentLabel)}</span>`
+      : "";
+    const metaBits = [instrumentTag, marketCapLine].filter(Boolean).join("");
+    const metaRow = metaBits
+      ? `<div class="ticker-meta">${metaBits}</div>`
+      : "";
+    const logoUrl = report.logo || null;
+    const logoHtml = logoUrl
+      ? `<div class="logo-box" aria-hidden="true"><img src="${escapeHtml(
+          logoUrl
+        )}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"></div>`
+      : `<div class="logo-box" aria-hidden="true"><span class="logo-fallback">${escapeHtml(
+          report.logoFallback ||
+            String(report.ticker || "?").charAt(0).toUpperCase()
+        )}</span></div>`;
 
     const peers = Array.isArray(report.peers) ? report.peers : [];
     const peerCaveats = caveatBadgesHtml(caveatsForPlace(report, "peers"));
@@ -855,10 +902,14 @@
       options.spotlight ? " spotlight" : ""
     }${report.stale ? " is-stale" : ""}" data-ticker="${escapeHtml(report.ticker)}">
       <div class="card-top">
-        <div class="ticker-block">
-          <div class="ticker">${escapeHtml(report.ticker)}</div>
-          <div class="company">${escapeHtml(report.companyName || report.name || report.ticker)}</div>
-          ${blurb}
+        <div class="card-top-main">
+          ${logoHtml}
+          <div class="ticker-block">
+            <div class="ticker">${escapeHtml(report.ticker)}</div>
+            <div class="company">${escapeHtml(report.companyName || report.name || report.ticker)}</div>
+            ${blurb}
+            ${metaRow}
+          </div>
         </div>
         <div class="sector">${escapeHtml(shortSector(report.sector))}</div>
       </div>

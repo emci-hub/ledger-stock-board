@@ -1375,14 +1375,39 @@ async function getCompanyProfileFromFmp(ticker) {
       row.companyName || row.company_name || row.name || null;
     const sector = row.sector || null;
     const description = row.description || null;
-    if (!name && !sector && !description) return null;
+    if (!name && !sector && !description && row.image == null) return null;
+
+    const marketCap = num(row.marketCap);
+    const isActivelyTrading =
+      row.isActivelyTrading === true
+        ? true
+        : row.isActivelyTrading === false
+          ? false
+          : null;
+
     return {
       ticker: symbol,
       name: name ? String(name).trim() : null,
       sector: sector ? String(sector).trim() : null,
       industry: row.industry ? String(row.industry).trim() : null,
       description: description ? String(description).trim() : null,
-      exchange: row.exchange || row.exchangeFullName || null,
+      exchange: row.exchange
+        ? String(row.exchange).trim()
+        : row.exchangeFullName
+          ? String(row.exchangeFullName).trim()
+          : null,
+      logo: row.image ? String(row.image).trim() : null,
+      defaultImage:
+        row.defaultImage === true
+          ? true
+          : row.defaultImage === false
+            ? false
+            : null,
+      marketCap: marketCap != null ? marketCap : null,
+      ipoDate: row.ipoDate ? String(row.ipoDate).trim() : null,
+      isActivelyTrading,
+      isEtf: row.isEtf === true ? true : row.isEtf === false ? false : null,
+      isFund: row.isFund === true ? true : row.isFund === false ? false : null,
       source: "fmp",
     };
   } catch (err) {

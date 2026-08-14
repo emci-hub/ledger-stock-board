@@ -62,6 +62,7 @@ async function warmNewlyPromotedTicker(ticker, options = {}) {
       name: options.name || null,
       sector: options.sector || null,
       description: options.description || null,
+      exchange: options.exchange || null,
       force: options.forceIdentity === true,
     });
     result.identity = Boolean(idResult?.identity?.name);

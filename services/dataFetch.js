@@ -521,7 +521,9 @@ function buildQuoteFromBars(symbol, bars, source, meta = null) {
       changePercent,
       latestTradingDay: latest.date || null,
     },
-    priceHistory: closes.slice(-40),
+    priceHistory: closes.slice(-252),
+    /** How many daily bars were available when indicators were computed. */
+    historyBars: closes.length,
     /** Shared history; UI/analysis pick short vs long from the same object. */
     indicators: {
       short: indicatorsShort,

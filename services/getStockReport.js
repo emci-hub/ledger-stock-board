@@ -209,6 +209,10 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     : Array.isArray(rawData?.priceHistory)
       ? rawData.priceHistory
       : [];
+  const historyBars =
+    quote.historyBars != null
+      ? Number(quote.historyBars)
+      : priceHistory.length || null;
   const price = quote.price?.current ?? null;
   const weekRange = computeWeekRange(price, priceHistory, overview);
   const earnings = buildEarningsFlag(overview.earningsDate);
@@ -325,6 +329,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     earnings,
     peers,
     priceHistory,
+    historyBars,
     quip: hasRealAnalysis ? quip : null,
     labels: {
       analystTarget: buildTag("analyst_target"),

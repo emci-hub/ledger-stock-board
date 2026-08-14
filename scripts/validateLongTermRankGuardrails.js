@@ -127,10 +127,16 @@ const stableCtx = buildRankingContext(stablePick, {
   analystTargetPrice: 170,
   peRatio: 22,
   marketCap: 2e11,
+  ipoDate: "1990-01-01",
+  priceHistory: Array.from({ length: 200 }, (_, i) => 100 + i * 0.1),
+  historyBars: 400,
+  indicators: { long: { sma: { sma200: 140 } } },
 });
+assert.strictEqual(stableCtx.thinMarketHistory, false);
 assert.strictEqual(stableCtx.newlyTracked, false);
 assert.strictEqual(stableCtx.missingLongTermFundamentals, false);
 const stableAdj = applyLongTermStabilityPenalties(78, {
+  thinMarketHistory: false,
   newlyTracked: false,
   extremeMove: false,
   penny: false,

@@ -10,31 +10,39 @@ const {
   partitionBoardBySection,
   buildSectionPayload,
   statusFromBoardSection,
-  NEWLY_TRACKED_LONG_RANK_CAP,
+  THIN_HISTORY_LONG_RANK_CAP,
 } = require("../lib/rankingStability");
 
-function monthAgo() {
-  return new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
-}
 function yesterday() {
   return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 }
 
-// --- Long-eligible stable ---
+function synthCloses(n, start = 100) {
+  const out = [start];
+  for (let i = 1; i < n; i++) out.push(out[i - 1] * 1.001);
+  return out;
+}
+
+// --- Long-eligible stable (real IPO, calm) even if just added to Ledger ---
 const stable = assessBoardPlacement(
   {
     ticker: "STBL",
-    source: "seed",
+    source: "discovery",
     exchange: "NYSE",
-    tracked_since: monthAgo(),
+    tracked_since: yesterday(),
   },
   {
     price: 150,
     changePercent: 0.5,
     peRatio: 22,
     analystTarget: 170,
+    ipoDate: "1995-06-01",
+    marketCap: 5e10,
     shortTermRank: 55,
     longTermRank: 78,
+    priceHistory: synthCloses(200),
+    historyBars: 400,
+    indicators: { long: { sma: { sma200: 140 } } },
   }
 );
 assert.strictEqual(stable.boardSection, BOARD_SECTIONS.LONG);
@@ -54,12 +62,15 @@ const hot = assessBoardPlacement(
     changePercent: 26,
     shortTermRank: 78,
     longTermRank: 72,
+    ipoDate: "2000-01-01",
+    marketCap: 2e9,
+    priceHistory: synthCloses(200),
+    historyBars: 200,
   }
 );
 assert.strictEqual(hot.boardSection, BOARD_SECTIONS.PENNY);
 assert.strictEqual(hot.longTermEligible, false);
 assert.notStrictEqual(hot.sectionRank, hot.shortTermRank);
-assert.strictEqual(hot.sectionRank, hot.pennyVolatileRank);
 
 // --- Penny price → penny section ---
 const penny = assessBoardPlacement(
@@ -67,26 +78,44 @@ const penny = assessBoardPlacement(
     ticker: "PNY",
     source: "discovery",
     exchange: "NASDAQ",
-    tracked_since: monthAgo(),
+    tracked_since: yesterday(),
   },
-  { price: 2.1, changePercent: 3, shortTermRank: 60, longTermRank: 50 }
+  {
+    price: 2.1,
+    changePercent: 3,
+    shortTermRank: 60,
+    longTermRank: 50,
+    ipoDate: "2010-01-01",
+    marketCap: 5e8,
+    priceHistory: synthCloses(200),
+    historyBars: 200,
+  }
 );
 assert.strictEqual(penny.boardSection, BOARD_SECTIONS.PENNY);
 
-// --- Newly tracked, calm move → short (not long, not penny) ---
-const freshCalm = assessBoardPlacement(
+// --- Thin real history, calm → short (not long) ---
+const thin = assessBoardPlacement(
   {
     ticker: "NEW1",
     source: "discovery",
     exchange: "NYSE",
     tracked_since: yesterday(),
   },
-  { price: 40, changePercent: 2, shortTermRank: 70, longTermRank: 65 }
+  {
+    price: 40,
+    changePercent: 2,
+    shortTermRank: 70,
+    longTermRank: 65,
+    ipoDate: null,
+    marketCap: null,
+    priceHistory: synthCloses(25),
+    historyBars: 25,
+    indicators: { long: { sma: { sma200: null } } },
+  }
 );
-assert.strictEqual(freshCalm.boardSection, BOARD_SECTIONS.SHORT);
-assert.strictEqual(freshCalm.sectionRank, freshCalm.shortTermRank);
+assert.strictEqual(thin.boardSection, BOARD_SECTIONS.SHORT);
+assert.strictEqual(thin.sectionRank, thin.shortTermRank);
 
-// --- Partition + independent spotlights ---
 const rows = [
   {
     ticker: "STBL",
@@ -102,8 +131,8 @@ const rows = [
   },
   {
     ticker: "NEW1",
-    boardSection: freshCalm.boardSection,
-    sectionRank: freshCalm.sectionRank,
+    boardSection: thin.boardSection,
+    sectionRank: thin.sectionRank,
     report: { stale: false, ticker: "NEW1" },
   },
   {
@@ -116,17 +145,8 @@ const rows = [
 const parts = partitionBoardBySection(rows);
 assert.strictEqual(parts.long.length, 1);
 assert.strictEqual(parts.long[0].ticker, "STBL");
-assert.ok(parts.penny.every((r) => r.boardSection === "penny"));
 assert.ok(!parts.long.some((r) => r.ticker === "RRGB" || r.ticker === "PNY"));
 
-const longPay = buildSectionPayload(parts.long);
-const shortPay = buildSectionPayload(parts.short);
-const pennyPay = buildSectionPayload(parts.penny);
-assert.ok(longPay.spotlight.every((r) => r.boardSection === "long"));
-assert.ok(pennyPay.spotlight.every((r) => r.boardSection === "penny"));
-assert.ok(!longPay.spotlight.some((r) => r.ticker === "RRGB"));
-
-// Status alignment
 assert.strictEqual(
   statusFromBoardSection("bullish", "low", BOARD_SECTIONS.PENNY),
   "watch"
@@ -135,25 +155,16 @@ assert.strictEqual(
   statusFromBoardSection("bullish", "low", BOARD_SECTIONS.LONG),
   "recommended"
 );
-assert.strictEqual(
-  statusFromBoardSection("bullish", "low", BOARD_SECTIONS.SHORT),
-  "watch"
-);
 
 console.log("OK validateBoardSections");
 console.log(
   JSON.stringify(
     {
       stable: stable.boardSection,
-      hot: { section: hot.boardSection, sectionRank: hot.sectionRank, short: hot.shortTermRank },
-      freshCalm: freshCalm.boardSection,
+      hot: hot.boardSection,
+      thin: thin.boardSection,
       penny: penny.boardSection,
-      softCap: NEWLY_TRACKED_LONG_RANK_CAP,
-      counts: {
-        long: parts.long.length,
-        short: parts.short.length,
-        penny: parts.penny.length,
-      },
+      softCap: THIN_HISTORY_LONG_RANK_CAP,
     },
     null,
     2

@@ -29,9 +29,10 @@ function pickIndicators(quoteData) {
 }
 
 /**
+ * Complements Gemini RANKING_RUBRIC — factual signals that must not rely on the model alone.
  * Soft-clamp Gemini longTermRank using factual rankingContext.
- * Full stability penalties (extreme/penny/exchange/newlyTracked/missing) are applied
- * once at board read time via assessLongTermPlacement — do not re-apply them here.
+ * Full stability penalties (extreme/penny/exchange/thin real history) are applied
+ * once at board read time via assessBoardPlacement — do not re-apply them here.
  * shortTermRank is never modified.
  */
 function applyLongTermRankGuardrails(parsed, rankingContext) {

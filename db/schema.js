@@ -449,6 +449,26 @@ async function initSchema() {
       `CREATE INDEX IF NOT EXISTS idx_api_call_log_called_at ON api_call_log(called_at DESC)`
     );
 
+    await dbExecute(`
+      CREATE TABLE IF NOT EXISTS discovery_universe (
+        symbol TEXT PRIMARY KEY,
+        name TEXT,
+        exchange TEXT,
+        mic_code TEXT,
+        currency TEXT,
+        type TEXT,
+        country TEXT,
+        is_major INTEGER NOT NULL DEFAULT 0,
+        source TEXT NOT NULL DEFAULT 'twelve_data',
+        fetched_at TEXT NOT NULL,
+        last_considered_at TEXT
+      )
+    `);
+    await dbExecute(
+      `CREATE INDEX IF NOT EXISTS idx_discovery_universe_major_symbol
+       ON discovery_universe(is_major, symbol)`
+    );
+
     try {
       await migrateLegacyModeCache();
     } catch (err) {

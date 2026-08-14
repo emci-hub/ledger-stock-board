@@ -1569,6 +1569,39 @@ async function getPeers(ticker) {
   }
 }
 
+/**
+ * Twelve Data /stocks — US Common Stock symbol list (free tier).
+ * One HTTP call; large payload. Caller should cache locally (discovery_universe).
+ */
+async function getUsCommonStocksFromTwelve() {
+  if (!hasSourceKey("twelve_data")) {
+    throw new Error("TWELVE_DATA_API_KEY is not set");
+  }
+  const data = await callTwelveData(
+    "/stocks",
+    { country: "United States", type: "Common Stock" },
+    { timeoutMs: 120000, ticker: null }
+  );
+  const rows = Array.isArray(data?.data) ? data.data : [];
+  return rows
+    .map((row) => {
+      const symbol = String(row?.symbol || "")
+        .trim()
+        .toUpperCase();
+      if (!symbol) return null;
+      return {
+        symbol,
+        name: row?.name ? String(row.name).trim() : null,
+        exchange: row?.exchange ? String(row.exchange).trim() : null,
+        mic_code: row?.mic_code ? String(row.mic_code).trim() : null,
+        currency: row?.currency ? String(row.currency).trim() : null,
+        type: row?.type ? String(row.type).trim() : null,
+        country: row?.country ? String(row.country).trim() : null,
+      };
+    })
+    .filter(Boolean);
+}
+
 module.exports = {
   callAlphaVantage,
   callFinnhub,
@@ -1582,6 +1615,7 @@ module.exports = {
   getCompanyProfileFromFmp,
   getMarketMoversFromFmp,
   getDiscoveryMoversBundle,
+  getUsCommonStocksFromTwelve,
   hasFmpKey,
   getNewsSentiment,
   getNewsSentimentBatch,

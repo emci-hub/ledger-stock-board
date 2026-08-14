@@ -44,12 +44,24 @@ const {
   pruneMissingCandidates,
   trimCandidatePool,
   rankCandidatesForPromotion,
+  selectPromotionWave,
+  mergeCandidateMarketCapFlag,
   getPick,
   BOARD_MAX_SIZE,
   CANDIDATE_POOL_CAP,
   CANDIDATE_MISS_STREAK_LIMIT,
   DISCOVERY_PROMOTE_HARD_CAP,
 } = require("../lib/boardPicks");
+const {
+  DISCOVERY_MOVERS_SOURCE,
+  DISCOVERY_UNIVERSE_SOURCE,
+  UNIVERSE_CANDIDATE_BATCH,
+  universePromoteFloor,
+} = require("../lib/boardTickers");
+const {
+  refreshDiscoveryUniverse,
+  upsertUniverseCandidateBatch,
+} = require("../services/discoveryUniverse");
 const {
   assessBoardPlacement,
   statusFromBoardSection,
@@ -480,14 +492,19 @@ async function promoteEligibleCandidates(options = {}) {
     seatsLeft -= 1;
   }
 
-  // Batch-prefetch news/price for the candidate wave we can still afford.
-  const candidateWave = [];
-  for (const row of rankedCandidates) {
-    const ticker = String(row.ticker).toUpperCase();
-    if (liveSet.has(ticker)) continue;
-    if (candidateWave.length >= seatsLeft) break;
-    candidateWave.push(row);
-  }
+  // Soft universe floor inside remaining seats (same maxPromote ceiling).
+  const universeFloor = universePromoteFloor(
+    options.universeFloor != null
+      ? options.universeFloor
+      : promotionBudget.maxPromote
+  );
+  // Recompute floor against seats still left after archived re-promotes.
+  const effectiveUniverseFloor = Math.min(universeFloor, seatsLeft);
+  const wavePlan = selectPromotionWave(rankedCandidates, seatsLeft, {
+    universeFloor: effectiveUniverseFloor,
+    liveSet,
+  });
+  const candidateWave = wavePlan.wave;
 
   if (warmReports && !dryRun && candidateWave.length) {
     try {
@@ -531,6 +548,9 @@ async function promoteEligibleCandidates(options = {}) {
         mover,
         mainPool: row.mainPool,
         flags: row.flags,
+        fromUniverse: Boolean(row.fromUniverse),
+        source: row.source || null,
+        smallCap: Boolean(row.smallCap),
       });
       seatsLeft -= 1;
       continue;
@@ -550,6 +570,23 @@ async function promoteEligibleCandidates(options = {}) {
       continue;
     }
     const id = prepared.identity || {};
+    // Deprioritize known sub-$1B names on the next rank pass (never skip-warm here).
+    try {
+      const mcap =
+        prepared.profile?.marketCap ?? id.marketCap ?? null;
+      if (mcap != null) {
+        await mergeCandidateMarketCapFlag(ticker, mcap);
+        if (row.flags && typeof row.flags === "object") {
+          row.flags.marketCap = Number(mcap);
+          row.flags.smallCap =
+            Number(mcap) > 0 &&
+            Number(mcap) <
+              (Number(process.env.LONG_MIN_MARKET_CAP) || 1e9);
+        }
+      }
+    } catch {
+      /* non-fatal */
+    }
 
     const cap = await ensureBoardCapacity(1, {
       protect: [
@@ -660,6 +697,9 @@ async function promoteEligibleCandidates(options = {}) {
       percentChange: mover.percentChange ?? row.percent_change,
       mainPool: row.mainPool,
       flags: row.flags,
+      fromUniverse: Boolean(row.fromUniverse),
+      source: row.source || pickSource,
+      smallCap: Boolean(row.smallCap),
       discoveryBlurb,
       warm: warmMeta
         ? {
@@ -693,6 +733,12 @@ async function promoteEligibleCandidates(options = {}) {
     dryRun,
     promotionBudget,
     seatsRemaining: seatsLeft,
+    universeFloor: effectiveUniverseFloor,
+    wavePlan: {
+      general: wavePlan.generalWave.map((r) => String(r.ticker).toUpperCase()),
+      universe: wavePlan.universeWave.map((r) => String(r.ticker).toUpperCase()),
+      seatsRequested: wavePlan.seatsRequested,
+    },
     liveBefore: live.length,
     liveAfter: liveSet.size,
     rePromoted,
@@ -985,6 +1031,34 @@ async function discoverHotStocksInner({
   startedAt,
   options = {},
 }) {
+  // persistCandidates: Stage 1a/1b board_picks writes. Default off on dryRun so
+  // quota/lock dry passes don't mutate the pool; set true to admit universe rows
+  // without promoting/warming.
+  const persistCandidates =
+    options.persistCandidates != null
+      ? Boolean(options.persistCandidates)
+      : !dryRun;
+
+  // ── Stage 0: daily universe cache refresh (≤1 TD when stale) ───────
+  let stage0;
+  try {
+    stage0 = await refreshDiscoveryUniverse({
+      force: Boolean(options.forceUniverseRefresh),
+      // Metadata cache may refresh even on dryRun unless explicitly disabled.
+      dryRun: dryRun && options.refreshUniverseOnDryRun === false,
+    });
+  } catch (err) {
+    stage0 = {
+      ok: false,
+      error: err.message,
+      twelveDataCalls: 0,
+    };
+    console.warn(
+      "[discoverHotStocks] Stage 0 universe refresh failed:",
+      err.message
+    );
+  }
+
   let movers;
   try {
     movers = await getDiscoveryMoversBundle();
@@ -992,6 +1066,7 @@ async function discoverHotStocksInner({
     const result = {
       ok: false,
       error: err.message,
+      stage0,
       startedAt,
       finishedAt: new Date().toISOString(),
     };
@@ -1002,7 +1077,7 @@ async function discoverHotStocksInner({
     return result;
   }
 
-  // ── Stage 1: cheap candidate upsert (no full reports) ──────────────
+  // ── Stage 1a: cheap FMP mover candidate upsert ─────────────────────
   const stage1 = {
     inserted: 0,
     updated: 0,
@@ -1012,7 +1087,7 @@ async function discoverHotStocksInner({
     flaggedNonMajor: 0,
   };
 
-  if (!dryRun) {
+  if (persistCandidates) {
     for (const mover of movers.all) {
       const res = await upsertCandidateFromMover(mover);
       if (res.action === "inserted") stage1.inserted += 1;
@@ -1024,13 +1099,38 @@ async function discoverHotStocksInner({
     }
   }
 
-  const prune = dryRun
-    ? { bumped: [], removed: [], missLimit: CANDIDATE_MISS_STREAK_LIMIT }
+  // ── Stage 1b: universe cursor batch → candidates (0 market API) ────
+  let stage1b;
+  try {
+    stage1b = await upsertUniverseCandidateBatch({
+      dryRun: !persistCandidates,
+      batchSize: options.universeBatchSize || UNIVERSE_CANDIDATE_BATCH,
+      poolCap: CANDIDATE_POOL_CAP,
+    });
+  } catch (err) {
+    stage1b = { ok: false, error: err.message, inserted: 0 };
+    console.warn(
+      "[discoverHotStocks] Stage 1b universe batch failed:",
+      err.message
+    );
+  }
+
+  const prune = !persistCandidates
+    ? {
+        bumped: [],
+        removed: [],
+        skippedOtherSource: [],
+        missLimit: CANDIDATE_MISS_STREAK_LIMIT,
+        source: DISCOVERY_MOVERS_SOURCE,
+      }
     : await pruneMissingCandidates(
         movers.all.map((m) => m.ticker),
-        { missLimit: CANDIDATE_MISS_STREAK_LIMIT }
+        {
+          missLimit: CANDIDATE_MISS_STREAK_LIMIT,
+          source: DISCOVERY_MOVERS_SOURCE,
+        }
       );
-  const trim = dryRun
+  const trim = !persistCandidates
     ? { trimmed: [], kept: 0, max: CANDIDATE_POOL_CAP }
     : await trimCandidatePool({ max: CANDIDATE_POOL_CAP });
 
@@ -1063,9 +1163,16 @@ async function discoverHotStocksInner({
 
   const candidateCountAfter = await countCandidates();
   const finishedAt = new Date().toISOString();
+  const candidateRows = await listCandidatePicks();
+  const universePromoted = added.filter(
+    (a) =>
+      a.fromUniverse ||
+      String(a.source || "") === DISCOVERY_UNIVERSE_SOURCE
+  );
   const result = {
     ok: true,
     dryRun,
+    persistCandidates,
     startedAt,
     finishedAt,
     boardMax: BOARD_MAX_SIZE,
@@ -1075,21 +1182,31 @@ async function discoverHotStocksInner({
       mostActiveTop: movers.mostActive.slice(0, 10).map((m) => m.ticker),
       unique: movers.all.length,
     },
+    stage0,
     stage1: {
       ...stage1,
       pruned: prune.removed,
       pruneBumped: prune.bumped.length,
+      pruneSkippedOtherSource: prune.skippedOtherSource?.length || 0,
       trimmed: trim.trimmed,
       candidatePoolCap: CANDIDATE_POOL_CAP,
       missStreakLimit: CANDIDATE_MISS_STREAK_LIMIT,
+      moversSource: DISCOVERY_MOVERS_SOURCE,
     },
+    stage1b,
     candidates: {
       poolSize: candidateCountAfter,
-      ...candidateSummary(await listCandidatePicks()),
+      ...candidateSummary(candidateRows),
+      universeInPool: candidateRows.filter(
+        (r) => String(r.source || "") === DISCOVERY_UNIVERSE_SOURCE
+      ).length,
       promotableToday: promotionBudget.maxPromote,
       bindingSource: promotionBudget.bindingSource,
       hardCap: promotionBudget.hardCap,
+      universeFloor: promotion.universeFloor,
+      wavePlan: promotion.wavePlan || null,
       promoted: added.length,
+      promotedUniverse: universePromoted.length,
       rePromoted: rePromoted.length,
     },
     promotionBudget,
@@ -1100,6 +1217,12 @@ async function discoverHotStocksInner({
     archived: archivedOut,
     skipped,
     alphaVantageTouched: false,
+    estimatedCalls: {
+      twelve_data: Number(stage0?.twelveDataCalls || 0) + added.length,
+      fmp: 3 + added.length, // movers bundle + profile per promote
+      alpha_vantage: dryRun || !warmReports ? 0 : added.length,
+      marketaux: dryRun || !warmReports ? 0 : added.length,
+    },
   };
 
   await setSetting("lastHotStockDiscovery", JSON.stringify(result));

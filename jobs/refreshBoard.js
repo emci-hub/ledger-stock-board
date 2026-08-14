@@ -24,6 +24,14 @@ const {
   cleanupArchive,
 } = require("../lib/boardPicks");
 const { syncBoardSectionsAfterJob } = require("../services/boardSectionService");
+const {
+  createQuotaBudget,
+  runWithBudget,
+} = require("../services/quotaBudget");
+const {
+  tryAcquireAdminLock,
+  releaseAdminLock,
+} = require("../services/adminActionLock");
 
 /** Neutral "roughly flat" band vs logged price (±3%). */
 const FLAT_BAND = 0.03;
@@ -244,6 +252,11 @@ async function cleanupStaleCache() {
 /**
  * Refresh the board universe once per ticker (shared report).
  * Mode arg is ignored — board_picks status always comes from the long take.
+ *
+ * Shares the admin action lock with Discovery / Smart Refresh / Manual Analyze.
+ * Uses createQuotaBudget() so forced pulls cannot dip into smartRefreshReserve
+ * (same gate as Smart Refresh). Still supports forceRefresh Gemini rewrite +
+ * morning failure handoff.
  */
 async function refreshBoard(_modeOrOptions) {
   const opts =
@@ -253,6 +266,31 @@ async function refreshBoard(_modeOrOptions) {
   /** Morning cron passes force:true — one full daily refresh of the active board. */
   const force = Boolean(opts.force);
 
+  const acquired = tryAcquireAdminLock("board_refresh");
+  if (!acquired.ok) {
+    console.warn(`[refreshBoard] ${acquired.message}`);
+    return {
+      ok: false,
+      alreadyRunning: true,
+      action: acquired.action,
+      startedAt: acquired.startedAt,
+      message: acquired.message,
+      force,
+      boardRefreshStatus: "skipped_locked",
+      successes: 0,
+      tickerCount: 0,
+      failures: [],
+    };
+  }
+
+  try {
+    return await refreshBoardInner({ force });
+  } finally {
+    releaseAdminLock("board_refresh");
+  }
+}
+
+async function refreshBoardInner({ force }) {
   const existingAll = await listAllBoardTickers();
   if (!existingAll.length) {
     for (const t of BOARD_TICKERS) {
@@ -263,25 +301,13 @@ async function refreshBoard(_modeOrOptions) {
 
   const { prefetchBoardNewsAndPrices } = require("../services/boardBatchPrefetch");
 
+  const budget = await createQuotaBudget();
+  const budgetSnap = budget.snapshot();
   console.log(
-    `[refreshBoard] Starting shared refresh for ${tickers.length} live tickers at ${new Date().toISOString()} force=${force}`
+    `[refreshBoard] Starting shared refresh for ${tickers.length} live tickers at ${new Date().toISOString()} force=${force} · AV spendable=${budgetSnap.spendable.alpha_vantage} (reserve=${budgetSnap.reserves.alpha_vantage}) TD spendable=${budgetSnap.spendable.twelve_data} MX spendable=${budgetSnap.spendable.marketaux}`
   );
 
-  // Batch news (MX+AV) and TD prices once for the active board before the
-  // per-ticker getStockReport loop — avoids N×1 loops against daily quotas.
   let batchPrefetch = null;
-  try {
-    batchPrefetch = await prefetchBoardNewsAndPrices(tickers, {
-      forceNews: force,
-      forcePrice: force,
-    });
-    console.log(
-      `[refreshBoard] batch prefetch — MX=${batchPrefetch.httpCalls.marketaux} AV=${batchPrefetch.httpCalls.alpha_vantage} TD_http=${batchPrefetch.httpCalls.twelve_data} TD_credits=${batchPrefetch.twelveCredits}`
-    );
-  } catch (err) {
-    console.warn(`[refreshBoard] batch prefetch failed:`, err.message);
-  }
-
   let recommended = 0;
   let watch = 0;
   let skipped = 0;
@@ -290,6 +316,8 @@ async function refreshBoard(_modeOrOptions) {
   let rateLimited = false;
   let successes = 0;
   const failures = [];
+  const reserveSkips = [];
+  const noQuotaSkips = [];
 
   async function upsertLiveStatus(ticker, status, sector, boardSection = null) {
     const prev = await getPick(ticker);
@@ -328,126 +356,229 @@ async function refreshBoard(_modeOrOptions) {
     }
   }
 
-  for (const ticker of tickers) {
+  const runOutcomes = {
+    refreshedFields: [],
+    skippedNoQuota: [],
+    skippedReserveProtected: [],
+  };
+
+  await runWithBudget(budget, runOutcomes, async () => {
+    // Batch news (MX+AV) and TD prices once for the active board before the
+    // per-ticker getStockReport loop — under the same quota budget/reserve gate.
     try {
-      const entry = await getStockCacheEntry(ticker);
-      const summaryFresh = await getCachedSummary(ticker);
-      const fullyFresh = entry && isFullyFresh(entry.data);
-
-      if (!force && fullyFresh && summaryFresh) {
-        cacheReused += 1;
-        console.log(
-          `[refreshBoard] ${ticker} price+target+news+earnings fresh — skipping live fetch`
-        );
-        // Display mode long so board status uses the long-term take.
-        const report = await getStockReport(ticker, "long", { skipPeers: false });
-        if (!report) {
-          skipped += 1;
-          continue;
-        }
-        const lean = report.analysis?.lean;
-        const risk = report.analysis?.risk;
-        const pick = (await getPick(ticker)) || { ticker };
-        const placement = assessBoardPlacement(pick, report);
-        const status = statusFromAnalysis(lean, risk, {
-          pick,
-          report,
-          boardSection: placement.boardSection,
-        });
-        if (!status) {
-          skipped += 1;
-          continue;
-        }
-        await upsertLiveStatus(
-          ticker,
-          status,
-          report.sector || null,
-          placement.boardSection
-        );
-        if (status === "recommended") recommended += 1;
-        else watch += 1;
-        successes += 1;
-        continue;
-      }
-
-      if (entry && !fullyFresh) {
-        console.log(
-          `[refreshBoard] ${ticker} partial stale — will refresh missing pieces only`
-        );
-      }
-
-      fetched += 1;
-      const report = await getStockReport(ticker, "long", {
-        skipPeers: false,
-        ...(force ? { forceRefresh: true } : {}),
+      batchPrefetch = await prefetchBoardNewsAndPrices(tickers, {
+        forceNews: force,
+        forcePrice: force,
       });
-      if (!report) {
-        console.warn(`[refreshBoard] No report for ${ticker} — leaving out`);
+      console.log(
+        `[refreshBoard] batch prefetch — MX=${batchPrefetch.httpCalls.marketaux} AV=${batchPrefetch.httpCalls.alpha_vantage} TD_http=${batchPrefetch.httpCalls.twelve_data} TD_credits=${batchPrefetch.twelveCredits}`
+      );
+    } catch (err) {
+      console.warn(`[refreshBoard] batch prefetch failed:`, err.message);
+      if (err?.reason === "reserve_protected" || err?.code === "reserve_protected") {
+        console.warn(`[refreshBoard] skipped — reserve protected (${err.provider || "batch"})`);
+        reserveSkips.push({
+          stage: "batch_prefetch",
+          provider: err.provider || null,
+          detail: err.message,
+        });
+      }
+    }
+
+    for (const ticker of tickers) {
+      const tickerOutcomes = {
+        refreshedFields: [],
+        skippedNoQuota: [],
+        skippedReserveProtected: [],
+      };
+      try {
+        await runWithBudget(budget, tickerOutcomes, async () => {
+          const entry = await getStockCacheEntry(ticker);
+          const summaryFresh = await getCachedSummary(ticker);
+          const fullyFresh = entry && isFullyFresh(entry.data);
+
+          if (!force && fullyFresh && summaryFresh) {
+            cacheReused += 1;
+            console.log(
+              `[refreshBoard] ${ticker} price+target+news+earnings fresh — skipping live fetch`
+            );
+            const report = await getStockReport(ticker, "long", {
+              skipPeers: false,
+              smartRefresh: true,
+            });
+            if (!report) {
+              skipped += 1;
+              return;
+            }
+            const lean = report.analysis?.lean;
+            const risk = report.analysis?.risk;
+            const pick = (await getPick(ticker)) || { ticker };
+            const placement = assessBoardPlacement(pick, report);
+            const status = statusFromAnalysis(lean, risk, {
+              pick,
+              report,
+              boardSection: placement.boardSection,
+            });
+            if (!status) {
+              skipped += 1;
+              return;
+            }
+            await upsertLiveStatus(
+              ticker,
+              status,
+              report.sector || null,
+              placement.boardSection
+            );
+            if (status === "recommended") recommended += 1;
+            else watch += 1;
+            successes += 1;
+            return;
+          }
+
+          if (entry && !fullyFresh) {
+            console.log(
+              `[refreshBoard] ${ticker} partial stale — will refresh missing pieces only`
+            );
+          }
+
+          fetched += 1;
+          // forceRefresh keeps morning Gemini rewrite; smartRefresh enables
+          // createQuotaBudget / smartRefreshReserve skips in dataFetch helpers.
+          const report = await getStockReport(ticker, "long", {
+            skipPeers: false,
+            smartRefresh: true,
+            ...(force ? { forceRefresh: true } : {}),
+          });
+          if (!report) {
+            console.warn(`[refreshBoard] No report for ${ticker} — leaving out`);
+            skipped += 1;
+            failures.push({
+              ticker: String(ticker).toUpperCase(),
+              error: "no_report",
+              code: "no_report",
+            });
+            return;
+          }
+
+          const lean = report.analysis?.lean;
+          const risk = report.analysis?.risk;
+          const pick = (await getPick(ticker)) || { ticker };
+          const placement = assessBoardPlacement(pick, report);
+          const status = statusFromAnalysis(lean, risk, {
+            pick,
+            report,
+            boardSection: placement.boardSection,
+          });
+
+          if (!status) {
+            console.log(
+              `[refreshBoard] ${ticker} lean=${lean} risk=${risk} — no board status, leaving out`
+            );
+            skipped += 1;
+            return;
+          }
+
+          await upsertLiveStatus(
+            ticker,
+            status,
+            report.sector || null,
+            placement.boardSection
+          );
+
+          if (status === "recommended") {
+            recommended += 1;
+            if (report.price != null) {
+              await logRecommendation(ticker, report.price, lean);
+            }
+          } else {
+            watch += 1;
+          }
+
+          successes += 1;
+          console.log(
+            `[refreshBoard] ${ticker} → ${status} (long lean=${lean}, risk=${risk})`
+          );
+        });
+
+        for (const s of tickerOutcomes.skippedReserveProtected || []) {
+          console.warn(
+            `[refreshBoard] ${ticker} skipped — reserve protected (${s.provider || s.field})`
+          );
+          reserveSkips.push({ ticker, ...s });
+        }
+        for (const s of tickerOutcomes.skippedNoQuota || []) {
+          console.warn(
+            `[refreshBoard] ${ticker} skipped — no quota (${s.provider || s.field})`
+          );
+          noQuotaSkips.push({ ticker, ...s });
+        }
+      } catch (err) {
+        if (err instanceof AlphaVantageError && err.code === "rate_limit") {
+          rateLimited = true;
+        }
+        if (err?.reason === "reserve_protected" || err?.code === "reserve_protected") {
+          console.warn(
+            `[refreshBoard] ${ticker} skipped — reserve protected (${err.provider || "unknown"})`
+          );
+          reserveSkips.push({
+            ticker: String(ticker).toUpperCase(),
+            provider: err.provider || null,
+            detail: err.message,
+          });
+          skipped += 1;
+          continue;
+        }
+        if (err?.reason === "no_quota" || err?.code === "no_quota") {
+          console.warn(
+            `[refreshBoard] ${ticker} skipped — no quota (${err.provider || "unknown"})`
+          );
+          noQuotaSkips.push({
+            ticker: String(ticker).toUpperCase(),
+            provider: err.provider || null,
+            detail: err.message,
+          });
+          skipped += 1;
+          continue;
+        }
+        console.error(`[refreshBoard] Failed for ${ticker}:`, err.message);
         skipped += 1;
         failures.push({
           ticker: String(ticker).toUpperCase(),
-          error: "no_report",
-          code: "no_report",
+          error: err.message,
+          code: err.code || null,
         });
-        continue;
       }
+    }
+  });
 
-      const lean = report.analysis?.lean;
-      const risk = report.analysis?.risk;
-      const pick = (await getPick(ticker)) || { ticker };
-      const placement = assessBoardPlacement(pick, report);
-      const status = statusFromAnalysis(lean, risk, {
-        pick,
-        report,
-        boardSection: placement.boardSection,
-      });
-
-      if (!status) {
-        console.log(
-          `[refreshBoard] ${ticker} lean=${lean} risk=${risk} — no board status, leaving out`
+  // Surface any batch-level budget skips that weren't attributed per ticker.
+  for (const s of budget.skips || []) {
+    if (s.reason === "reserve_protected") {
+      const already = reserveSkips.some(
+        (r) => r.provider === s.provider && r.ticker === s.ticker
+      );
+      if (!already) {
+        console.warn(
+          `[refreshBoard] skipped — reserve protected (${s.provider}${s.ticker ? ` · ${s.ticker}` : ""})`
         );
-        skipped += 1;
-        continue;
+        reserveSkips.push(s);
       }
-
-      await upsertLiveStatus(
-        ticker,
-        status,
-        report.sector || null,
-        placement.boardSection
+    } else if (s.reason === "no_quota") {
+      const already = noQuotaSkips.some(
+        (r) => r.provider === s.provider && r.ticker === s.ticker
       );
-
-      if (status === "recommended") {
-        recommended += 1;
-        if (report.price != null) {
-          await logRecommendation(ticker, report.price, lean);
-        }
-      } else {
-        watch += 1;
-      }
-
-      successes += 1;
-      console.log(
-        `[refreshBoard] ${ticker} → ${status} (long lean=${lean}, risk=${risk})`
-      );
-    } catch (err) {
-      if (err instanceof AlphaVantageError && err.code === "rate_limit") {
-        rateLimited = true;
-      }
-      console.error(`[refreshBoard] Failed for ${ticker}:`, err.message);
-      skipped += 1;
-      failures.push({
-        ticker: String(ticker).toUpperCase(),
-        error: err.message,
-        code: err.code || null,
-      });
+      if (!already) noQuotaSkips.push(s);
     }
   }
 
   let boardRefreshStatus = "full_success";
   if (successes === 0 && rateLimited) boardRefreshStatus = "failed_rate_limit";
-  else if (successes === 0) boardRefreshStatus = "failed";
-  else if (skipped > 0 || rateLimited) boardRefreshStatus = "partial";
+  else if (successes === 0 && (reserveSkips.length || noQuotaSkips.length)) {
+    boardRefreshStatus = reserveSkips.length ? "partial" : "failed";
+  } else if (successes === 0) boardRefreshStatus = "failed";
+  else if (skipped > 0 || rateLimited || reserveSkips.length || noQuotaSkips.length) {
+    boardRefreshStatus = "partial";
+  }
 
   const finishedAt = new Date().toISOString();
   await setSetting("lastBoardRefresh", finishedAt);
@@ -470,7 +601,7 @@ async function refreshBoard(_modeOrOptions) {
   }
 
   console.log(
-    `[refreshBoard] Done — recommended=${recommended}, watch=${watch}, skipped=${skipped}, fetched=${fetched}, cacheReused=${cacheReused}, failures=${failures.length}, status=${boardRefreshStatus}`
+    `[refreshBoard] Done — recommended=${recommended}, watch=${watch}, skipped=${skipped}, fetched=${fetched}, cacheReused=${cacheReused}, failures=${failures.length}, reserveSkips=${reserveSkips.length}, noQuotaSkips=${noQuotaSkips.length}, status=${boardRefreshStatus}`
   );
 
   let boardSectionSync = null;
@@ -484,6 +615,7 @@ async function refreshBoard(_modeOrOptions) {
   }
 
   return {
+    ok: true,
     mode: "long",
     recommended,
     watch,
@@ -497,6 +629,9 @@ async function refreshBoard(_modeOrOptions) {
     batchPrefetch,
     force,
     boardSectionSync,
+    quota: budget.snapshot(),
+    reserveSkips,
+    noQuotaSkips,
   };
 }
 

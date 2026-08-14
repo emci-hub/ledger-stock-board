@@ -10,7 +10,7 @@ const JOB_DEFS = [
     schedule: "0 7 * * * (server local / UTC on Render)",
     enabled: true,
     description:
-      "One full daily refreshBoard({force}) of active top-15 (batched price/news + analysis) + resolve + marketMood + didYouKnow + discoverHotStocks; morning failures logged for 1pm retry",
+      "discoverHotStocks then one full refreshBoard({force}) of the live board (quota-reserve gated + shared admin lock) + resolve + marketMood + didYouKnow; morning failures logged for 1pm retry",
   },
   {
     id: "news_catchup_1pm",

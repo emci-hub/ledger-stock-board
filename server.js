@@ -983,26 +983,9 @@ async function start() {
 
     cron.schedule("0 7 * * *", () => {
       (async () => {
-        // One consolidated full daily refresh of the active (top-15) board.
-        const board = await refreshBoard({ force: true });
-        await resolveOldRecommendations();
-        let moodOk = true;
-        let tidbitOk = true;
+        // Discover first (board membership), then forced refresh fills/analyzes
+        // the live set — same order as the intended Discover → Sort → Fetch pipeline.
         let discovery = null;
-        try {
-          const { refreshMarketMood } = require("./services/marketMood");
-          await refreshMarketMood();
-        } catch (err) {
-          moodOk = false;
-          console.error("[cron marketMood]", err.message);
-        }
-        try {
-          const { ensureTidbitBatch } = require("./services/didYouKnow");
-          await ensureTidbitBatch();
-        } catch (err) {
-          tidbitOk = false;
-          console.error("[cron didYouKnow]", err.message);
-        }
         try {
           discovery = await discoverHotStocks({ warmReports: true });
           console.log(
@@ -1024,15 +1007,36 @@ async function start() {
             summary: `failed: ${err.message}`,
           }).catch(() => {});
         }
+
+        const board = await refreshBoard({ force: true });
+        await resolveOldRecommendations();
+        let moodOk = true;
+        let tidbitOk = true;
+        try {
+          const { refreshMarketMood } = require("./services/marketMood");
+          await refreshMarketMood();
+        } catch (err) {
+          moodOk = false;
+          console.error("[cron marketMood]", err.message);
+        }
+        try {
+          const { ensureTidbitBatch } = require("./services/didYouKnow");
+          await ensureTidbitBatch();
+        } catch (err) {
+          tidbitOk = false;
+          console.error("[cron didYouKnow]", err.message);
+        }
         await recordJobRun("daily_board_refresh", {
-          ok: board?.boardRefreshStatus !== "failed" &&
+          ok:
+            board?.alreadyRunning !== true &&
+            board?.boardRefreshStatus !== "failed" &&
             board?.boardRefreshStatus !== "failed_rate_limit",
-          summary: `board=${board?.boardRefreshStatus}; ok=${board?.successes}/${board?.tickerCount}; failures=${Array.isArray(board?.failures) ? board.failures.length : 0}; mood=${moodOk ? "ok" : "fail"}; tidbits=${tidbitOk ? "ok" : "fail"}; discovery=${discovery?.ok === false ? "fail" : "ok"}`,
+          summary: `discovery=${discovery?.ok === false ? "fail" : "ok"}; board=${board?.boardRefreshStatus}; ok=${board?.successes}/${board?.tickerCount}; failures=${Array.isArray(board?.failures) ? board.failures.length : 0}; reserveSkips=${Array.isArray(board?.reserveSkips) ? board.reserveSkips.length : 0}; mood=${moodOk ? "ok" : "fail"}; tidbits=${tidbitOk ? "ok" : "fail"}`,
           detail: {
+            discovery,
             board,
             moodOk,
             tidbitOk,
-            discovery,
           },
         });
       })().catch(async (err) => {
@@ -1048,7 +1052,7 @@ async function start() {
       });
     });
     console.log(
-      "[cron] Scheduled full daily refreshBoard({force}) + resolve + marketMood + didYouKnow + discoverHotStocks at 07:00"
+      "[cron] Scheduled discoverHotStocks then refreshBoard({force}) + resolve + marketMood + didYouKnow at 07:00 (quota-reserve + admin lock)"
     );
 
     // Lightweight 1pm retry — only morning failures, not a second full pass.

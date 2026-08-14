@@ -665,11 +665,18 @@ async function loadSharedStockDataInner(symbol, options = {}) {
       console.log(
         `[getStockReport] summary ${analysis ? "refresh" : "miss"} for ${symbol} — calling Gemini once (dual+quip)`
       );
+      let boardPick = null;
+      try {
+        boardPick = await getPick(symbol);
+      } catch {
+        boardPick = null;
+      }
       analysis = await analyzeStock(
         symbol,
         rawData.quote,
         rawData.fundamentals,
-        rawData.peers || []
+        rawData.peers || [],
+        { pick: boardPick }
       );
       await saveSummaryToCache(symbol, null, analysis);
       noteFieldRefreshed("analysis");

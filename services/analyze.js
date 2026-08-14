@@ -8,7 +8,9 @@ const {
   FALLBACK,
   parseQuip,
   applyNewsAgreementGuard,
+  parseRank,
 } = require("../lib/aiShape");
+const { NEWLY_TRACKED_LONG_RANK_CAP } = require("../lib/rankingStability");
 
 function pickIndicators(quoteData) {
   const ind = quoteData?.indicators;
@@ -24,6 +26,47 @@ function pickIndicators(quoteData) {
     bollinger: ind?.bollinger || null,
   };
   return { short: flat, long: flat };
+}
+
+/**
+ * Soft-clamp Gemini longTermRank using factual rankingContext.
+ * Full stability penalties (extreme/penny/exchange/newlyTracked/missing) are applied
+ * once at board read time via assessLongTermPlacement — do not re-apply them here.
+ * shortTermRank is never modified.
+ */
+function applyLongTermRankGuardrails(parsed, rankingContext) {
+  if (!parsed || typeof parsed !== "object") return parsed;
+  const ctx = rankingContext || {};
+  let longRank = parseRank(parsed.longTermRank);
+  if (longRank == null) return parsed;
+
+  const cap =
+    ctx.longTermGuidance?.newlyTrackedLongRankSoftCap != null
+      ? Number(ctx.longTermGuidance.newlyTrackedLongRankSoftCap)
+      : ctx.newlyTracked
+        ? NEWLY_TRACKED_LONG_RANK_CAP
+        : null;
+
+  if (cap != null && Number.isFinite(cap) && longRank > cap) {
+    longRank = cap;
+  }
+
+  // If Gemini copied short onto long for a hot mover, pull long down.
+  const shortRank = parseRank(parsed.shortTermRank);
+  if (
+    ctx.extremeSingleDayMove &&
+    shortRank != null &&
+    longRank >= shortRank - 5
+  ) {
+    longRank = Math.min(longRank, Math.max(15, shortRank - 20));
+  }
+
+  if (ctx.missingLongTermFundamentals && longRank > 55) {
+    longRank = Math.min(longRank, 55);
+  }
+
+  parsed.longTermRank = longRank;
+  return parsed;
 }
 
 function flattenIndicators(block) {
@@ -48,7 +91,7 @@ function flattenIndicators(block) {
   };
 }
 
-function buildPayload(ticker, quoteData, fundamentalsData, peersData) {
+function buildPayload(ticker, quoteData, fundamentalsData, peersData, options = {}) {
   const price = quoteData?.price || {};
   const windows = pickIndicators(quoteData);
   const overview = fundamentalsData?.overview || {};
@@ -94,6 +137,21 @@ function buildPayload(ticker, quoteData, fundamentalsData, peersData) {
       })
     : [];
 
+  const { buildRankingContext } = require("../lib/rankingStability");
+  const rankingContext =
+    options.rankingContext ||
+    buildRankingContext(options.pick || {}, {
+      price: price.current ?? null,
+      changePercent: price.changePercent ?? null,
+      exchange: overview.exchange || options.pick?.exchange || null,
+      analystTargetPrice: overview.analystTargetPrice ?? null,
+      peRatio: overview.peRatio ?? null,
+      marketCap: overview.marketCap ?? null,
+      ipoDate: overview.ipoDate || null,
+      overview,
+      source: options.pick?.source || null,
+    });
+
   return {
     ticker: String(ticker).toUpperCase(),
     price: {
@@ -111,8 +169,13 @@ function buildPayload(ticker, quoteData, fundamentalsData, peersData) {
     company: {
       name: overview.name || null,
       sector: overview.sector || null,
+      industry: overview.industry || null,
       peRatio: overview.peRatio ?? null,
+      marketCap: overview.marketCap ?? null,
+      exchange: overview.exchange || options.pick?.exchange || null,
+      ipoDate: overview.ipoDate || null,
     },
+    rankingContext,
     newsSources,
     newsAlphaVantage,
     newsFinnhub: hasFinnhub ? newsFinnhub : null,
@@ -156,7 +219,13 @@ async function analyzeStock(
     o && typeof o === "object" && !Array.isArray(o) && (o.price || o.indicators);
 
   const looksLikeOptions = (o) =>
-    o && typeof o === "object" && !Array.isArray(o) && ("provider" in o || "skip" in o);
+    o &&
+    typeof o === "object" &&
+    !Array.isArray(o) &&
+    ("provider" in o ||
+      "skip" in o ||
+      "pick" in o ||
+      "rankingContext" in o);
 
   if (looksLikeQuote(modeOrQuote)) {
     quoteData = modeOrQuote;
@@ -185,12 +254,14 @@ async function analyzeStock(
       ticker,
       quoteData,
       fundamentalsData,
-      peersData
+      peersData,
+      opts
     );
     const newsAgreement = payload.newsAgreement;
 
     let parsed = await generateAnalysis(payload, { provider });
     parsed = applyNewsAgreementGuard(parsed, newsAgreement);
+    parsed = applyLongTermRankGuardrails(parsed, payload.rankingContext);
 
     if (!parsed?.quip) {
       parsed.quip = parseQuip(await getFallbackJoke());
@@ -214,6 +285,7 @@ async function analyzeStock(
 module.exports = {
   analyzeStock,
   buildPayload,
+  applyLongTermRankGuardrails,
   TAKE_FALLBACK,
   FALLBACK,
 };

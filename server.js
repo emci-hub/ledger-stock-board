@@ -50,6 +50,7 @@ const {
   listArchivedBoardPicks,
   listArchiveBrowse,
   listLiveBoardPicks,
+  listBoardDisplayPicks,
   BOARD_MAX_SIZE,
   countLiveBoard,
   countCandidates,
@@ -412,14 +413,18 @@ function applyPlacementToBoardRow(pick, report, mode) {
 app.get("/api/board", async (req, res) => {
   try {
     const mode = normalizeMode(req.query.mode);
-    const picks = await listLiveBoardPicks();
+    // Display universe = live + archived (boardSection organizes). Not candidates.
+    const picks = await listBoardDisplayPicks();
     const deeperEnabled = await isDeeperLookEnabled();
 
     const board = [];
     for (const pick of picks) {
       // Build report with mode-appropriate take; placement uses shared price/% signals.
       const report = await reportFromCache(pick.ticker, mode);
-      if (report && deeperEnabled) {
+      // Skip rows with no cached report — candidates shouldn't appear; archived
+      // without cache would only create empty/unclassifiable placeholders.
+      if (!report) continue;
+      if (deeperEnabled) {
         const deeper = await getDeeperLook(pick.ticker);
         report.deeperLook = deeper
           ? {
@@ -428,7 +433,7 @@ app.get("/api/board", async (req, res) => {
               analysis: deeper.long || deeper.short,
             }
           : null;
-      } else if (report) {
+      } else {
         report.deeperLook = null;
       }
       board.push(applyPlacementToBoardRow(pick, report, mode));

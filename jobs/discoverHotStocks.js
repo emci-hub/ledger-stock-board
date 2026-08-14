@@ -467,7 +467,7 @@ async function promoteEligibleCandidates(options = {}) {
           price: report.price ?? mover?.last ?? mover?.price,
           percent_change: report.changePercent ?? mover?.percent_change,
           exchange: report.exchange || mover?.exchange,
-          flags_json: row?.flags_json || null,
+          flags_json: null,
           tracked_since: null,
           source: "discovery",
         })

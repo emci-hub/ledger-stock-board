@@ -40,6 +40,16 @@ function applyLongTermRankGuardrails(parsed, rankingContext) {
   let longRank = parseRank(parsed.longTermRank);
   if (longRank == null) return parsed;
 
+  // If Gemini copied short onto long for a hot mover, pull long down first.
+  const shortRank = parseRank(parsed.shortTermRank);
+  if (
+    ctx.extremeSingleDayMove &&
+    shortRank != null &&
+    longRank >= shortRank - 5
+  ) {
+    longRank = Math.min(longRank, Math.max(15, shortRank - 20));
+  }
+
   const cap =
     ctx.longTermGuidance?.newlyTrackedLongRankSoftCap != null
       ? Number(ctx.longTermGuidance.newlyTrackedLongRankSoftCap)
@@ -49,16 +59,6 @@ function applyLongTermRankGuardrails(parsed, rankingContext) {
 
   if (cap != null && Number.isFinite(cap) && longRank > cap) {
     longRank = cap;
-  }
-
-  // If Gemini copied short onto long for a hot mover, pull long down.
-  const shortRank = parseRank(parsed.shortTermRank);
-  if (
-    ctx.extremeSingleDayMove &&
-    shortRank != null &&
-    longRank >= shortRank - 5
-  ) {
-    longRank = Math.min(longRank, Math.max(15, shortRank - 20));
   }
 
   if (ctx.missingLongTermFundamentals && longRank > 55) {

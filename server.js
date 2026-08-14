@@ -89,6 +89,12 @@ const {
   getLastCallByProvider,
 } = require("./services/apiCallLog");
 const { listJobStatuses, recordJobRun } = require("./services/jobRuns");
+const {
+  getBoardSectionHealth,
+  validateBoardSectionIntegrity,
+  reclassifyLiveBoard,
+  syncBoardSectionsAfterJob,
+} = require("./services/boardSectionService");
 
 const app = express();
 const PORT = 3000;
@@ -735,6 +741,11 @@ async function buildDevStatusPayload() {
     lastHotStockDiscoveryAt: await getSetting("lastHotStockDiscoveryAt"),
     lastHotStockDiscoveryStatus: await getSetting("lastHotStockDiscoveryStatus"),
     lastHotStockDiscovery: await getSetting("lastHotStockDiscovery"),
+    boardSectionHealth: await getBoardSectionHealth().catch((err) => ({
+      status: "error",
+      ok: false,
+      error: err.message,
+    })),
     resetsAt: nextMidnightPacificIso(),
   };
 }
@@ -746,6 +757,23 @@ app.get("/api/dev/status", async (req, res) => {
   } catch (err) {
     console.error("[GET /api/dev/status]", err.message);
     return res.status(500).json({ error: "Failed to load dev status." });
+  }
+});
+
+/** Reclassify live board from cache + run integrity self-check (dev only). */
+app.post("/api/dev/board-section-check", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    const allowBackfill = Boolean(req.body?.allowBackfill);
+    const reclass = await reclassifyLiveBoard({
+      allowBackfill,
+      updateStatus: Boolean(req.body?.updateStatus),
+    });
+    const check = await validateBoardSectionIntegrity({ recordJob: true });
+    return res.json({ ok: check.ok, reclass, check });
+  } catch (err) {
+    console.error("[POST /api/dev/board-section-check]", err.message);
+    return res.status(500).json({ error: err.message || "Board section check failed." });
   }
 });
 
@@ -1029,6 +1057,35 @@ async function start() {
     });
     console.log(
       "[cron] Scheduled 1pm morning-failure retry (retryMorningFailures) at 13:00"
+    );
+
+    // Standalone daily board-section integrity guardrail (cache-only; no market APIs).
+    cron.schedule("15 8 * * *", () => {
+      (async () => {
+        const result = await syncBoardSectionsAfterJob("daily_cron");
+        console.log(
+          "[cron boardSectionSelfCheck]",
+          result?.check?.ok === false
+            ? "FAIL"
+            : result?.error
+              ? `error:${result.error}`
+              : "ok",
+          result?.reclass?.counts || ""
+        );
+      })().catch(async (err) => {
+        console.error("[cron boardSectionSelfCheck]", err.message);
+        try {
+          await recordJobRun("board_section_self_check", {
+            ok: false,
+            summary: `failed: ${err.message}`,
+          });
+        } catch {
+          /* ignore */
+        }
+      });
+    });
+    console.log(
+      "[cron] Scheduled board section self-check daily at 08:15 (also runs after refresh/discovery/smart-refresh)"
     );
 
     cron.schedule("0 4 1 * *", () => {

@@ -58,6 +58,7 @@ const {
   tryAcquireAdminLock,
   releaseAdminLock,
 } = require("../services/adminActionLock");
+const { syncBoardSectionsAfterJob } = require("../services/boardSectionService");
 
 /** FMP calls for gainers + losers + most-actives. */
 const MOVERS_FMP_CALLS = 3;
@@ -1107,6 +1108,19 @@ async function discoverHotStocksInner({
     "lastHotStockDiscoveryStatus",
     dryRun ? "dry_run" : "success"
   );
+
+  if (!dryRun) {
+    try {
+      result.boardSectionSync = await syncBoardSectionsAfterJob(
+        "discover_hot_stocks"
+      );
+    } catch (err) {
+      console.warn(
+        "[discoverHotStocks] board section sync failed:",
+        err?.message || err
+      );
+    }
+  }
 
   console.log(
     `[discoverHotStocks] done — candidates=${candidateCountAfter} promoted=${added.length} rePromoted=${rePromoted.length} budget=${promotionBudget.maxPromote} (bound by ${promotionBudget.bindingSource})`

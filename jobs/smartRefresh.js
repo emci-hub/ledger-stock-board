@@ -39,6 +39,7 @@ const {
   previewPromoteEligibleCandidates,
   estimatePromotionWarmCalls,
 } = require("./discoverHotStocks");
+const { syncBoardSectionsAfterJob } = require("../services/boardSectionService");
 const {
   fillScarceFieldsByPriority,
   scarceFillPriority,
@@ -904,6 +905,15 @@ async function smartRefreshAll() {
       summary: `smart · refreshed=${refreshedTotal} promoted=${promotedCount} current=${currentTotal} noQuota=${quotaSkipTotal} reserve=${reserveSkipTotal} fail=${failedTotal} · ${total} calls`,
       detail: result,
     });
+
+    try {
+      result.boardSectionSync = await syncBoardSectionsAfterJob("smart_refresh");
+    } catch (err) {
+      console.warn(
+        "[smartRefresh] board section sync failed:",
+        err?.message || err
+      );
+    }
 
     console.log(
       `[smartRefresh] Done — refreshed=${refreshedTotal} promoted=${promotedCount} current=${currentTotal} noQuota=${quotaSkipTotal} reserve=${reserveSkipTotal} calls=${total}`

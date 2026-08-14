@@ -93,7 +93,7 @@ const penny = assessBoardPlacement(
 );
 assert.strictEqual(penny.boardSection, BOARD_SECTIONS.PENNY);
 
-// --- Thin real history, calm → short (not long) ---
+// --- Thin but classifiable (enough short bars, no IPO) → short (not long) ---
 const thin = assessBoardPlacement(
   {
     ticker: "NEW1",
@@ -115,6 +115,29 @@ const thin = assessBoardPlacement(
 );
 assert.strictEqual(thin.boardSection, BOARD_SECTIONS.SHORT);
 assert.strictEqual(thin.sectionRank, thin.shortTermRank);
+
+// --- Too thin to classify (< SHORT_MIN bars, no IPO/SMA) → penny/volatile ---
+const unclassifiable = assessBoardPlacement(
+  {
+    ticker: "TINY",
+    source: "discovery",
+    exchange: "NYSE",
+    tracked_since: yesterday(),
+  },
+  {
+    price: 40,
+    changePercent: 1,
+    shortTermRank: 50,
+    longTermRank: 50,
+    ipoDate: null,
+    marketCap: null,
+    priceHistory: synthCloses(5),
+    historyBars: 5,
+    indicators: { long: { sma: { sma200: null } } },
+  }
+);
+assert.strictEqual(unclassifiable.boardSection, BOARD_SECTIONS.PENNY);
+assert.ok(unclassifiable.signals.insufficientToClassify);
 
 const rows = [
   {
@@ -141,11 +164,18 @@ const rows = [
     sectionRank: penny.sectionRank,
     report: { stale: false, ticker: "PNY" },
   },
+  {
+    ticker: "TINY",
+    boardSection: unclassifiable.boardSection,
+    sectionRank: unclassifiable.sectionRank,
+    report: { stale: false, ticker: "TINY" },
+  },
 ];
 const parts = partitionBoardBySection(rows);
 assert.strictEqual(parts.long.length, 1);
 assert.strictEqual(parts.long[0].ticker, "STBL");
 assert.ok(!parts.long.some((r) => r.ticker === "RRGB" || r.ticker === "PNY"));
+assert.strictEqual(parts.penny.filter((r) => r.ticker === "TINY").length, 1);
 
 assert.strictEqual(
   statusFromBoardSection("bullish", "low", BOARD_SECTIONS.PENNY),
@@ -163,6 +193,7 @@ console.log(
       stable: stable.boardSection,
       hot: hot.boardSection,
       thin: thin.boardSection,
+      unclassifiable: unclassifiable.boardSection,
       penny: penny.boardSection,
       softCap: THIN_HISTORY_LONG_RANK_CAP,
     },

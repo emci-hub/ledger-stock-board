@@ -161,6 +161,21 @@
     </div>
 
     <div class="card">
+      <h2>Board section integrity</h2>
+      <p id="board-section-overview" style="margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.45;"></p>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th><th>Checked</th><th>Counts</th><th>Issues</th>
+            </tr>
+          </thead>
+          <tbody id="board-section-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Scheduled jobs</h2>
       <div style="overflow-x:auto;">
         <table>
@@ -247,6 +262,35 @@
         : "") +
       ` · lastBoardRefresh ${fmtTime(data.lastBoardRefresh)} (${data.boardRefreshStatus || "—"})` +
       ` · resets ${fmtTime(data.resetsAt)}`;
+
+    const bsh = data.boardSectionHealth || {};
+    const bshEl = document.getElementById("board-section-overview");
+    const bshBody = document.getElementById("board-section-body");
+    if (bshEl && bshBody) {
+      const counts = bsh.lastReclassify?.counts || {};
+      const detail = bsh.detail || {};
+      const mismatchN = (detail.mismatches || []).length;
+      const missingN = (detail.missing || []).length;
+      const invalidN = (detail.invalid || []).length;
+      bshEl.textContent =
+        `Self-check guardrail (assessBoardPlacement) · status=${bsh.status || "unknown"}` +
+        ` · last check ${fmtTime(bsh.checkedAt)}` +
+        (bsh.lastReclassify?.counts
+          ? ` · last reclass long=${counts.long ?? 0} short=${counts.short ?? 0} penny=${counts.penny ?? 0}`
+          : "");
+      const okCls = bsh.ok ? "ok" : "bad";
+      const issues =
+        bsh.ok === true
+          ? "none"
+          : `mismatch=${mismatchN} missing=${missingN} invalid=${invalidN}` +
+            (detail.error ? ` error=${detail.error}` : "");
+      bshBody.innerHTML = `<tr>
+        <td class="mono ${okCls}">${escapeHtml(bsh.status || "unknown")}</td>
+        <td class="mono">${escapeHtml(fmtTime(bsh.checkedAt))}</td>
+        <td class="mono">L=${escapeHtml(String(counts.long ?? "—"))} S=${escapeHtml(String(counts.short ?? "—"))} P=${escapeHtml(String(counts.penny ?? "—"))}</td>
+        <td class="mono ${okCls}">${escapeHtml(issues)}</td>
+      </tr>`;
+    }
 
     const lastMap = data.lastCallByProvider || {};
     const sourcesBody = document.getElementById("sources-body");

@@ -127,6 +127,30 @@ const thin = assessBoardPlacement(
 assert.strictEqual(thin.boardSection, BOARD_SECTIONS.SHORT);
 assert.ok(thin.signals.thinMarketHistory);
 
+// --- Too thin to classify reliably → penny (priority 1) ---
+const unclassifiable = assessBoardPlacement(
+  {
+    ticker: "TINY",
+    source: "discovery",
+    exchange: "NASDAQ",
+    tracked_since: yesterday(),
+  },
+  {
+    price: 25,
+    changePercent: 1,
+    exchange: "NASDAQ",
+    ipoDate: null,
+    marketCap: null,
+    shortTermRank: 40,
+    longTermRank: 40,
+    priceHistory: synthCloses(8),
+    historyBars: 8,
+    indicators: { long: { sma: { sma200: null } } },
+  }
+);
+assert.strictEqual(unclassifiable.boardSection, BOARD_SECTIONS.PENNY);
+assert.ok(unclassifiable.signals.insufficientToClassify);
+
 // Vol helper sanity
 const vol = realizedVolatilityAnnualized(synthCloses(100, 100, 0.01));
 assert.ok(vol == null || vol > 0);
@@ -147,6 +171,7 @@ console.log(
       nvdaFresh: nvdaFresh.boardSection,
       hot: hot.boardSection,
       thin: thin.boardSection,
+      unclassifiable: unclassifiable.boardSection,
     },
     null,
     2

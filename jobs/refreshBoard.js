@@ -23,6 +23,7 @@ const {
   getPick,
   cleanupArchive,
 } = require("../lib/boardPicks");
+const { syncBoardSectionsAfterJob } = require("../services/boardSectionService");
 
 /** Neutral "roughly flat" band vs logged price (±3%). */
 const FLAT_BAND = 0.03;
@@ -290,26 +291,41 @@ async function refreshBoard(_modeOrOptions) {
   let successes = 0;
   const failures = [];
 
-  async function upsertLiveStatus(ticker, status, sector) {
+  async function upsertLiveStatus(ticker, status, sector, boardSection = null) {
     const prev = await getPick(ticker);
     const wasLive =
       prev && ["recommended", "watch"].includes(String(prev.status || ""));
     const trackedSince = wasLive
       ? prev.tracked_since || prev.added_at || new Date().toISOString()
       : new Date().toISOString();
-    await dbRun(
-      `INSERT OR REPLACE INTO board_picks
-        (ticker, status, added_at, sector, archived_at, source, tracked_since)
-       VALUES (?, ?, ?, ?, NULL, ?, ?)`,
-      [
-        ticker,
-        status,
-        prev?.added_at || new Date().toISOString(),
-        sector || null,
-        prev?.source || "seed",
-        trackedSince,
-      ]
-    );
+    const symbol = String(ticker).toUpperCase();
+    if (prev) {
+      await dbRun(
+        `UPDATE board_picks
+         SET status = ?,
+             sector = COALESCE(?, sector),
+             archived_at = NULL,
+             tracked_since = ?,
+             board_section = COALESCE(?, board_section)
+         WHERE ticker = ?`,
+        [status, sector || null, trackedSince, boardSection, symbol]
+      );
+    } else {
+      await dbRun(
+        `INSERT INTO board_picks
+          (ticker, status, added_at, sector, archived_at, source, tracked_since, board_section)
+         VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`,
+        [
+          symbol,
+          status,
+          new Date().toISOString(),
+          sector || null,
+          "seed",
+          trackedSince,
+          boardSection,
+        ]
+      );
+    }
   }
 
   for (const ticker of tickers) {
@@ -332,12 +348,22 @@ async function refreshBoard(_modeOrOptions) {
         const lean = report.analysis?.lean;
         const risk = report.analysis?.risk;
         const pick = (await getPick(ticker)) || { ticker };
-        const status = statusFromAnalysis(lean, risk, { pick, report });
+        const placement = assessBoardPlacement(pick, report);
+        const status = statusFromAnalysis(lean, risk, {
+          pick,
+          report,
+          boardSection: placement.boardSection,
+        });
         if (!status) {
           skipped += 1;
           continue;
         }
-        await upsertLiveStatus(ticker, status, report.sector || null);
+        await upsertLiveStatus(
+          ticker,
+          status,
+          report.sector || null,
+          placement.boardSection
+        );
         if (status === "recommended") recommended += 1;
         else watch += 1;
         successes += 1;
@@ -369,7 +395,12 @@ async function refreshBoard(_modeOrOptions) {
       const lean = report.analysis?.lean;
       const risk = report.analysis?.risk;
       const pick = (await getPick(ticker)) || { ticker };
-      const status = statusFromAnalysis(lean, risk, { pick, report });
+      const placement = assessBoardPlacement(pick, report);
+      const status = statusFromAnalysis(lean, risk, {
+        pick,
+        report,
+        boardSection: placement.boardSection,
+      });
 
       if (!status) {
         console.log(
@@ -379,7 +410,12 @@ async function refreshBoard(_modeOrOptions) {
         continue;
       }
 
-      await upsertLiveStatus(ticker, status, report.sector || null);
+      await upsertLiveStatus(
+        ticker,
+        status,
+        report.sector || null,
+        placement.boardSection
+      );
 
       if (status === "recommended") {
         recommended += 1;
@@ -437,6 +473,16 @@ async function refreshBoard(_modeOrOptions) {
     `[refreshBoard] Done — recommended=${recommended}, watch=${watch}, skipped=${skipped}, fetched=${fetched}, cacheReused=${cacheReused}, failures=${failures.length}, status=${boardRefreshStatus}`
   );
 
+  let boardSectionSync = null;
+  try {
+    boardSectionSync = await syncBoardSectionsAfterJob("refresh_board");
+  } catch (err) {
+    console.warn(
+      "[refreshBoard] board section sync failed:",
+      err?.message || err
+    );
+  }
+
   return {
     mode: "long",
     recommended,
@@ -450,6 +496,7 @@ async function refreshBoard(_modeOrOptions) {
     failures,
     batchPrefetch,
     force,
+    boardSectionSync,
   };
 }
 

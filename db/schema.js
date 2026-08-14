@@ -383,6 +383,7 @@ async function initSchema() {
       "miss_streak INTEGER DEFAULT 0",
       "flags_json TEXT",
       "tracked_since TEXT",
+      "board_section TEXT",
     ]) {
       try {
         await dbExecute(`ALTER TABLE board_picks ADD COLUMN ${col}`);

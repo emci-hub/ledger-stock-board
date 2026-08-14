@@ -43,6 +43,14 @@ const JOB_DEFS = [
     description:
       "Quota-aware priority waterfall with per-source reserves (AV keeps 3 for live searches). Board gaps → recent → archive.",
   },
+  {
+    id: "board_section_self_check",
+    name: "Board section self-check",
+    schedule: "after refresh/discovery/smart-refresh + daily 08:15",
+    enabled: true,
+    description:
+      "Re-persists boardSection from assessBoardPlacement and validates every live ticker has exactly one section; flags penny criteria sitting in long/short.",
+  },
 ];
 
 function settingKey(jobId) {

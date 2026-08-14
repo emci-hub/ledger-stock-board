@@ -44,11 +44,16 @@ const {
   pruneMissingCandidates,
   trimCandidatePool,
   rankCandidatesForPromotion,
+  getPick,
   BOARD_MAX_SIZE,
   CANDIDATE_POOL_CAP,
   CANDIDATE_MISS_STREAK_LIMIT,
   DISCOVERY_PROMOTE_HARD_CAP,
 } = require("../lib/boardPicks");
+const {
+  assessBoardPlacement,
+  statusFromBoardSection,
+} = require("../lib/rankingStability");
 const {
   tryAcquireAdminLock,
   releaseAdminLock,
@@ -69,22 +74,24 @@ const WARM_COST_PER_TICKER = {
   gemini: 1,
 };
 
-function statusFromAnalysis(lean, risk) {
-  const l = String(lean || "").toLowerCase();
-  const r = String(risk || "").toLowerCase();
-  if (l === "bearish" || r === "high") return "watch";
-  if (l === "bullish" || (l === "neutral" && r === "low")) return "recommended";
-  return "watch";
+function pickStatusFromReport(report, pick = null) {
+  const lean = report?.analysis?.lean;
+  const risk = report?.analysis?.risk;
+  const placement = assessBoardPlacement(
+    pick || {
+      ticker: report?.ticker,
+      price: report?.price,
+      percent_change: report?.changePercent,
+      exchange: report?.exchange,
+      flags_json: null,
+    },
+    report || {}
+  );
+  return statusFromBoardSection(lean, risk, placement.boardSection);
 }
 
 function hasFmp() {
   return hasSourceKey("fmp");
-}
-
-function pickStatusFromReport(report) {
-  const lean = report?.analysis?.lean;
-  const risk = report?.analysis?.risk;
-  return statusFromAnalysis(lean, risk);
 }
 
 function fmpLimit() {
@@ -441,7 +448,17 @@ async function promoteEligibleCandidates(options = {}) {
         failed.push({ ticker, error: err.message, kind: "repromote" });
       }
     }
-    const status = report ? pickStatusFromReport(report) : "watch";
+    const status = report
+      ? pickStatusFromReport(report, {
+          ticker,
+          price: report.price ?? mover?.last ?? mover?.price,
+          percent_change: report.changePercent ?? mover?.percent_change,
+          exchange: report.exchange || mover?.exchange,
+          flags_json: row?.flags_json || null,
+          tracked_since: null,
+          source: "discovery",
+        })
+      : "watch";
     if (
       status !== "watch" ||
       report?.sector ||
@@ -580,7 +597,20 @@ async function promoteEligibleCandidates(options = {}) {
       }
     }
 
-    const status = report ? pickStatusFromReport(report) : "watch";
+    const status = report
+      ? pickStatusFromReport(report, {
+          ticker,
+          price: report.price ?? mover?.last ?? mover?.price ?? row?.price,
+          percent_change:
+            report.changePercent ??
+            mover?.percent_change ??
+            row?.percent_change,
+          exchange: report.exchange || mover?.exchange || row?.exchange,
+          flags_json: row?.flags_json || null,
+          tracked_since: null,
+          source: "discovery",
+        })
+      : "watch";
     if (
       status !== "watch" ||
       report?.sector ||

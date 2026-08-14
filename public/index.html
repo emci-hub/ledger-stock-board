@@ -481,7 +481,7 @@
   </div>
 
   <div id="mood-line" class="mood-line" hidden></div>
-  <div class="section-label" id="picks-label">Today's picks · stable, long-term leaning</div>
+  <div class="section-label" id="picks-label">Today's picks · stable, long-term</div>
   <div id="picks-board">
     <div class="spotlight-grid" id="spotlight-grid"></div>
     <div class="grid" id="picks-grid"></div>
@@ -496,10 +496,12 @@
       <div class="section-label">Needs a refresh <span class="stale-badge">stale · 48h+</span></div>
       <div class="grid stale-grid" id="stale-grid"></div>
     </div>
-    <div class="momentum-section" id="momentum-section" hidden>
-      <div class="section-label">Momentum · higher risk <span class="stale-badge">new / volatile</span></div>
-      <p class="momentum-sub" id="momentum-sub">Hot movers that aren’t ready for the long-term spotlight yet (new on the board, extreme day moves, pennies, or non-major exchanges).</p>
-      <div class="grid" id="momentum-grid"></div>
+    <!-- Short-term only: penny / most-volatile sub-category (own spotlight + rank) -->
+    <div class="momentum-section" id="penny-section" hidden>
+      <div class="section-label">Penny / most volatile <span class="stale-badge">higher risk</span></div>
+      <p class="momentum-sub" id="penny-sub">Sub-$5 names and extreme single-day movers — ranked separately from general short-term picks.</p>
+      <div class="spotlight-grid" id="penny-spotlight"></div>
+      <div class="grid" id="penny-grid"></div>
     </div>
   </div>
 
@@ -1095,16 +1097,10 @@
     </div>`;
   }
 
-  function rankForMode(report) {
-    if (!report) return -1;
-    if (currentMode === "short") {
-      return Number.isFinite(Number(report.shortTermRank))
-        ? Number(report.shortTermRank)
-        : Number(report.rankScore) || 0;
-    }
-    return Number.isFinite(Number(report.longTermRank))
-      ? Number(report.longTermRank)
-      : Number(report.rankScore) || 0;
+  function sectionRankOf(row) {
+    if (!row) return -1;
+    const n = Number(row.sectionRank ?? row.report?.sectionRank);
+    return Number.isFinite(n) ? n : -1;
   }
 
   let morePicksRows = [];
@@ -1125,6 +1121,75 @@
       : "";
   }
 
+  function renderCategoryBlock({
+    spotlightEl,
+    gridEl,
+    moreWrap,
+    moreToggle,
+    moreList,
+    moreExpandHost,
+    sectionPayload,
+    emptyNote,
+    showStabilityWarnings = false,
+  }) {
+    const spotlight = sectionPayload?.spotlight || [];
+    const restAll = sectionPayload?.rest || [];
+    const mid = restAll.slice(0, 6);
+    const rest = restAll.slice(6);
+
+    if (spotlightEl) {
+      spotlightEl.innerHTML = spotlight
+        .map((row) =>
+          buildCardHtml(row.report, row.status, {
+            spotlight: true,
+            showStabilityWarnings,
+          })
+        )
+        .join("");
+    }
+
+    if (gridEl) {
+      if (mid.length) {
+        gridEl.innerHTML = mid
+          .map((row) =>
+            buildCardHtml(row.report, row.status, { showStabilityWarnings })
+          )
+          .join("");
+      } else if (spotlight.length) {
+        gridEl.innerHTML = "";
+      } else {
+        gridEl.innerHTML = `<div class="empty-note">${emptyNote}</div>`;
+      }
+    }
+
+    if (moreWrap && moreToggle && moreList) {
+      if (rest.length) {
+        moreWrap.hidden = false;
+        moreToggle.textContent = `Show ${rest.length} more pick${
+          rest.length === 1 ? "" : "s"
+        }`;
+        if (document.getElementById("more-picks-panel")) {
+          document.getElementById("more-picks-panel").hidden = true;
+        }
+        moreList.innerHTML = rest
+          .map((row) =>
+            compactRowHtml(row.report, {
+              expandable: true,
+              whenIso: row.report.lastFieldRefresh || row.report.priceUpdatedAt,
+            })
+          )
+          .join("");
+        morePicksRows = rest;
+      } else {
+        moreWrap.hidden = true;
+        moreList.innerHTML = "";
+        morePicksRows = [];
+      }
+      if (moreExpandHost) moreExpandHost.innerHTML = "";
+      morePicksExpandedTicker = null;
+    }
+  }
+
   async function loadBoard() {
     const spotlight = document.getElementById("spotlight-grid");
     const grid = document.getElementById("picks-grid");
@@ -1134,117 +1199,131 @@
     const moreToggle = document.getElementById("more-picks-toggle");
     const staleSection = document.getElementById("stale-section");
     const staleGrid = document.getElementById("stale-grid");
-    const momentumSection = document.getElementById("momentum-section");
-    const momentumGrid = document.getElementById("momentum-grid");
+    const pennySection = document.getElementById("penny-section");
+    const pennySpotlight = document.getElementById("penny-spotlight");
+    const pennyGrid = document.getElementById("penny-grid");
     const label = document.getElementById("picks-label");
     label.textContent =
       currentMode === "short"
-        ? "Today's picks · shorter-term leaning"
-        : "Today's picks · stable, long-term leaning";
+        ? "Today's picks · short-term"
+        : "Today's picks · stable, long-term";
 
     spotlight.innerHTML = "";
     grid.innerHTML = `<div class="empty-note">Loading picks…</div>`;
     moreWrap.hidden = true;
-    morePanel.hidden = true;
+    if (morePanel) morePanel.hidden = true;
     moreList.innerHTML = "";
     document.getElementById("more-expand").innerHTML = "";
     morePicksRows = [];
     morePicksExpandedTicker = null;
     staleSection.hidden = true;
     staleGrid.innerHTML = "";
-    if (momentumSection) {
-      momentumSection.hidden = true;
-      momentumGrid.innerHTML = "";
+    if (pennySection) {
+      pennySection.hidden = true;
+      if (pennySpotlight) pennySpotlight.innerHTML = "";
+      if (pennyGrid) pennyGrid.innerHTML = "";
     }
 
     try {
       const res = await fetch(`/api/board?mode=${encodeURIComponent(currentMode)}`);
-      const board = await res.json();
-      if (!Array.isArray(board) || !board.length) {
-        grid.innerHTML = `<div class="empty-note">No board picks yet.</div>`;
+      const data = await res.json();
+      const sections = data?.sections || null;
+
+      // Backward-safe: if an old flat array is ever returned, refuse ungated render.
+      if (!sections || typeof sections !== "object") {
+        grid.innerHTML = `<div class="empty-note">Board format unavailable — refresh the page.</div>`;
         return;
       }
 
-      const withReports = board.filter((row) => row.report);
-      const fresh = [];
-      const stale = [];
-      for (const row of withReports) {
-        if (row.report.stale) stale.push(row);
-        else fresh.push(row);
-      }
-
-      // Long mode: stocks failing the stability/history gate go to Momentum.
-      // Short mode: keep everyone in the main ranked pool (volatility can help).
-      let mainPool = fresh;
-      let momentumPool = [];
       if (currentMode === "long") {
-        mainPool = [];
-        momentumPool = [];
-        for (const row of fresh) {
-          const momentum =
-            row.momentumSection === true ||
-            row.report.momentumSection === true ||
-            row.longTermEligible === false ||
-            row.report.longTermEligible === false;
-          if (momentum) momentumPool.push(row);
-          else mainPool.push(row);
+        const longSec = sections.long || { items: [], spotlight: [], rest: [], stale: [] };
+        renderCategoryBlock({
+          spotlightEl: spotlight,
+          gridEl: grid,
+          moreWrap,
+          moreToggle,
+          moreList,
+          moreExpandHost: document.getElementById("more-expand"),
+          sectionPayload: {
+            spotlight: longSec.spotlight || [],
+            rest: longSec.rest || (longSec.items || []).slice(3),
+          },
+          emptyNote:
+            "No long-term-ready picks yet. Names need ~7 days on the board without extreme spikes or penny pricing.",
+        });
+
+        const stale = longSec.stale || [];
+        if (stale.length) {
+          staleSection.hidden = false;
+          staleGrid.innerHTML = stale
+            .map((row) => buildCardHtml(row.report, row.status))
+            .join("");
         }
-      }
+        // Penny/volatile never render on the Long-term tab.
+      } else {
+        const shortSec = sections.short || { items: [], spotlight: [], rest: [], stale: [] };
+        const pennySec = sections.penny || { items: [], spotlight: [], rest: [], stale: [] };
 
-      mainPool.sort((a, b) => rankForMode(b.report) - rankForMode(a.report));
-      momentumPool.sort(
-        (a, b) =>
-          Number(b.report.shortTermRank || 0) - Number(a.report.shortTermRank || 0)
-      );
-      stale.sort((a, b) => rankForMode(b.report) - rankForMode(a.report));
+        renderCategoryBlock({
+          spotlightEl: spotlight,
+          gridEl: grid,
+          moreWrap,
+          moreToggle,
+          moreList,
+          moreExpandHost: document.getElementById("more-expand"),
+          sectionPayload: {
+            spotlight: shortSec.spotlight || [],
+            rest: shortSec.rest || (shortSec.items || []).slice(3),
+          },
+          emptyNote: "No general short-term picks right now.",
+        });
 
-      const top = mainPool.slice(0, 3);
-      const mid = mainPool.slice(3, 9);
-      const rest = mainPool.slice(9, 15);
-      morePicksRows = rest;
+        if (pennySection) {
+          const pennyFresh = [
+            ...(pennySec.spotlight || []),
+            ...(pennySec.rest || []),
+          ];
+          if (pennyFresh.length) {
+            pennySection.hidden = false;
+            if (pennySpotlight) {
+              pennySpotlight.innerHTML = (pennySec.spotlight || [])
+                .map((row) =>
+                  buildCardHtml(row.report, row.status, {
+                    spotlight: true,
+                    showStabilityWarnings: true,
+                  })
+                )
+                .join("");
+            }
+            const pennyMid = (pennySec.rest || []).slice(0, 9);
+            if (pennyGrid) {
+              pennyGrid.innerHTML = pennyMid.length
+                ? pennyMid
+                    .map((row) =>
+                      buildCardHtml(row.report, row.status, {
+                        showStabilityWarnings: true,
+                      })
+                    )
+                    .join("")
+                : "";
+            }
+          }
+        }
 
-      spotlight.innerHTML = top
-        .map((row) => buildCardHtml(row.report, row.status, { spotlight: true }))
-        .join("");
-
-      grid.innerHTML = mid.length
-        ? mid.map((row) => buildCardHtml(row.report, row.status)).join("")
-        : top.length
-          ? ""
-          : currentMode === "long" && momentumPool.length
-            ? `<div class="empty-note">No long-term-ready picks yet — see Momentum below. Stocks need ~7 days on the board without extreme spikes.</div>`
-            : `<div class="empty-note">No board picks yet.</div>`;
-
-      if (rest.length) {
-        moreWrap.hidden = false;
-        moreToggle.textContent = `Show ${rest.length} more pick${rest.length === 1 ? "" : "s"}`;
-        morePanel.hidden = true;
-        moreList.innerHTML = rest
-          .map((row) =>
-            compactRowHtml(row.report, {
-              expandable: true,
-              whenIso: row.report.lastFieldRefresh || row.report.priceUpdatedAt,
-            })
-          )
-          .join("");
-      }
-
-      if (stale.length) {
-        staleSection.hidden = false;
-        staleGrid.innerHTML = stale
-          .map((row) => buildCardHtml(row.report, row.status))
-          .join("");
-      }
-
-      if (momentumSection && momentumPool.length) {
-        momentumSection.hidden = false;
-        momentumGrid.innerHTML = momentumPool
-          .map((row) =>
-            buildCardHtml(row.report, row.status, {
-              showStabilityWarnings: true,
-            })
-          )
-          .join("");
+        // Stale gated to short + penny only (never long-section stale on short tab).
+        const stale = [...(shortSec.stale || []), ...(pennySec.stale || [])].sort(
+          (a, b) => sectionRankOf(b) - sectionRankOf(a)
+        );
+        if (stale.length) {
+          staleSection.hidden = false;
+          staleGrid.innerHTML = stale
+            .map((row) =>
+              buildCardHtml(row.report, row.status, {
+                showStabilityWarnings: row.boardSection === "penny",
+              })
+            )
+            .join("");
+        }
       }
 
       setUpdatedNow();
@@ -1258,10 +1337,12 @@
     const list = document.getElementById("recent-list");
     list.innerHTML = `<div class="row-item"><span class="r-name">Loading…</span></div>`;
     try {
-      const res = await fetch("/api/recent");
+      const res = await fetch(
+        `/api/recent?mode=${encodeURIComponent(currentMode)}`
+      );
       const rows = await res.json();
       if (!Array.isArray(rows) || !rows.length) {
-        list.innerHTML = `<div class="row-item"><span class="r-name">No recent lookups yet.</span></div>`;
+        list.innerHTML = `<div class="row-item"><span class="r-name">No recent lookups in this category yet.</span></div>`;
         return;
       }
       list.innerHTML = rows
@@ -1371,6 +1452,7 @@
       btn.classList.add("active");
       currentMode = btn.dataset.mode === "short" ? "short" : "long";
       loadBoard();
+      loadRecent();
     });
   });
 

@@ -289,7 +289,8 @@ async function processTicker(ticker, budget, { updateBoard = false } = {}) {
     if (updateBoard) {
       const lean = report.analysis?.lean;
       const risk = report.analysis?.risk;
-      const status = statusFromAnalysis(lean, risk);
+      const pick = (await getPick(symbol)) || { ticker: symbol };
+      const status = statusFromAnalysis(lean, risk, { pick, report });
       if (status) {
         await upsertLiveStatus(symbol, status, report.sector || null);
         if (status === "recommended" && report.price != null) {

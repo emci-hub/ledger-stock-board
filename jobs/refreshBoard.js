@@ -11,6 +11,10 @@ const { saveMorningRefreshFailures } = require("../services/morningFailures");
 const { AlphaVantageError } = require("../services/dataFetch");
 const { ensureJokePool } = require("../services/jokes");
 const { BOARD_TICKERS } = require("../lib/boardTickers");
+const {
+  assessBoardPlacement,
+  statusFromBoardSection,
+} = require("../lib/rankingStability");
 const { runCapabilityProbe } = require("./capabilityProbe");
 const {
   getActiveBoardTickers,
@@ -26,14 +30,17 @@ const FLAT_BAND = 0.03;
 /** Stale off-board cache retention before cleanup. */
 const STALE_CACHE_DAYS = 30;
 
-function statusFromAnalysis(lean, risk) {
-  const l = String(lean || "").toLowerCase();
-  const r = String(risk || "").toLowerCase();
-
-  if (l === "bearish" || r === "high") return "watch";
-  if (l === "bullish" || (l === "neutral" && r === "low")) return "recommended";
-  // Neutral/medium and other middling outcomes still belong on the board as watch.
-  return "watch";
+/**
+ * Status from analysis lean/risk + boardSection (not a shared ungated flag).
+ * options.pick + options.report resolve section when boardSection omitted.
+ */
+function statusFromAnalysis(lean, risk, options = {}) {
+  let section = options.boardSection || null;
+  if (!section && options.pick) {
+    section = assessBoardPlacement(options.pick, options.report || {})
+      .boardSection;
+  }
+  return statusFromBoardSection(lean, risk, section || "short");
 }
 
 async function logRecommendation(ticker, price, lean) {
@@ -324,7 +331,8 @@ async function refreshBoard(_modeOrOptions) {
         }
         const lean = report.analysis?.lean;
         const risk = report.analysis?.risk;
-        const status = statusFromAnalysis(lean, risk);
+        const pick = (await getPick(ticker)) || { ticker };
+        const status = statusFromAnalysis(lean, risk, { pick, report });
         if (!status) {
           skipped += 1;
           continue;
@@ -360,7 +368,8 @@ async function refreshBoard(_modeOrOptions) {
 
       const lean = report.analysis?.lean;
       const risk = report.analysis?.risk;
-      const status = statusFromAnalysis(lean, risk);
+      const pick = (await getPick(ticker)) || { ticker };
+      const status = statusFromAnalysis(lean, risk, { pick, report });
 
       if (!status) {
         console.log(

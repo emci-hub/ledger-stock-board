@@ -20,8 +20,7 @@ const { DATA_SOURCES, smartRefreshReserve } = require("../lib/dataSources");
 const {
   listLiveBoardPicks,
 } = require("../lib/boardPicks");
-const { assessLongTermPlacement } = require("../lib/rankingStability");
-const { isPennyPrice, isExtremeMove } = require("../lib/boardTickers");
+const { assessBoardPlacement, BOARD_SECTIONS } = require("../lib/rankingStability");
 const { ensureTickerIdentity } = require("./tickerIdentity");
 
 async function alphaVantageSpendable() {
@@ -31,6 +30,21 @@ async function alphaVantageSpendable() {
   const remaining = Math.max(0, limit - Number(used || 0));
   const spendable = Math.max(0, remaining - reserve);
   return { used, limit, remaining, reserve, spendable };
+}
+
+/**
+ * Priority rank for scarce fills (lower = sooner):
+ * 0 long, 1 short (general), 2 penny/extreme last.
+ */
+function scarceFillPriority(pick, reportLike = {}) {
+  const placement = assessBoardPlacement(pick, reportLike);
+  if (placement.boardSection === BOARD_SECTIONS.LONG) {
+    return { tier: 0, label: "long_term_track" };
+  }
+  if (placement.boardSection === BOARD_SECTIONS.PENNY) {
+    return { tier: 2, label: "penny_or_extreme" };
+  }
+  return { tier: 1, label: "short_general" };
 }
 
 /**
@@ -130,26 +144,8 @@ async function warmNewlyPromotedTicker(ticker, options = {}) {
 }
 
 /**
- * Priority rank for scarce fills (lower = sooner):
- * 0 long-term-track active, 1 momentum/short-track non-penny, 2 penny/extreme last.
- */
-function scarceFillPriority(pick, reportLike = {}) {
-  const placement = assessLongTermPlacement(pick, reportLike);
-  const penny =
-    placement.signals.penny ||
-    isPennyPrice(reportLike.price ?? pick.price);
-  const extreme =
-    placement.signals.extremeMove ||
-    isExtremeMove(reportLike.changePercent ?? pick.percent_change);
-
-  if (placement.longTermEligible) return { tier: 0, label: "long_term_track" };
-  if (penny || extreme) return { tier: 2, label: "penny_or_extreme_momentum" };
-  return { tier: 1, label: "momentum_short_track" };
-}
-
-/**
  * Fill scarce per-ticker fields (AV analyst target) across the live board
- * in long-term → momentum → penny/extreme order.
+ * in long → short → penny/extreme order.
  */
 async function fillScarceFieldsByPriority(options = {}) {
   const startedAt = new Date().toISOString();

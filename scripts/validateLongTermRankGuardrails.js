@@ -148,7 +148,8 @@ const placement = assessLongTermPlacement(discoveryPick, {
   exchange: "NASDAQ",
 });
 assert.strictEqual(placement.longTermEligible, false);
-assert.strictEqual(placement.momentumSection, true);
+assert.strictEqual(placement.boardSection, "penny");
+assert.ok(placement.momentumSection);
 assert.ok(placement.longTermRankAdjusted < 40);
 
 console.log("OK validateLongTermRankGuardrails");

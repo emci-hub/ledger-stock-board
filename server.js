@@ -55,6 +55,7 @@ const {
   countCandidates,
   getActiveBoardTickers,
   CANDIDATE_POOL_CAP,
+  getPick,
 } = require("./lib/boardPicks");
 const {
   getAnalyzeAvailability,
@@ -64,7 +65,12 @@ const {
 } = require("./jobs/manualAnalyze");
 const { retryMorningFailures } = require("./jobs/retryMorningFailures");
 const { LIVE_BOARD_STATUSES } = require("./lib/boardTickers");
-const { assessLongTermPlacement } = require("./lib/rankingStability");
+const {
+  assessBoardPlacement,
+  BOARD_SECTIONS,
+  partitionBoardBySection,
+  buildSectionPayload,
+} = require("./lib/rankingStability");
 const { getMarketMood, loadMood } = require("./services/marketMood");
 const { getTodaysTidbit } = require("./services/didYouKnow");
 const {
@@ -357,58 +363,84 @@ app.get("/api/search", async (req, res) => {
   }
 });
 
+/**
+ * Attach boardSection placement onto a live pick + report.
+ * Category-local sectionRank only — never cross-wire ranks between sections.
+ */
+function applyPlacementToBoardRow(pick, report, mode) {
+  const placement = assessBoardPlacement(pick, report || {});
+  if (report) {
+    report.discoveryBlurb = pick.discovery_blurb || null;
+    report.source = pick.source || null;
+    report.exchange = pick.exchange || report.exchange || null;
+    report.boardSection = placement.boardSection;
+    report.sectionRank = placement.sectionRank;
+    report.longTermRankRaw = placement.longTermRankRaw;
+    report.longTermRank = placement.longTermRankAdjusted;
+    report.shortTermRank =
+      report.shortTermRank != null
+        ? Number(report.shortTermRank)
+        : placement.shortTermRank;
+    report.pennyVolatileRank = placement.pennyVolatileRank;
+    report.longTermEligible = placement.longTermEligible;
+    report.momentumSection = placement.momentumSection;
+    report.stabilityWarnings = placement.warnings;
+    report.trackedSince = placement.trackedSince;
+    report.trackedDays = placement.trackedDays;
+    report.longTermPenalties = placement.penalties;
+    // Display rankScore is always this row's own sectionRank (never another category's).
+    report.rankScore = placement.sectionRank;
+  }
+  return {
+    ...pick,
+    tracked_since: pick.tracked_since || pick.added_at || null,
+    boardSection: placement.boardSection,
+    sectionRank: placement.sectionRank,
+    longTermEligible: placement.longTermEligible,
+    momentumSection: placement.momentumSection,
+    stabilityWarnings: placement.warnings,
+    report,
+  };
+}
+
 app.get("/api/board", async (req, res) => {
   try {
     const mode = normalizeMode(req.query.mode);
     const picks = await listLiveBoardPicks();
+    const deeperEnabled = await isDeeperLookEnabled();
 
     const board = [];
     for (const pick of picks) {
+      // Build report with mode-appropriate take; placement uses shared price/% signals.
       const report = await reportFromCache(pick.ticker, mode);
-      const placement = assessLongTermPlacement(pick, report || {});
-      if (report) {
-        report.discoveryBlurb = pick.discovery_blurb || null;
-        report.source = pick.source || null;
-        report.exchange = pick.exchange || report.exchange || null;
-        // Expose adjusted long-term rank + placement for UI (short unchanged).
-        report.longTermRankRaw = placement.longTermRankRaw;
-        report.longTermRank = placement.longTermRankAdjusted;
-        report.longTermEligible = placement.longTermEligible;
-        report.momentumSection = placement.momentumSection;
-        report.stabilityWarnings = placement.warnings;
-        report.trackedSince = placement.trackedSince;
-        report.trackedDays = placement.trackedDays;
-        report.longTermPenalties = placement.penalties;
-        if (mode === "long") {
-          report.rankScore = placement.longTermRankAdjusted;
-        }
-        const deeperEnabled = await isDeeperLookEnabled();
-        if (deeperEnabled) {
-          const deeper = await getDeeperLook(pick.ticker);
-          report.deeperLook = deeper
-            ? {
-                provider: deeper.provider,
-                generatedAt: deeper.generatedAt,
-                analysis: deeper.long || deeper.short,
-              }
-            : null;
-        } else {
-          // Toggle fully governs visibility — never attach cached deeper looks
-          // (including prior failures) when the feature is off.
-          report.deeperLook = null;
-        }
+      if (report && deeperEnabled) {
+        const deeper = await getDeeperLook(pick.ticker);
+        report.deeperLook = deeper
+          ? {
+              provider: deeper.provider,
+              generatedAt: deeper.generatedAt,
+              analysis: deeper.long || deeper.short,
+            }
+          : null;
+      } else if (report) {
+        report.deeperLook = null;
       }
-      board.push({
-        ...pick,
-        tracked_since: pick.tracked_since || pick.added_at || null,
-        longTermEligible: placement.longTermEligible,
-        momentumSection: placement.momentumSection,
-        stabilityWarnings: placement.warnings,
-        report,
-      });
+      board.push(applyPlacementToBoardRow(pick, report, mode));
     }
 
-    return res.json(board);
+    const partitioned = partitionBoardBySection(board);
+    const sections = {
+      long: buildSectionPayload(partitioned[BOARD_SECTIONS.LONG]),
+      short: buildSectionPayload(partitioned[BOARD_SECTIONS.SHORT]),
+      penny: buildSectionPayload(partitioned[BOARD_SECTIONS.PENNY]),
+    };
+
+    return res.json({
+      mode,
+      sections,
+      /** Flat list kept for diagnostics; UI must render from sections only. */
+      board,
+    });
   } catch (err) {
     console.error("[GET /api/board]", err.message);
     return res.status(500).json({ error: "Failed to load board picks." });
@@ -789,18 +821,46 @@ app.get("/api/recent", async (req, res) => {
       `SELECT ticker, data_json, last_updated
        FROM stock_reports
        ORDER BY last_updated DESC
-       LIMIT 10`
+       LIMIT 20`
     );
 
     const recent = [];
     for (const row of rows) {
+      const report = await reportFromCache(row.ticker, mode);
+      if (!report) continue;
+      let pick = null;
+      try {
+        pick = await getPick(row.ticker);
+      } catch {
+        pick = null;
+      }
+      const placement = assessBoardPlacement(pick || { ticker: row.ticker }, report);
+      report.boardSection = placement.boardSection;
+      report.sectionRank = placement.sectionRank;
+      report.longTermEligible = placement.longTermEligible;
+
+      // Gate recent list to the active tab's categories (no ungated cross-leak).
+      if (mode === "long" && placement.boardSection !== BOARD_SECTIONS.LONG) {
+        continue;
+      }
+      if (
+        mode === "short" &&
+        placement.boardSection !== BOARD_SECTIONS.SHORT &&
+        placement.boardSection !== BOARD_SECTIONS.PENNY
+      ) {
+        continue;
+      }
+
       recent.push({
         ticker: row.ticker,
         mode,
+        boardSection: placement.boardSection,
+        sectionRank: placement.sectionRank,
         lastUpdated: row.last_updated,
-        report: await reportFromCache(row.ticker, mode),
+        report,
         raw: parseJsonSafe(row.data_json),
       });
+      if (recent.length >= 10) break;
     }
 
     return res.json(recent);

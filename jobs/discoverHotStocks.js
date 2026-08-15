@@ -46,6 +46,7 @@ const {
   rankCandidatesForPromotion,
   selectPromotionWave,
   mergeCandidateMarketCapFlag,
+  removeCandidateIfPresent,
   getPick,
   BOARD_MAX_SIZE,
   CANDIDATE_POOL_CAP,
@@ -61,6 +62,7 @@ const {
 const {
   refreshDiscoveryUniverse,
   upsertUniverseCandidateBatch,
+  markUniverseExcluded,
 } = require("../services/discoveryUniverse");
 const {
   assessBoardPlacement,
@@ -316,6 +318,18 @@ async function preparePromotionIdentity(ticker, hints = {}) {
     console.warn(
       `[promoteEligibleCandidates] Excluding ${symbol} from promotion — FMP isActivelyTrading=false (inactive listing)`
     );
+    // Persist the exclusion so the universe cursor stops re-considering this
+    // symbol on future ~116-day cycles, and drop it from the candidate pool
+    // now so it can't take another promote-wave seat this run.
+    try {
+      await markUniverseExcluded(symbol, "not_actively_trading");
+      await removeCandidateIfPresent(symbol);
+    } catch (err) {
+      console.warn(
+        `[promoteEligibleCandidates] Failed to persist exclusion for ${symbol}:`,
+        err.message
+      );
+    }
     return {
       ok: false,
       skipReason: "not_actively_trading",

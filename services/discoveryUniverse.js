@@ -118,18 +118,31 @@ async function refreshDiscoveryUniverse(options = {}) {
   const fetchedAt = new Date().toISOString();
   let major = 0;
 
+  // Snapshot exclusions before wiping the table so a full-roster reload
+  // doesn't silently un-exclude previously confirmed-inactive symbols
+  // (e.g. ADGI) and waste a future promote slot on them again.
+  const exclusionRows = await dbAll(
+    `SELECT symbol, excluded, excluded_at, exclude_reason
+     FROM discovery_universe
+     WHERE excluded = 1`
+  );
+  const exclusionMap = new Map(
+    (exclusionRows || []).map((r) => [String(r.symbol).toUpperCase(), r])
+  );
+
   await dbRun(`DELETE FROM discovery_universe`);
 
   const chunkSize = 80;
   for (let i = 0; i < rows.length; i += chunkSize) {
     const chunk = rows.slice(i, i + chunkSize);
     const placeholders = chunk
-      .map(() => `(?, ?, ?, ?, ?, ?, ?, ?, 'twelve_data', ?, NULL)`)
+      .map(() => `(?, ?, ?, ?, ?, ?, ?, ?, 'twelve_data', ?, NULL, ?, ?, ?)`)
       .join(", ");
     const args = [];
     for (const row of chunk) {
       const isMajor = isUniverseMajorExchange(row.exchange) ? 1 : 0;
       if (isMajor) major += 1;
+      const prevExclusion = exclusionMap.get(String(row.symbol).toUpperCase());
       args.push(
         row.symbol,
         row.name,
@@ -139,15 +152,25 @@ async function refreshDiscoveryUniverse(options = {}) {
         row.type,
         row.country,
         isMajor,
-        fetchedAt
+        fetchedAt,
+        prevExclusion ? 1 : 0,
+        prevExclusion ? prevExclusion.excluded_at : null,
+        prevExclusion ? prevExclusion.exclude_reason : null
       );
     }
     await dbRun(
       `INSERT INTO discovery_universe
         (symbol, name, exchange, mic_code, currency, type, country,
-         is_major, source, fetched_at, last_considered_at)
+         is_major, source, fetched_at, last_considered_at,
+         excluded, excluded_at, exclude_reason)
        VALUES ${placeholders}`,
       args
+    );
+  }
+
+  if (exclusionMap.size) {
+    console.log(
+      `[discoveryUniverse] preserved ${exclusionMap.size} exclusion(s) across refresh`
     );
   }
 
@@ -193,7 +216,7 @@ async function takeUniverseBatchFromCursor(limit = UNIVERSE_CANDIDATE_BATCH) {
   let rows = await dbAll(
     `SELECT symbol, name, exchange, mic_code, currency, type, country, is_major
      FROM discovery_universe
-     WHERE is_major = 1 AND symbol > ?
+     WHERE is_major = 1 AND symbol > ? AND COALESCE(excluded, 0) = 0
      ORDER BY symbol ASC
      LIMIT ?`,
     [cursor, batchSize]
@@ -204,7 +227,7 @@ async function takeUniverseBatchFromCursor(limit = UNIVERSE_CANDIDATE_BATCH) {
     const wrap = await dbAll(
       `SELECT symbol, name, exchange, mic_code, currency, type, country, is_major
        FROM discovery_universe
-       WHERE is_major = 1
+       WHERE is_major = 1 AND COALESCE(excluded, 0) = 0
        ORDER BY symbol ASC
        LIMIT ?`,
       [need]
@@ -362,6 +385,28 @@ async function upsertUniverseCandidateBatch(options = {}) {
   };
 }
 
+/**
+ * Mark a universe symbol excluded (e.g. FMP confirmed isActivelyTrading=false
+ * at promote time) so the cursor stops re-considering it every cycle. Keeps
+ * the row (does not delete) so exclusion survives future Stage 0 refreshes.
+ * Safe no-op if the symbol isn't in discovery_universe (e.g. a movers-sourced
+ * ticker with no universe row).
+ */
+async function markUniverseExcluded(symbol, reason = "not_actively_trading") {
+  const sym = String(symbol || "")
+    .trim()
+    .toUpperCase();
+  if (!sym) return { ok: false, reason: "no_symbol" };
+  const now = new Date().toISOString();
+  const result = await dbRun(
+    `UPDATE discovery_universe
+     SET excluded = 1, excluded_at = ?, exclude_reason = ?
+     WHERE symbol = ?`,
+    [now, reason, sym]
+  );
+  return { ok: true, symbol: sym, changes: result?.changes ?? null };
+}
+
 module.exports = {
   refreshDiscoveryUniverse,
   upsertUniverseCandidateBatch,
@@ -371,4 +416,5 @@ module.exports = {
   getUniverseFetchedAt,
   isUniverseMajorExchange,
   markUniverseConsidered,
+  markUniverseExcluded,
 };

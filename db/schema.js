@@ -461,13 +461,32 @@ async function initSchema() {
         is_major INTEGER NOT NULL DEFAULT 0,
         source TEXT NOT NULL DEFAULT 'twelve_data',
         fetched_at TEXT NOT NULL,
-        last_considered_at TEXT
+        last_considered_at TEXT,
+        excluded INTEGER NOT NULL DEFAULT 0,
+        excluded_at TEXT,
+        exclude_reason TEXT
       )
     `);
     await dbExecute(
       `CREATE INDEX IF NOT EXISTS idx_discovery_universe_major_symbol
        ON discovery_universe(is_major, symbol)`
     );
+
+    // Migration for existing installs — table already existed before excluded/
+    // excluded_at/exclude_reason were added to the CREATE TABLE above.
+    for (const col of [
+      "excluded INTEGER NOT NULL DEFAULT 0",
+      "excluded_at TEXT",
+      "exclude_reason TEXT",
+    ]) {
+      try {
+        await dbExecute(`ALTER TABLE discovery_universe ADD COLUMN ${col}`);
+      } catch (err) {
+        if (!/duplicate column/i.test(err.message || "")) {
+          console.warn(`[db] discovery_universe add ${col}:`, err.message);
+        }
+      }
+    }
 
     try {
       await migrateLegacyModeCache();

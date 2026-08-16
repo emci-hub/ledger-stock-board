@@ -35,6 +35,7 @@ const {
   hasProfileExtras,
 } = require("./tickerIdentity");
 const { getPick } = require("../lib/boardPicks");
+const { computeDipWatchTrigger } = require("../lib/rankingStability");
 const { sourceShortCode, formatSourceList } = require("../lib/dataSources");
 const { resolveProviderId } = require("../lib/aiProvider");
 const { deriveDataCaveats } = require("../lib/dataCaveats");
@@ -239,6 +240,12 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
   const longTermRank =
     parseRank(dual?.longTermRank ?? analysis?.longTermRank) ??
     heuristicRank(dual?.long || take);
+  const dipWatch =
+    dual?.dipWatch && typeof dual.dipWatch === "object"
+      ? dual.dipWatch
+      : analysis?.dipWatch && typeof analysis.dipWatch === "object"
+        ? analysis.dipWatch
+        : null;
   const modeRank = displayMode === "short" ? shortTermRank : longTermRank;
   const lastFieldRefresh =
     latestFreshnessIso(rawData) || analysisGeneratedAt || lastUpdated || null;
@@ -314,6 +321,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     stale,
     shortTermRank,
     longTermRank,
+    dipWatch,
     rankScore: modeRank,
     priceSource,
     priceSourceLabel: sourceShortCode(priceSource),
@@ -676,12 +684,16 @@ async function loadSharedStockDataInner(symbol, options = {}) {
       } catch {
         boardPick = null;
       }
+      const dipWatchTrigger = computeDipWatchTrigger(
+        { priceHistory: rawData?.quote?.priceHistory || rawData?.priceHistory },
+        boardPick?.board_section || null
+      );
       analysis = await analyzeStock(
         symbol,
         rawData.quote,
         rawData.fundamentals,
         rawData.peers || [],
-        { pick: boardPick }
+        { pick: boardPick, dipWatchTrigger }
       );
       await saveSummaryToCache(symbol, null, analysis);
       noteFieldRefreshed("analysis");

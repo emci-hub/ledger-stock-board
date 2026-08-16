@@ -239,6 +239,9 @@ function normalizeDualAnalysis(parsed) {
       shortTermRank:
         parseRank(parsed.shortTermRank) ?? heuristicRank(short),
       longTermRank: parseRank(parsed.longTermRank) ?? heuristicRank(long),
+      dipWatch: parsed.dipWatch && typeof parsed.dipWatch === "object"
+        ? parsed.dipWatch
+        : null,
     };
   }
 

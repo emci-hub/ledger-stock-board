@@ -255,6 +255,23 @@
     display:inline-flex;align-items:center;gap:4px;margin-left:6px;
     vertical-align:middle;
   }
+  .card.hot-buy{
+    border-color:var(--gold);
+    box-shadow:0 0 0 1px var(--gold), 0 0 18px rgba(217,168,87,0.4);
+    animation:hotBuyPulse 3s ease-in-out infinite;
+  }
+  @keyframes hotBuyPulse{
+    0%,100%{box-shadow:0 0 0 1px var(--gold), 0 0 14px rgba(217,168,87,0.3);}
+    50%{box-shadow:0 0 0 1px var(--gold), 0 0 22px rgba(217,168,87,0.55);}
+  }
+  .hot-buy-badge{
+    display:inline-flex;align-items:center;gap:3px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;
+    color:var(--gold);background:rgba(217,168,87,0.12);
+    border:1px solid var(--gold);border-radius:999px;
+    padding:2px 8px;margin-left:8px;cursor:help;vertical-align:middle;
+    letter-spacing:0.02em;
+  }
   .mood-line{
     font-family:'Fraunces',serif;font-size:17px;font-weight:500;line-height:1.45;
     color:#F5F6F1;margin:0 0 14px;padding:4px 0 10px;
@@ -694,6 +711,23 @@
     const isStarred = starred.has(report.ticker);
     const target = report.analystTarget;
     const asOf = report.priceUpdatedAt || report.lastUpdated;
+    // Dip Watch — only true when: the deterministic trigger fired (stock was
+    // already Long, had a sharp short-window drop) AND Gemini itself returned
+    // a confirmed "sentiment_overreaction" verdict with real confidence. See
+    // lib/rankingStability.js isDipWatchConfirmedOverreaction (server-side
+    // source of truth) — this mirrors that same gate for display purposes.
+    const dw = report.dipWatch;
+    const isHotBuy = Boolean(
+      dw &&
+        dw.triggered &&
+        dw.verdict === "sentiment_overreaction" &&
+        (dw.confidence === "high" || dw.confidence === "medium")
+    );
+    const hotBuyBadge = isHotBuy
+      ? `<span class="hot-buy-badge" title="${escapeHtml(
+          dw.reasoning || "AI-confirmed sentiment overreaction on strong fundamentals"
+        )}">🔥 Hot Buy</span>`
+      : "";
     const via = report.priceSourceLabel
       ? `<span class="via-source" style="margin-left:4px;">via ${escapeHtml(report.priceSourceLabel)}</span>`
       : "";
@@ -904,12 +938,12 @@
 
     return `<div class="card ${leanClass(report, status)}${
       options.spotlight ? " spotlight" : ""
-    }${report.stale ? " is-stale" : ""}" data-ticker="${escapeHtml(report.ticker)}">
+    }${report.stale ? " is-stale" : ""}${isHotBuy ? " hot-buy" : ""}" data-ticker="${escapeHtml(report.ticker)}">
       <div class="card-top">
         <div class="card-top-main">
           ${logoHtml}
           <div class="ticker-block">
-            <div class="ticker">${escapeHtml(report.ticker)}</div>
+            <div class="ticker">${escapeHtml(report.ticker)}${hotBuyBadge}</div>
             <div class="company">${escapeHtml(report.companyName || report.name || report.ticker)}</div>
             ${blurb}
             ${metaRow}

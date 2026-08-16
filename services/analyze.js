@@ -41,14 +41,30 @@ function applyLongTermRankGuardrails(parsed, rankingContext) {
   let longRank = parseRank(parsed.longTermRank);
   if (longRank == null) return parsed;
 
-  // If Gemini copied short onto long for a hot mover, pull long down first.
-  const shortRank = parseRank(parsed.shortTermRank);
-  if (
-    ctx.extremeSingleDayMove &&
-    shortRank != null &&
-    longRank >= shortRank - 5
-  ) {
-    longRank = Math.min(longRank, Math.max(15, shortRank - 20));
+  // Dip Watch exception: if the deterministic trigger fired (stock was already
+  // Long, took a sharp short-window drop) AND Gemini itself returned a
+  // confirmed "sentiment_overreaction" verdict with real confidence, skip the
+  // extreme-move guardrail below entirely — the whole point of Dip Watch is
+  // that a confirmed overreaction should NOT be punished the way an ordinary
+  // hot-mover spike is. Any other verdict (fundamental_concern, uncertain, or
+  // no verdict at all) falls through to the normal guardrail unchanged.
+  const dipWatchConfirmed =
+    Boolean(ctx.dipWatch?.triggered) &&
+    parsed.dipWatch &&
+    parsed.dipWatch.verdict === "sentiment_overreaction" &&
+    (parsed.dipWatch.confidence === "high" ||
+      parsed.dipWatch.confidence === "medium");
+
+  if (!dipWatchConfirmed) {
+    // If Gemini copied short onto long for a hot mover, pull long down first.
+    const shortRank = parseRank(parsed.shortTermRank);
+    if (
+      ctx.extremeSingleDayMove &&
+      shortRank != null &&
+      longRank >= shortRank - 5
+    ) {
+      longRank = Math.min(longRank, Math.max(15, shortRank - 20));
+    }
   }
 
   const cap =
@@ -152,6 +168,14 @@ function buildPayload(ticker, quoteData, fundamentalsData, peersData, options = 
       overview,
       source: options.pick?.source || null,
     });
+  // Dip Watch — deterministic trigger computed upstream (services/getStockReport.js)
+  // from real price history + prior board_section. Zero extra API cost; only
+  // asks Gemini for a verdict when the trigger actually fired.
+  rankingContext.dipWatch = options.dipWatchTrigger || {
+    triggered: false,
+    windowDays: null,
+    windowPct: null,
+  };
 
   return {
     ticker: String(ticker).toUpperCase(),

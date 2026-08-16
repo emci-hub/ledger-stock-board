@@ -63,6 +63,7 @@ const {
   refreshDiscoveryUniverse,
   upsertUniverseCandidateBatch,
   markUniverseExcluded,
+  refreshIndexTiers,
 } = require("../services/discoveryUniverse");
 const {
   assessBoardPlacement,
@@ -1073,6 +1074,23 @@ async function discoverHotStocksInner({
     );
   }
 
+  // ── Stage 0b: weekly index-tier refresh (S&P 500/400/600 membership) ───
+  // Zero market-data-API cost (Wikipedia, not a metered source). Never
+  // blocks discovery on failure — falls back to whatever tier data already
+  // exists (default tier 3) rather than aborting the run.
+  let stage0b;
+  try {
+    stage0b = await refreshIndexTiers({
+      force: Boolean(options.forceIndexTierRefresh),
+    });
+  } catch (err) {
+    stage0b = { ok: false, error: err.message };
+    console.warn(
+      "[discoverHotStocks] Stage 0b index-tier refresh failed (non-fatal):",
+      err.message
+    );
+  }
+
   let movers;
   try {
     movers = await getDiscoveryMoversBundle();
@@ -1081,6 +1099,7 @@ async function discoverHotStocksInner({
       ok: false,
       error: err.message,
       stage0,
+      stage0b,
       startedAt,
       finishedAt: new Date().toISOString(),
     };
@@ -1197,6 +1216,7 @@ async function discoverHotStocksInner({
       unique: movers.all.length,
     },
     stage0,
+    stage0b,
     stage1: {
       ...stage1,
       pruned: prune.removed,

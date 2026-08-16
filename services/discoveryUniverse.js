@@ -175,8 +175,14 @@ async function refreshDiscoveryUniverse(options = {}) {
   }
 
   await setSetting(UNIVERSE_FETCHED_AT_SETTING_KEY, fetchedAt);
-  // Reset cursor when the roster is fully replaced so we don't strand mid-alphabet.
-  await setSetting(UNIVERSE_CURSOR_SETTING_KEY, "");
+  // NOTE: cursor is intentionally NOT reset here. The cursor comparison
+  // (symbol > cursor) is robust to a full roster reload on its own — it just
+  // needs some symbol alphabetically greater than the cursor to exist, which
+  // is true on any roster of this size. Resetting here was a real bug: since
+  // Stage 0 refreshes ~daily (roster always >24h stale by the next cron run),
+  // resetting on every refresh meant the cursor never advanced past its very
+  // first batch, ever — confirmed in production by every discovered universe
+  // candidate clustering at the start of the alphabet (ADI/ADEA/ADIL/ADGM/ADGI).
 
   console.log(
     `[discoveryUniverse] refreshed ${rows.length} symbols (${major} major) at ${fetchedAt}`
@@ -206,31 +212,58 @@ async function markUniverseConsidered(symbols, consideredAt) {
 }
 
 /**
- * Advance alphabetical cursor over is_major=1 symbols, wrapping once.
+ * Advance a per-TIER alphabetical cursor over is_major=1 symbols, wrapping once.
+ * tier=null keeps the original untiered behavior (back-compat / tier-3 fallback
+ * uses tier param explicitly, so null is only for callers not using tiers yet).
  */
-async function takeUniverseBatchFromCursor(limit = UNIVERSE_CANDIDATE_BATCH) {
+/**
+ * Advance a per-TIER cursor over is_major=1 symbols, ordered by priority_rank
+ * (lower = better/older-established, e.g. S&P "date added" — older members
+ * rank lower) then symbol as a tiebreaker. Rows with no priority_rank sort
+ * LAST within their tier (honest fallback to effectively-alphabetical order
+ * for tiers that don't have a free ranking signal yet, rather than pretending
+ * false precision). Uses proper (rank, symbol) keyset pagination — sorting by
+ * rank while only comparing the cursor by symbol would silently skip/repeat
+ * rows, so the cursor tracks both.
+ */
+const NO_RANK_SENTINEL = 999999999;
+
+async function takeUniverseBatchFromCursor(limit = UNIVERSE_CANDIDATE_BATCH, tier = null, options = {}) {
+  const persist = options.persist !== false; // default true; orchestrator passes false for dry-run
   const batchSize = Math.max(1, Number(limit) || UNIVERSE_CANDIDATE_BATCH);
-  const cursorRaw = (await getSetting(UNIVERSE_CURSOR_SETTING_KEY)) || "";
-  const cursor = String(cursorRaw).trim().toUpperCase();
+  const cursorKey =
+    tier != null
+      ? `${UNIVERSE_CURSOR_SETTING_KEY}_tier${tier}`
+      : UNIVERSE_CURSOR_SETTING_KEY;
+  const cursorRaw = (await getSetting(cursorKey)) || "";
+  const [cursorRankRaw, cursorSymbolRaw] = String(cursorRaw).split("|");
+  const cursorRank = Number.isFinite(Number(cursorRankRaw)) ? Number(cursorRankRaw) : -1;
+  const cursorSymbol = String(cursorSymbolRaw || "").trim().toUpperCase();
+  const tierClause = tier != null ? "AND tier = ?" : "";
+  const baseArgs = tier != null ? [tier] : [];
+  const rankExpr = `COALESCE(priority_rank, ${NO_RANK_SENTINEL})`;
 
   let rows = await dbAll(
-    `SELECT symbol, name, exchange, mic_code, currency, type, country, is_major
+    `SELECT symbol, name, exchange, mic_code, currency, type, country, is_major, tier,
+            ${rankExpr} AS effective_rank
      FROM discovery_universe
-     WHERE is_major = 1 AND symbol > ? AND COALESCE(excluded, 0) = 0
-     ORDER BY symbol ASC
+     WHERE is_major = 1 AND COALESCE(excluded, 0) = 0 ${tierClause}
+       AND (${rankExpr} > ? OR (${rankExpr} = ? AND symbol > ?))
+     ORDER BY effective_rank ASC, symbol ASC
      LIMIT ?`,
-    [cursor, batchSize]
+    [...baseArgs, cursorRank, cursorRank, cursorSymbol, batchSize]
   );
 
   if ((rows || []).length < batchSize) {
     const need = batchSize - (rows || []).length;
     const wrap = await dbAll(
-      `SELECT symbol, name, exchange, mic_code, currency, type, country, is_major
+      `SELECT symbol, name, exchange, mic_code, currency, type, country, is_major, tier,
+              ${rankExpr} AS effective_rank
        FROM discovery_universe
-       WHERE is_major = 1 AND COALESCE(excluded, 0) = 0
-       ORDER BY symbol ASC
+       WHERE is_major = 1 AND COALESCE(excluded, 0) = 0 ${tierClause}
+       ORDER BY effective_rank ASC, symbol ASC
        LIMIT ?`,
-      [need]
+      [...baseArgs, need]
     );
     const seen = new Set((rows || []).map((r) => r.symbol));
     for (const row of wrap || []) {
@@ -241,20 +274,59 @@ async function takeUniverseBatchFromCursor(limit = UNIVERSE_CANDIDATE_BATCH) {
   }
 
   const list = rows || [];
-  const lastSymbol = list.length
-    ? String(list[list.length - 1].symbol).toUpperCase()
-    : cursor;
+  const lastRow = list.length ? list[list.length - 1] : null;
+  const lastCursor = lastRow
+    ? `${lastRow.effective_rank}|${String(lastRow.symbol).toUpperCase()}`
+    : cursorRaw;
+  if (list.length && persist) {
+    await setSetting(cursorKey, lastCursor);
+  }
   return {
     rows: list,
-    cursorBefore: cursor,
-    cursorAfter: lastSymbol,
-    wrapped: Boolean(cursor) && list.some((r) => String(r.symbol) <= cursor),
+    cursorBefore: cursorRaw,
+    cursorAfter: persist ? lastCursor : cursorRaw,
+    cursorKey,
+    tier,
+    wrapped:
+      Boolean(cursorRaw) &&
+      list.some(
+        (r) =>
+          r.effective_rank < cursorRank ||
+          (r.effective_rank === cursorRank && String(r.symbol) <= cursorSymbol)
+      ),
   };
 }
 
 /**
- * Stage 1b — cursor batch into board_picks as status=candidate.
+ * Weighted allocation across the 3 tiers. 65/25/10 by default (config-
+ * overridable). If a tier is "saturated" today — every row it considered was
+ * already live/candidate/archived, zero genuinely new inserts — its unused
+ * allocation rolls forward to the next tier in the SAME run, so speed never
+ * goes to waste once a small tier (e.g. ~500-name S&P 500) cycles through.
+ */
+const TIER_WEIGHTS = Object.freeze({
+  1: Number(process.env.UNIVERSE_TIER1_WEIGHT) || 0.65,
+  2: Number(process.env.UNIVERSE_TIER2_WEIGHT) || 0.25,
+  3: Number(process.env.UNIVERSE_TIER3_WEIGHT) || 0.1,
+});
+
+function computeTierAllocation(totalBatchSize) {
+  const t1 = Math.round(totalBatchSize * TIER_WEIGHTS[1]);
+  const t2 = Math.round(totalBatchSize * TIER_WEIGHTS[2]);
+  const t3 = Math.max(0, totalBatchSize - t1 - t2); // remainder, avoids rounding drift
+  return { 1: t1, 2: t2, 3: t3 };
+}
+
+/**
+ * Stage 1b — weighted 3-tier cursor batch into board_picks as status=candidate.
  * Zero market-data API cost (local table + board_picks only).
+ *
+ * Tier 1 (S&P 500) / Tier 2 (S&P 400+600+Nasdaq-100) / Tier 3 (rest) each get
+ * their own alphabetical cursor and their own allocation of today's batch
+ * (default 65/25/10). If a tier is "saturated" today — every row it considered
+ * was already live/candidate/archived, zero genuinely new inserts — its unused
+ * allocation rolls forward to the next tier in this SAME run, so a small tier
+ * (e.g. ~500-name S&P 500) doesn't waste slots once it's fully cycled.
  */
 async function upsertUniverseCandidateBatch(options = {}) {
   const dryRun = Boolean(options.dryRun);
@@ -286,9 +358,7 @@ async function upsertUniverseCandidateBatch(options = {}) {
   const headroom = Math.max(0, poolCap - currentCandidates);
   const target = Math.min(batchSize, headroom > 0 ? Math.max(headroom, 0) : 0);
 
-  // Still advance cursor over a full batch of considerations even if headroom is
-  // tight — but only upsert up to headroom. If headroom is 0, consider without insert.
-  const taken = await takeUniverseBatchFromCursor(batchSize);
+  const allocation = computeTierAllocation(batchSize);
   const consideredAt = new Date().toISOString();
   const considered = [];
   const wouldInsert = [];
@@ -300,10 +370,12 @@ async function upsertUniverseCandidateBatch(options = {}) {
     skippedArchived: 0,
     skippedNoHeadroom: 0,
   };
-
+  const tierBreakdown = {};
   let insertsLeft = headroom;
+  let carryOver = 0;
+  const cursorResults = {};
 
-  for (const row of taken.rows) {
+  async function processRow(row) {
     const symbol = String(row.symbol).toUpperCase();
     considered.push(symbol);
 
@@ -311,30 +383,30 @@ async function upsertUniverseCandidateBatch(options = {}) {
     if (existing?.status === "recommended" || existing?.status === "watch") {
       stats.skippedLive += 1;
       stats.skippedExisting += 1;
-      continue;
+      return { inserted: false };
     }
     if (existing?.status === "archived") {
       stats.skippedArchived += 1;
       stats.skippedExisting += 1;
-      continue;
+      return { inserted: false };
     }
     if (existing?.status === "candidate") {
       stats.skippedExisting += 1;
-      // Refresh last_seen / exchange without counting as a new pool entry.
       if (!dryRun) {
         await upsertCandidateFromUniverse({
           ticker: symbol,
           name: row.name,
           exchange: row.exchange,
+          tier: row.tier,
         });
         stats.updated += 1;
       }
-      continue;
+      return { inserted: false };
     }
 
     if (insertsLeft <= 0) {
       stats.skippedNoHeadroom += 1;
-      continue;
+      return { inserted: false };
     }
 
     wouldInsert.push(symbol);
@@ -343,10 +415,12 @@ async function upsertUniverseCandidateBatch(options = {}) {
         ticker: symbol,
         name: row.name,
         exchange: row.exchange,
+        tier: row.tier,
       });
       if (res.action === "inserted") {
         stats.inserted += 1;
         insertsLeft -= 1;
+        return { inserted: true };
       } else if (res.action === "updated") {
         stats.updated += 1;
       } else if (res.action === "refreshed_live") {
@@ -354,15 +428,45 @@ async function upsertUniverseCandidateBatch(options = {}) {
       } else if (res.action === "refreshed_archived") {
         stats.skippedArchived += 1;
       }
-    } else {
-      stats.inserted += 1;
-      insertsLeft -= 1;
+      return { inserted: false };
     }
+    stats.inserted += 1;
+    insertsLeft -= 1;
+    return { inserted: true };
+  }
+
+  for (const tier of [1, 2, 3]) {
+    const tierBatchSize = allocation[tier] + carryOver;
+    carryOver = 0;
+    if (tierBatchSize <= 0) {
+      tierBreakdown[tier] = { allocated: allocation[tier], considered: 0, inserted: 0, saturated: false };
+      continue;
+    }
+    const taken = await takeUniverseBatchFromCursor(tierBatchSize, tier, { persist: !dryRun });
+    cursorResults[tier] = taken;
+    let insertedThisTier = 0;
+    for (const row of taken.rows) {
+      const outcome = await processRow(row);
+      if (outcome.inserted) insertedThisTier += 1;
+    }
+    // Saturated: we looked at real rows but genuinely inserted none — the
+    // tier has nothing new left today. Roll its allocation to the next tier.
+    const saturated = taken.rows.length > 0 && insertedThisTier === 0;
+    if (saturated) {
+      carryOver = allocation[tier];
+    }
+    tierBreakdown[tier] = {
+      allocated: allocation[tier],
+      considered: taken.rows.length,
+      inserted: insertedThisTier,
+      saturated,
+    };
   }
 
   if (!dryRun) {
     await markUniverseConsidered(considered, consideredAt);
-    await setSetting(UNIVERSE_CURSOR_SETTING_KEY, taken.cursorAfter || "");
+    // Per-tier cursors already persisted themselves inside
+    // takeUniverseBatchFromCursor — nothing to do here.
   }
 
   return {
@@ -370,14 +474,14 @@ async function upsertUniverseCandidateBatch(options = {}) {
     dryRun,
     source: DISCOVERY_UNIVERSE_SOURCE,
     batchSize,
+    allocation,
+    tierBreakdown,
     headroom,
     target,
     considered: considered.length,
     consideredTickers: considered,
     wouldInsert,
-    cursorBefore: taken.cursorBefore,
-    cursorAfter: dryRun ? taken.cursorBefore : taken.cursorAfter,
-    wrapped: taken.wrapped,
+    cursors: cursorResults,
     ...stats,
     poolSizeAfter: dryRun ? currentCandidates : await countCandidates(),
     startedAt,
@@ -407,6 +511,59 @@ async function markUniverseExcluded(symbol, reason = "not_actively_trading") {
   return { ok: true, symbol: sym, changes: result?.changes ?? null };
 }
 
+const INDEX_TIER_REFRESH_SETTING_KEY = "index_tier_refreshed_at";
+const INDEX_TIER_REFRESH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // weekly — index membership rarely changes
+
+async function indexTierCacheIsFresh() {
+  const at = await getSetting(INDEX_TIER_REFRESH_SETTING_KEY);
+  if (!at) return false;
+  const age = Date.now() - new Date(at).getTime();
+  return Number.isFinite(age) && age < INDEX_TIER_REFRESH_MAX_AGE_MS;
+}
+
+/**
+ * Apply real S&P 500/400/600 membership (tier + priority_rank) onto existing
+ * discovery_universe rows. Weekly cadence — index membership changes rarely,
+ * no reason to hit Wikipedia daily. Never wipes tier data on a fetch failure
+ * — a symbol not found in this run's membership map keeps whatever tier it
+ * already had (default 3 for never-classified rows), so a transient Wikipedia
+ * hiccup can't accidentally demote everyone to tier 3.
+ */
+async function refreshIndexTiers(options = {}) {
+  const force = Boolean(options.force);
+  if (!force && (await indexTierCacheIsFresh())) {
+    return { ok: true, skipped: true, reason: "fresh" };
+  }
+
+  const { fetchAllIndexMembership } = require("./indexTiers");
+  const { membership, results } = await fetchAllIndexMembership();
+
+  if (membership.size === 0) {
+    console.warn(
+      "[indexTiers] All index sources failed or returned empty — keeping existing tier data unchanged",
+      results
+    );
+    return { ok: false, applied: 0, results };
+  }
+
+  let applied = 0;
+  for (const [symbol, info] of membership) {
+    const res = await dbRun(
+      `UPDATE discovery_universe SET tier = ?, priority_rank = ?, tier_updated_at = ?
+       WHERE symbol = ?`,
+      [info.tier, info.priorityRank, new Date().toISOString(), symbol]
+    );
+    if (res?.changes) applied += 1;
+  }
+
+  await setSetting(INDEX_TIER_REFRESH_SETTING_KEY, new Date().toISOString());
+  console.log(
+    `[indexTiers] applied tier/rank to ${applied}/${membership.size} matched symbols`,
+    results
+  );
+  return { ok: true, applied, matched: membership.size, results };
+}
+
 module.exports = {
   refreshDiscoveryUniverse,
   upsertUniverseCandidateBatch,
@@ -417,4 +574,8 @@ module.exports = {
   isUniverseMajorExchange,
   markUniverseConsidered,
   markUniverseExcluded,
+  computeTierAllocation,
+  TIER_WEIGHTS,
+  refreshIndexTiers,
+  indexTierCacheIsFresh,
 };

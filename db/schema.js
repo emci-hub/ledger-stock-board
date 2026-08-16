@@ -384,6 +384,7 @@ async function initSchema() {
       "flags_json TEXT",
       "tracked_since TEXT",
       "board_section TEXT",
+      "tier INTEGER",
     ]) {
       try {
         await dbExecute(`ALTER TABLE board_picks ADD COLUMN ${col}`);
@@ -464,20 +465,31 @@ async function initSchema() {
         last_considered_at TEXT,
         excluded INTEGER NOT NULL DEFAULT 0,
         excluded_at TEXT,
-        exclude_reason TEXT
+        exclude_reason TEXT,
+        tier INTEGER NOT NULL DEFAULT 3,
+        tier_updated_at TEXT,
+        priority_rank INTEGER
       )
     `);
     await dbExecute(
       `CREATE INDEX IF NOT EXISTS idx_discovery_universe_major_symbol
        ON discovery_universe(is_major, symbol)`
     );
+    await dbExecute(
+      `CREATE INDEX IF NOT EXISTS idx_discovery_universe_tier_priority
+       ON discovery_universe(tier, priority_rank, symbol)`
+    );
 
     // Migration for existing installs — table already existed before excluded/
-    // excluded_at/exclude_reason were added to the CREATE TABLE above.
+    // excluded_at/exclude_reason/tier/priority_rank were added to the CREATE
+    // TABLE above.
     for (const col of [
       "excluded INTEGER NOT NULL DEFAULT 0",
       "excluded_at TEXT",
       "exclude_reason TEXT",
+      "tier INTEGER NOT NULL DEFAULT 3",
+      "tier_updated_at TEXT",
+      "priority_rank INTEGER",
     ]) {
       try {
         await dbExecute(`ALTER TABLE discovery_universe ADD COLUMN ${col}`);

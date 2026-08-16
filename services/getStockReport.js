@@ -175,7 +175,7 @@ function resolveNewsSources(fundamentals) {
  * Build a display report for one mode over shared raw data + dual analysis.
  * `analysis` may be dual `{ short, long, quip }` or a legacy single take.
  */
-function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
+function buildReport(ticker, mode, rawData, analysis, lastUpdated = null, pick = null) {
   const displayMode = mode === "short" ? "short" : "long";
   const quote = rawData?.quote || {};
   const overview = rawData?.fundamentals?.overview || {};
@@ -246,6 +246,11 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
       : analysis?.dipWatch && typeof analysis.dipWatch === "object"
         ? analysis.dipWatch
         : null;
+  // Discovery tier (1 = S&P 500, 2 = S&P 400/600+Nasdaq-100, 3 = rest of
+  // major-exchange universe, null = not from the tiered universe system at
+  // all — movers-sourced or a manually seeded ticker). Only 1/2 get a badge.
+  const tier =
+    pick && Number.isFinite(Number(pick.tier)) ? Number(pick.tier) : null;
   const modeRank = displayMode === "short" ? shortTermRank : longTermRank;
   const lastFieldRefresh =
     latestFreshnessIso(rawData) || analysisGeneratedAt || lastUpdated || null;
@@ -322,6 +327,7 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null) {
     shortTermRank,
     longTermRank,
     dipWatch,
+    tier,
     rankScore: modeRank,
     priceSource,
     priceSourceLabel: sourceShortCode(priceSource),
@@ -734,6 +740,16 @@ async function getStockReport(ticker, mode, options = {}) {
   const loaded = await promise;
   if (!loaded) return null;
 
+  // Fetched once, reused below (identity catch-up) and passed into buildReport
+  // so tier/source/board_section can reach the display report — previously
+  // this was never threaded through at all (real gap found 2026-08-15).
+  let pick = null;
+  try {
+    pick = await getPick(symbol);
+  } catch {
+    pick = null;
+  }
+
   // Identity catch-up: discovery tickers often lack curated blurbs and never
   // hit AV OVERVIEW — fill name/sector/description + FMP profile extras.
   try {
@@ -743,7 +759,6 @@ async function getStockReport(ticker, mode, options = {}) {
       !(overview.name && overview.sector && overview.description);
     const missingExtras = !hasProfileExtras(overview);
     if (missingCore || missingExtras) {
-      const pick = await getPick(symbol);
       const idResult = await ensureTickerIdentity(symbol, {
         name: pick?.name || null,
         sector: pick?.sector || null,
@@ -795,7 +810,8 @@ async function getStockReport(ticker, mode, options = {}) {
     displayMode,
     loaded.rawData,
     loaded.analysis,
-    loaded.lastUpdated
+    loaded.lastUpdated,
+    pick
   );
 }
 

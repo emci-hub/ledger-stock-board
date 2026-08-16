@@ -272,6 +272,14 @@
     padding:2px 8px;margin-left:8px;cursor:help;vertical-align:middle;
     letter-spacing:0.02em;
   }
+  .tier-badge{
+    display:inline-flex;align-items:center;
+    font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;
+    color:var(--muted-dim);background:transparent;
+    border:1px solid var(--line-soft);border-radius:999px;
+    padding:1px 7px;margin-left:6px;cursor:help;vertical-align:middle;
+    letter-spacing:0.02em;
+  }
   .mood-line{
     font-family:'Fraunces',serif;font-size:17px;font-weight:500;line-height:1.45;
     color:#F5F6F1;margin:0 0 14px;padding:4px 0 10px;
@@ -728,6 +736,19 @@
           dw.reasoning || "AI-confirmed sentiment overreaction on strong fundamentals"
         )}">🔥 Hot Buy</span>`
       : "";
+    // Tier badge — only shown for tier 1 (S&P 500) / tier 2 (S&P 400/600 +
+    // Nasdaq-100). Tier 3 (rest of the major-exchange universe) and null
+    // (movers-sourced or seeded, not from the tiered universe system) get no
+    // badge — the badge is specifically "this is a real, index-vetted name."
+    const tierLabel =
+      report.tier === 1 ? "S&P 500" : report.tier === 2 ? "S&P 400/600" : null;
+    const tierBadge = tierLabel
+      ? `<span class="tier-badge" title="Discovered via ${escapeHtml(
+          tierLabel
+        )} index membership — a real, publicly vetted classification">${escapeHtml(
+          tierLabel
+        )}</span>`
+      : "";
     const via = report.priceSourceLabel
       ? `<span class="via-source" style="margin-left:4px;">via ${escapeHtml(report.priceSourceLabel)}</span>`
       : "";
@@ -943,7 +964,7 @@
         <div class="card-top-main">
           ${logoHtml}
           <div class="ticker-block">
-            <div class="ticker">${escapeHtml(report.ticker)}${hotBuyBadge}</div>
+            <div class="ticker">${escapeHtml(report.ticker)}${hotBuyBadge}${tierBadge}</div>
             <div class="company">${escapeHtml(report.companyName || report.name || report.ticker)}</div>
             ${blurb}
             ${metaRow}

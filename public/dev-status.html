@@ -176,6 +176,14 @@
     </div>
 
     <div class="card">
+      <h2>Category breakdown</h2>
+      <p style="margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.4;">
+        Live snapshot (recomputed on page load) — live + archived tickers, ranked by section rank, highest first.
+      </p>
+      <div id="category-summary"></div>
+    </div>
+
+    <div class="card">
       <h2>Scheduled jobs</h2>
       <div style="overflow-x:auto;">
         <table>
@@ -290,6 +298,37 @@
         <td class="mono">L=${escapeHtml(String(counts.long ?? "—"))} S=${escapeHtml(String(counts.short ?? "—"))} P=${escapeHtml(String(counts.penny ?? "—"))}</td>
         <td class="mono ${okCls}">${escapeHtml(issues)}</td>
       </tr>`;
+    }
+
+    const catSummaryEl = document.getElementById("category-summary");
+    if (catSummaryEl) {
+      const cs = data.categorySummary || {};
+      if (cs.error) {
+        catSummaryEl.innerHTML = `<p class="mono bad">Failed to load: ${escapeHtml(cs.error)}</p>`;
+      } else {
+        const sectionBlock = (label, key, colorVar) => {
+          const sec = cs[key] || { count: 0, tickers: [] };
+          const chips = (sec.tickers || [])
+            .map(
+              (t) =>
+                `<span class="mono" style="display:inline-block;border:1px solid var(--line-soft);border-radius:999px;padding:2px 9px;margin:3px 4px 0 0;font-size:11px;">${escapeHtml(t)}</span>`
+            )
+            .join("");
+          return `
+            <div style="margin-bottom:16px;">
+              <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
+                <strong style="color:${colorVar};font-size:14px;">${escapeHtml(label)}</strong>
+                <span class="mono" style="color:var(--muted);font-size:12px;">${sec.count} tickers</span>
+              </div>
+              <div>${chips || '<span class="mono" style="color:var(--muted);">none</span>'}</div>
+            </div>`;
+        };
+        catSummaryEl.innerHTML =
+          sectionBlock("Long-term", "long", "#7fd99a") +
+          sectionBlock("Short-term", "short", "#f2c14e") +
+          sectionBlock("Penny", "penny", "#e08a8a") +
+          sectionBlock("Unclassified (needs backfill)", "unclassified", "var(--muted)");
+      }
     }
 
     const lastMap = data.lastCallByProvider || {};

@@ -547,6 +547,7 @@ async function refreshIndexTiers(options = {}) {
   }
 
   let applied = 0;
+  let boardApplied = 0;
   for (const [symbol, info] of membership) {
     const res = await dbRun(
       `UPDATE discovery_universe SET tier = ?, priority_rank = ?, tier_updated_at = ?
@@ -554,14 +555,25 @@ async function refreshIndexTiers(options = {}) {
       [info.tier, info.priorityRank, new Date().toISOString(), symbol]
     );
     if (res?.rowsAffected) applied += 1;
+
+    // Also backfill board_picks directly — covers every ticker regardless of
+    // how it entered the board (seed, movers, or the tiered universe path).
+    // discovery_universe alone only reaches tickers found via that one path;
+    // this closes the gap for seeded/movers-sourced tickers like the
+    // original core-8, which never went through upsertCandidateFromUniverse.
+    const boardRes = await dbRun(
+      `UPDATE board_picks SET tier = ? WHERE ticker = ?`,
+      [info.tier, symbol]
+    );
+    if (boardRes?.rowsAffected) boardApplied += 1;
   }
 
   await setSetting(INDEX_TIER_REFRESH_SETTING_KEY, new Date().toISOString());
   console.log(
-    `[indexTiers] applied tier/rank to ${applied}/${membership.size} matched symbols`,
+    `[indexTiers] applied tier/rank to ${applied}/${membership.size} matched symbols (discovery_universe), ${boardApplied} on board_picks`,
     results
   );
-  return { ok: true, applied, matched: membership.size, results };
+  return { ok: true, applied, boardApplied, matched: membership.size, results };
 }
 
 module.exports = {

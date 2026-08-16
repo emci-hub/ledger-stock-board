@@ -762,7 +762,54 @@ async function buildDevStatusPayload() {
       ok: false,
       error: err.message,
     })),
+    categorySummary: await buildCategorySummary().catch((err) => ({
+      error: err.message,
+    })),
     resetsAt: nextMidnightPacificIso(),
+  };
+}
+
+/**
+ * Compact per-section ticker summary for /dev-status — reuses the exact same
+ * data + classification functions as /api/board (listBoardDisplayPicks,
+ * reportFromCache, applyPlacementToBoardRow, partitionBoardBySection), just
+ * a second lightweight call, so this can never drift out of sync with what
+ * the public board actually shows.
+ */
+async function buildCategorySummary() {
+  const picks = await listBoardDisplayPicks();
+  const board = [];
+  for (const pick of picks) {
+    const report = await reportFromCache(pick.ticker, "long");
+    if (!report) continue;
+    board.push(applyPlacementToBoardRow(pick, report, "long"));
+  }
+  const partitioned = partitionBoardBySection(board);
+  const summarize = (rows) =>
+    (rows || [])
+      .slice()
+      .sort((a, b) => (b.sectionRank || 0) - (a.sectionRank || 0))
+      .map((r) => r.ticker);
+
+  return {
+    long: {
+      count: (partitioned[BOARD_SECTIONS.LONG] || []).length,
+      tickers: summarize(partitioned[BOARD_SECTIONS.LONG]),
+    },
+    short: {
+      count: (partitioned[BOARD_SECTIONS.SHORT] || []).length,
+      tickers: summarize(partitioned[BOARD_SECTIONS.SHORT]),
+    },
+    penny: {
+      count: (partitioned[BOARD_SECTIONS.PENNY] || []).length,
+      tickers: summarize(partitioned[BOARD_SECTIONS.PENNY]),
+    },
+    unclassified: {
+      count: (partitioned[BOARD_SECTIONS.UNCLASSIFIED] || []).length,
+      tickers: (partitioned[BOARD_SECTIONS.UNCLASSIFIED] || []).map(
+        (r) => r.ticker
+      ),
+    },
   };
 }
 

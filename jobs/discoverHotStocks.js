@@ -857,16 +857,64 @@ async function previewDiscovery(options = {}) {
     claude: null,
   };
 
+  // Stage 0/0b/0c status — reuses the EXACT freshness-check functions the
+  // real execution path uses (universeCacheIsFresh/indexTierCacheIsFresh/
+  // factorCacheIsFresh), so this can never silently drift from what will
+  // actually happen, unlike hand-written prose. Zero API cost to check.
+  const {
+    universeCacheIsFresh,
+    indexTierCacheIsFresh,
+    factorCacheIsFresh,
+  } = require("../services/discoveryUniverse");
+  const [universeFresh, tiersFresh, factorsFresh] = await Promise.all([
+    universeCacheIsFresh().catch(() => null),
+    indexTierCacheIsFresh().catch(() => null),
+    factorCacheIsFresh().catch(() => null),
+  ]);
+  const stagesPreview = [
+    {
+      id: "stage0_universe",
+      label: "Universe cache (Twelve Data symbol list)",
+      willRun: universeFresh === false,
+      cost: "≤1 TD credit",
+    },
+    {
+      id: "stage0b_index_tiers",
+      label: "Index tiers (S&P 500/400/600 via Wikipedia)",
+      willRun: tiersFresh === false,
+      cost: "$0 — not a metered source",
+    },
+    {
+      id: "stage0c_factor_etfs",
+      label: "Factor ETFs (USMV/QUAL/MTUM via iShares)",
+      willRun: factorsFresh === false,
+      cost: "$0 — not a metered source",
+    },
+    {
+      id: "stage1_movers",
+      label: "FMP movers → candidates",
+      willRun: true,
+      cost: `${estimatedCalls.fmp} FMP call(s)`,
+    },
+    {
+      id: "stage2_promote",
+      label: "Promote up to today's budget",
+      willRun: true,
+      cost: `up to ${maxPromote} promotions (bound by ${promotionBudget.bindingSource})`,
+    },
+  ];
+
   return {
     ok: true,
     preview: true,
     spendsNothing: true,
     mode: "discovery_preview",
+    stagesPreview,
     message: skipReason
       ? skipReason === "reserve_protected"
         ? "Skipped — reserve protected: FMP spendable headroom is below this run's estimate."
         : "Skipped — no quota: FMP remaining is below this run's estimate."
-      : "Preview only — no API calls spent. Stage 1 will upsert all FMP movers as candidates; Stage 2 promotes up to today's resource-bound budget. Exact new movers unknown until confirm.",
+      : "Preview only — no API calls spent. See stagesPreview for the exact stages that will run.",
     startedAt,
     finishedAt: new Date().toISOString(),
     board: {

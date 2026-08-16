@@ -513,6 +513,8 @@ async function markUniverseExcluded(symbol, reason = "not_actively_trading") {
 
 const FACTOR_REFRESH_SETTING_KEY = "factor_membership_refreshed_at";
 const FACTOR_REFRESH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // weekly
+const INDEX_TIER_REFRESH_SETTING_KEY = "index_tier_refreshed_at";
+const INDEX_TIER_REFRESH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // weekly — index membership rarely changes
 
 async function factorCacheIsFresh() {
   const at = await getSetting(FACTOR_REFRESH_SETTING_KEY);
@@ -585,8 +587,6 @@ async function refreshFactorCandidates(options = {}) {
   };
 }
 
-
-const INDEX_TIER_REFRESH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // weekly — index membership rarely changes
 
 async function indexTierCacheIsFresh() {
   const at = await getSetting(INDEX_TIER_REFRESH_SETTING_KEY);

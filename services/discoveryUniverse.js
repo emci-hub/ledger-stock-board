@@ -508,7 +508,7 @@ async function markUniverseExcluded(symbol, reason = "not_actively_trading") {
      WHERE symbol = ?`,
     [now, reason, sym]
   );
-  return { ok: true, symbol: sym, changes: result?.changes ?? null };
+  return { ok: true, symbol: sym, changes: result?.rowsAffected ?? null };
 }
 
 const INDEX_TIER_REFRESH_SETTING_KEY = "index_tier_refreshed_at";
@@ -553,7 +553,7 @@ async function refreshIndexTiers(options = {}) {
        WHERE symbol = ?`,
       [info.tier, info.priorityRank, new Date().toISOString(), symbol]
     );
-    if (res?.changes) applied += 1;
+    if (res?.rowsAffected) applied += 1;
   }
 
   await setSetting(INDEX_TIER_REFRESH_SETTING_KEY, new Date().toISOString());

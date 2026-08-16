@@ -475,10 +475,6 @@ async function initSchema() {
       `CREATE INDEX IF NOT EXISTS idx_discovery_universe_major_symbol
        ON discovery_universe(is_major, symbol)`
     );
-    await dbExecute(
-      `CREATE INDEX IF NOT EXISTS idx_discovery_universe_tier_priority
-       ON discovery_universe(tier, priority_rank, symbol)`
-    );
 
     // Migration for existing installs — table already existed before excluded/
     // excluded_at/exclude_reason/tier/priority_rank were added to the CREATE
@@ -499,6 +495,17 @@ async function initSchema() {
         }
       }
     }
+
+    // This index references tier/priority_rank — MUST run after the migration
+    // loop above, since on an existing table those columns only exist once
+    // the ALTER TABLE statements have run (CREATE TABLE IF NOT EXISTS is a
+    // no-op on a table that already exists). Placing this before the loop
+    // caused a real production outage (SQL_INPUT_ERROR: no such column: tier)
+    // on 2026-08-16 — fixed by moving it here.
+    await dbExecute(
+      `CREATE INDEX IF NOT EXISTS idx_discovery_universe_tier_priority
+       ON discovery_universe(tier, priority_rank, symbol)`
+    );
 
     try {
       await migrateLegacyModeCache();

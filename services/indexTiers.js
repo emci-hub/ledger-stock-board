@@ -22,6 +22,172 @@ const SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies";
 const SP400_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies";
 const SP600_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies";
 
+/**
+ * BlackRock/iShares factor ETF holdings — real, free, official downloads
+ * (not scraped from a third party). Confirmed working URL pattern (used in
+ * real developer tooling, e.g. github.com/skiamu/ETF, sec-api.io tutorials):
+ *   https://www.ishares.com/us/products/{ID}/{slug}/1467271812596.ajax
+ *     ?fileType=csv&fileName={TICKER}_holdings&dataType=fund
+ *
+ * USMV (Min Vol) + QUAL (Quality) → Long-candidate factor source.
+ * MTUM (Momentum) → Short-candidate factor source.
+ * QUAL's product ID is unconfirmed — verify live via scripts/smokeTestIndexTiers.js
+ * before trusting it (same treatment as everything else fetched from outside
+ * our own network tonight).
+ */
+const ISHARES_FUNDS = {
+  USMV: {
+    id: 239695,
+    slug: "ishares-msci-usa-minimum-volatility-etf",
+    factorTag: "quality_low_vol",
+  },
+  QUAL: {
+    id: 239644, // UNCONFIRMED — verify via smoke test before trusting
+    slug: "ishares-msci-usa-quality-factor-etf",
+    factorTag: "quality_low_vol",
+  },
+  MTUM: {
+    id: 251614,
+    slug: "ishares-msci-usa-momentum-factor-etf",
+    factorTag: "momentum",
+  },
+};
+
+function buildIsharesCsvUrl(ticker) {
+  const fund = ISHARES_FUNDS[ticker];
+  if (!fund) throw new Error(`Unknown iShares fund: ${ticker}`);
+  return `https://www.ishares.com/us/products/${fund.id}/${fund.slug}/1467271812596.ajax?fileType=csv&fileName=${ticker}_holdings&dataType=fund`;
+}
+
+/**
+ * Parse the real iShares holdings CSV format: several metadata header rows,
+ * then a header row (Ticker, Name, ..., Weight (%), ...), then data rows,
+ * then a trailing disclosure text block. Never throws on unexpected rows —
+ * skips them — since a malformed row must not crash the whole fetch.
+ */
+function parseIsharesHoldingsCsv(csvText) {
+  if (!csvText || typeof csvText !== "string") return [];
+  const lines = csvText.split(/\r?\n/);
+
+  // Find the real header row — the one containing "Ticker" AND "Weight".
+  let headerIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/ticker/i.test(line) && /weight/i.test(line)) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx === -1) return [];
+
+  const headers = splitCsvLine(lines[headerIdx]).map((h) =>
+    h.trim().toLowerCase()
+  );
+  const tickerCol = headers.findIndex((h) => h === "ticker");
+  const nameCol = headers.findIndex((h) => h.includes("name"));
+  const weightCol = headers.findIndex((h) => h.includes("weight"));
+  const sectorCol = headers.findIndex((h) => h.includes("sector"));
+  if (tickerCol === -1 || weightCol === -1) return [];
+
+  const rows = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const cells = splitCsvLine(line);
+    const ticker = String(cells[tickerCol] || "").trim().toUpperCase();
+    // Stop at the trailing disclosure block — real tickers are short,
+    // alphanumeric, no spaces; the disclosure text fails this immediately.
+    if (!ticker || !/^[A-Z0-9.\-]{1,10}$/.test(ticker)) continue;
+    const weightRaw = String(cells[weightCol] || "").replace(/[%,]/g, "");
+    const weight = Number.parseFloat(weightRaw);
+    if (!Number.isFinite(weight)) continue;
+    rows.push({
+      symbol: ticker,
+      name: nameCol >= 0 ? String(cells[nameCol] || "").trim() : null,
+      sector: sectorCol >= 0 ? String(cells[sectorCol] || "").trim() : null,
+      weightPct: weight,
+    });
+  }
+  return rows;
+}
+
+/** Minimal CSV line splitter — handles quoted fields with embedded commas. */
+function splitCsvLine(line) {
+  const out = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') {
+      inQuotes = !inQuotes;
+    } else if (c === "," && !inQuotes) {
+      out.push(cur);
+      cur = "";
+    } else {
+      cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+/**
+ * Fetch one iShares fund's holdings, ranked by real published weight
+ * (highest weight = rank 1 = considered most significant by MSCI's own
+ * methodology). Never throws — returns empty array on failure so one bad
+ * fetch can't take down the others.
+ */
+async function fetchIsharesFundHoldings(ticker) {
+  try {
+    const url = buildIsharesCsvUrl(ticker);
+    const { data } = await axios.get(url, {
+      timeout: 15000,
+      headers: { "User-Agent": "ledger-stock-board/1.0 (factor fetch)" },
+    });
+    const rows = parseIsharesHoldingsCsv(data);
+    // Rank by weight descending — this IS the "who's on top" data the user
+    // asked about; real, published, not our own invention.
+    rows.sort((a, b) => b.weightPct - a.weightPct);
+    return rows.map((r, idx) => ({ ...r, rank: idx + 1 }));
+  } catch (err) {
+    console.warn(`[blackrockFactors] ${ticker} fetch failed:`, err.message);
+    return [];
+  }
+}
+
+/**
+ * Fetch all 3 factor funds, merge into Map<symbol, {factorTag, rank, weightPct}>.
+ * A stock appearing in both USMV and QUAL keeps the better (lower) rank.
+ * Never throws — partial results on individual fund failure.
+ */
+async function fetchAllFactorMembership() {
+  const results = { ok: [], failed: [] };
+  const merged = new Map();
+
+  for (const ticker of ["USMV", "QUAL", "MTUM"]) {
+    const rows = await fetchIsharesFundHoldings(ticker);
+    if (rows.length === 0) {
+      results.failed.push({ name: ticker, reason: "empty_or_fetch_failed" });
+      continue;
+    }
+    results.ok.push({ name: ticker, count: rows.length });
+    const factorTag = ISHARES_FUNDS[ticker].factorTag;
+    for (const row of rows) {
+      const existing = merged.get(row.symbol);
+      if (!existing || row.rank < existing.rank) {
+        merged.set(row.symbol, {
+          factorTag,
+          sourceFund: ticker,
+          rank: row.rank,
+          weightPct: row.weightPct,
+        });
+      }
+    }
+  }
+
+  return { membership: merged, results };
+}
+
 const EPOCH_MS = Date.UTC(1970, 0, 1);
 
 function daysSinceEpoch(dateStr) {
@@ -161,4 +327,9 @@ module.exports = {
   SP500_URL,
   SP400_URL,
   SP600_URL,
+  fetchIsharesFundHoldings,
+  fetchAllFactorMembership,
+  parseIsharesHoldingsCsv,
+  buildIsharesCsvUrl,
+  ISHARES_FUNDS,
 };

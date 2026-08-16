@@ -385,6 +385,8 @@ async function initSchema() {
       "tracked_since TEXT",
       "board_section TEXT",
       "tier INTEGER",
+      "factor_tag TEXT",
+      "factor_rank INTEGER",
     ]) {
       try {
         await dbExecute(`ALTER TABLE board_picks ADD COLUMN ${col}`);

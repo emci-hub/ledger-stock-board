@@ -511,7 +511,81 @@ async function markUniverseExcluded(symbol, reason = "not_actively_trading") {
   return { ok: true, symbol: sym, changes: result?.rowsAffected ?? null };
 }
 
-const INDEX_TIER_REFRESH_SETTING_KEY = "index_tier_refreshed_at";
+const FACTOR_REFRESH_SETTING_KEY = "factor_membership_refreshed_at";
+const FACTOR_REFRESH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // weekly
+
+async function factorCacheIsFresh() {
+  const at = await getSetting(FACTOR_REFRESH_SETTING_KEY);
+  if (!at) return false;
+  const age = Date.now() - new Date(at).getTime();
+  return Number.isFinite(age) && age < FACTOR_REFRESH_MAX_AGE_MS;
+}
+
+/**
+ * Refresh USMV/QUAL/MTUM holdings and upsert the whole set directly as
+ * board_picks candidates. No cursor/batching needed — this pool is small
+ * (~300-400 names combined), unlike the 5.8k full-universe system, so it's
+ * processed in one pass. Weekly cadence (index rebalances only quarterly;
+ * daily checks would be wasted effort). Never blocks discovery on failure.
+ */
+async function refreshFactorCandidates(options = {}) {
+  const force = Boolean(options.force);
+  const dryRun = Boolean(options.dryRun);
+  if (!force && (await factorCacheIsFresh())) {
+    return { ok: true, skipped: true, reason: "fresh" };
+  }
+
+  const { fetchAllFactorMembership } = require("./indexTiers");
+  const { membership, results } = await fetchAllFactorMembership();
+
+  if (membership.size === 0) {
+    console.warn(
+      "[blackrockFactors] All factor sources failed or returned empty — no candidates upserted",
+      results
+    );
+    return { ok: false, upserted: 0, results };
+  }
+
+  const { upsertCandidateFromFactor } = boardPicks();
+  let inserted = 0;
+  let updated = 0;
+  let refreshedLive = 0;
+  let refreshedArchived = 0;
+
+  if (!dryRun) {
+    for (const [symbol, info] of membership) {
+      const res = await upsertCandidateFromFactor({
+        ticker: symbol,
+        name: null,
+        factorTag: info.factorTag,
+        factorRank: info.rank,
+      });
+      if (res.action === "inserted") inserted += 1;
+      else if (res.action === "updated") updated += 1;
+      else if (res.action === "refreshed_live") refreshedLive += 1;
+      else if (res.action === "refreshed_archived") refreshedArchived += 1;
+    }
+    await setSetting(FACTOR_REFRESH_SETTING_KEY, new Date().toISOString());
+  }
+
+  console.log(
+    `[blackrockFactors] ${dryRun ? "PREVIEW " : ""}matched=${membership.size} inserted=${inserted} updated=${updated} refreshedLive=${refreshedLive} refreshedArchived=${refreshedArchived}`,
+    results
+  );
+
+  return {
+    ok: true,
+    dryRun,
+    matched: membership.size,
+    inserted,
+    updated,
+    refreshedLive,
+    refreshedArchived,
+    results,
+  };
+}
+
+
 const INDEX_TIER_REFRESH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // weekly — index membership rarely changes
 
 async function indexTierCacheIsFresh() {
@@ -590,4 +664,6 @@ module.exports = {
   TIER_WEIGHTS,
   refreshIndexTiers,
   indexTierCacheIsFresh,
+  refreshFactorCandidates,
+  factorCacheIsFresh,
 };

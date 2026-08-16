@@ -64,6 +64,7 @@ const {
   upsertUniverseCandidateBatch,
   markUniverseExcluded,
   refreshIndexTiers,
+  refreshFactorCandidates,
 } = require("../services/discoveryUniverse");
 const {
   assessBoardPlacement,
@@ -1091,6 +1092,23 @@ async function discoverHotStocksInner({
     );
   }
 
+  // ── Stage 0c: weekly BlackRock/iShares factor ETF refresh (USMV/QUAL/
+  // MTUM) — small, curated, professionally-vetted candidate pool. Zero
+  // market-data-API cost. Upserts candidates directly (no cursor needed,
+  // pool is small). Never blocks discovery on failure.
+  let stage0c;
+  try {
+    stage0c = await refreshFactorCandidates({
+      force: Boolean(options.forceFactorRefresh),
+    });
+  } catch (err) {
+    stage0c = { ok: false, error: err.message };
+    console.warn(
+      "[discoverHotStocks] Stage 0c factor-ETF refresh failed (non-fatal):",
+      err.message
+    );
+  }
+
   let movers;
   try {
     movers = await getDiscoveryMoversBundle();
@@ -1100,6 +1118,8 @@ async function discoverHotStocksInner({
       error: err.message,
       stage0,
       stage0b,
+    stage0c,
+      stage0c,
       startedAt,
       finishedAt: new Date().toISOString(),
     };
@@ -1217,6 +1237,7 @@ async function discoverHotStocksInner({
     },
     stage0,
     stage0b,
+    stage0c,
     stage1: {
       ...stage1,
       pruned: prune.removed,

@@ -251,6 +251,11 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null, pick =
   // all — movers-sourced or a manually seeded ticker). Only 1/2 get a badge.
   const tier =
     pick && Number.isFinite(Number(pick.tier)) ? Number(pick.tier) : null;
+  const factorTag = pick?.factor_tag || null;
+  const factorRank =
+    pick && Number.isFinite(Number(pick.factor_rank))
+      ? Number(pick.factor_rank)
+      : null;
   const modeRank = displayMode === "short" ? shortTermRank : longTermRank;
   const lastFieldRefresh =
     latestFreshnessIso(rawData) || analysisGeneratedAt || lastUpdated || null;
@@ -328,6 +333,8 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null, pick =
     longTermRank,
     dipWatch,
     tier,
+    factorTag,
+    factorRank,
     rankScore: modeRank,
     priceSource,
     priceSourceLabel: sourceShortCode(priceSource),

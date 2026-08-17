@@ -99,6 +99,45 @@ async function warmNewlyPromotedTicker(ticker, options = {}) {
     console.warn(`[warmNewlyPromoted] prefetch ${symbol}:`, err.message);
   }
 
+  // Cheap pre-check: the price pull above already tells us how many real
+  // bars we have, at zero extra cost. If a candidate is SO thin (well
+  // under Short's own real-data requirement) that it's essentially certain
+  // to land Unclassified regardless of what else we fetch, skip the
+  // expensive scarce spend (AV target, Marketaux/AV news retry, Gemini
+  // analysis) THIS cycle rather than spending it on a report nobody can
+  // act on yet. Nothing is lost — the next daily refresh naturally
+  // re-attempts once more real bars have accumulated, and a genuinely
+  // established company (real SMA200 already available) is exempted so a
+  // legitimately fast-track-eligible Long candidate is never deferred.
+  const DEFER_ANALYSIS_BAR_FLOOR = Math.max(
+    1,
+    Number.parseInt(process.env.DEFER_ANALYSIS_BAR_FLOOR || "5", 10) || 5
+  );
+  try {
+    const preEntry = await getStockCacheEntry(symbol);
+    const bars = Number(preEntry?.data?.quote?.historyBars);
+    const hasSma200 = Boolean(
+      preEntry?.data?.quote?.indicators?.long?.sma200 ??
+        preEntry?.data?.fundamentals?.overview?.sma200
+    );
+    if (
+      Number.isFinite(bars) &&
+      bars < DEFER_ANALYSIS_BAR_FLOOR &&
+      !hasSma200
+    ) {
+      result.deferredAnalysis = true;
+      result.deferredAnalysisReason = `only ${bars} real bar(s) tracked — deferring scarce spend until more accumulate`;
+      console.log(
+        `[warmNewlyPromoted] ${symbol}: deferring AV/Gemini spend — ${bars} bars < floor ${DEFER_ANALYSIS_BAR_FLOOR}, no SMA200 fallback`
+      );
+      return result;
+    }
+  } catch (err) {
+    // Pre-check failing must never block the normal path — fall through
+    // to the full warm exactly as before if we can't read the cache yet.
+    console.warn(`[warmNewlyPromoted] defer pre-check ${symbol}:`, err.message);
+  }
+
   const av = await alphaVantageSpendable();
   const entry = await getStockCacheEntry(symbol);
   const needsTarget = !isTargetFresh(entry?.data);

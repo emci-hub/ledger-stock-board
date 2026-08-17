@@ -10,7 +10,7 @@ const {
   applyNewsAgreementGuard,
   parseRank,
 } = require("../lib/aiShape");
-const { NEWLY_TRACKED_LONG_RANK_CAP } = require("../lib/rankingStability");
+const { NEWLY_TRACKED_LONG_RANK_CAP, isDipWatchConfirmedOverreaction } = require("../lib/rankingStability");
 
 function pickIndicators(quoteData) {
   const ind = quoteData?.indicators;
@@ -48,12 +48,13 @@ function applyLongTermRankGuardrails(parsed, rankingContext) {
   // that a confirmed overreaction should NOT be punished the way an ordinary
   // hot-mover spike is. Any other verdict (fundamental_concern, uncertain, or
   // no verdict at all) falls through to the normal guardrail unchanged.
-  const dipWatchConfirmed =
-    Boolean(ctx.dipWatch?.triggered) &&
-    parsed.dipWatch &&
-    parsed.dipWatch.verdict === "sentiment_overreaction" &&
-    (parsed.dipWatch.confidence === "high" ||
-      parsed.dipWatch.confidence === "medium");
+  // Reuses the SAME shared function resolveBoardSection uses (was previously
+  // reimplemented inline here — two copies of the same rule, now one).
+  const dipWatchConfirmed = isDipWatchConfirmedOverreaction({
+    triggered: ctx.dipWatch?.triggered,
+    verdict: parsed.dipWatch?.verdict,
+    confidence: parsed.dipWatch?.confidence,
+  });
 
   if (!dipWatchConfirmed) {
     // If Gemini copied short onto long for a hot mover, pull long down first.

@@ -1104,23 +1104,32 @@ async function discoverHotStocksInner({
       : !dryRun;
 
   // ── Stage 0: daily universe cache refresh (≤1 TD when stale) ───────
+  // Paused together with Stage 1b below — no reason to keep refreshing a
+  // ~5.8k-symbol table nothing is reading from while the broader universe
+  // system is parked. Same UNIVERSE_STAGE1B_ENABLED switch controls both.
+  const universeStage0Enabled =
+    String(process.env.UNIVERSE_STAGE1B_ENABLED || "").toLowerCase() === "true";
   let stage0;
-  try {
-    stage0 = await refreshDiscoveryUniverse({
-      force: Boolean(options.forceUniverseRefresh),
-      // Metadata cache may refresh even on dryRun unless explicitly disabled.
-      dryRun: dryRun && options.refreshUniverseOnDryRun === false,
-    });
-  } catch (err) {
-    stage0 = {
-      ok: false,
-      error: err.message,
-      twelveDataCalls: 0,
-    };
-    console.warn(
-      "[discoverHotStocks] Stage 0 universe refresh failed:",
-      err.message
-    );
+  if (!universeStage0Enabled) {
+    stage0 = { ok: true, skipped: true, reason: "paused_by_config" };
+  } else {
+    try {
+      stage0 = await refreshDiscoveryUniverse({
+        force: Boolean(options.forceUniverseRefresh),
+        // Metadata cache may refresh even on dryRun unless explicitly disabled.
+        dryRun: dryRun && options.refreshUniverseOnDryRun === false,
+      });
+    } catch (err) {
+      stage0 = {
+        ok: false,
+        error: err.message,
+        twelveDataCalls: 0,
+      };
+      console.warn(
+        "[discoverHotStocks] Stage 0 universe refresh failed:",
+        err.message
+      );
+    }
   }
 
   // ── Stage 0b: weekly index-tier refresh (S&P 500/400/600 membership) ───
@@ -1201,19 +1210,31 @@ async function discoverHotStocksInner({
   }
 
   // ── Stage 1b: universe cursor batch → candidates (0 market API) ────
+  // PAUSED by default (2026-08-17) — was meant to stay parked once the
+  // smaller, better-curated Index Tier + Factor ETF sources (Stage 0b/0c)
+  // came online, but that pause was never actually implemented, leaving 4
+  // discovery sources running in parallel when the real decision was 3.
+  // Set UNIVERSE_STAGE1B_ENABLED=true to re-enable once the smaller system
+  // has proven itself and broader long-tail coverage is genuinely needed.
+  const universeStage1bEnabled =
+    String(process.env.UNIVERSE_STAGE1B_ENABLED || "").toLowerCase() === "true";
   let stage1b;
-  try {
-    stage1b = await upsertUniverseCandidateBatch({
-      dryRun: !persistCandidates,
-      batchSize: options.universeBatchSize || UNIVERSE_CANDIDATE_BATCH,
-      poolCap: CANDIDATE_POOL_CAP,
-    });
-  } catch (err) {
-    stage1b = { ok: false, error: err.message, inserted: 0 };
-    console.warn(
-      "[discoverHotStocks] Stage 1b universe batch failed:",
-      err.message
-    );
+  if (!universeStage1bEnabled) {
+    stage1b = { ok: true, skipped: true, reason: "paused_by_config", inserted: 0 };
+  } else {
+    try {
+      stage1b = await upsertUniverseCandidateBatch({
+        dryRun: !persistCandidates,
+        batchSize: options.universeBatchSize || UNIVERSE_CANDIDATE_BATCH,
+        poolCap: CANDIDATE_POOL_CAP,
+      });
+    } catch (err) {
+      stage1b = { ok: false, error: err.message, inserted: 0 };
+      console.warn(
+        "[discoverHotStocks] Stage 1b universe batch failed:",
+        err.message
+      );
+    }
   }
 
   const prune = !persistCandidates

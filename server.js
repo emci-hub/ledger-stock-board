@@ -417,27 +417,36 @@ app.get("/api/board", async (req, res) => {
     const picks = await listBoardDisplayPicks();
     const deeperEnabled = await isDeeperLookEnabled();
 
-    const board = [];
-    for (const pick of picks) {
-      // Build report with mode-appropriate take; placement uses shared price/% signals.
-      const report = await reportFromCache(pick.ticker, mode);
-      // Skip rows with no cached report — candidates shouldn't appear; archived
-      // without cache would only create empty/unclassifiable placeholders.
-      if (!report) continue;
-      if (deeperEnabled) {
-        const deeper = await getDeeperLook(pick.ticker);
-        report.deeperLook = deeper
-          ? {
-              provider: deeper.provider,
-              generatedAt: deeper.generatedAt,
-              analysis: deeper.long || deeper.short,
-            }
-          : null;
-      } else {
-        report.deeperLook = null;
-      }
-      board.push(applyPlacementToBoardRow(pick, report, mode));
-    }
+    // PERFORMANCE FIX (2026-08-17): was a sequential for-loop, doing 3 DB
+    // round-trips per ticker one at a time. Raising ARCHIVE_MAX_SIZE to 200
+    // earlier tonight meant this could become 600+ sequential round-trips
+    // per page load. Parallelized with Promise.all — each ticker's fetch is
+    // fully independent (no shared state between iterations), so this is
+    // safe: same per-ticker logic, same final order (Promise.all preserves
+    // array index order regardless of which fetch finishes first).
+    const boardRows = await Promise.all(
+      picks.map(async (pick) => {
+        const report = await reportFromCache(pick.ticker, mode);
+        // Skip rows with no cached report — candidates shouldn't appear;
+        // archived without cache would only create empty/unclassifiable
+        // placeholders.
+        if (!report) return null;
+        if (deeperEnabled) {
+          const deeper = await getDeeperLook(pick.ticker);
+          report.deeperLook = deeper
+            ? {
+                provider: deeper.provider,
+                generatedAt: deeper.generatedAt,
+                analysis: deeper.long || deeper.short,
+              }
+            : null;
+        } else {
+          report.deeperLook = null;
+        }
+        return applyPlacementToBoardRow(pick, report, mode);
+      })
+    );
+    const board = boardRows.filter(Boolean);
 
     const partitioned = partitionBoardBySection(board);
     const sections = {

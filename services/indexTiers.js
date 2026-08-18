@@ -36,6 +36,11 @@ const SP600_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies";
  * our own network tonight).
  */
 const ISHARES_FUNDS = {
+  IVV: {
+    id: 239726,
+    slug: "ishares-core-sp-500-etf",
+    factorTag: null, // not a factor tilt — this IS the S&P 500 itself, tier 1
+  },
   USMV: {
     id: 239695,
     slug: "ishares-msci-usa-minimum-volatility-etf",
@@ -242,21 +247,23 @@ function parseFirstWikitable(html) {
  * Sector | GICS Sub-Industry | Headquarters Location | Date added | CIK |
  * Founded — Symbol is column 0, Date added is column 5.
  */
+/**
+ * S&P 500 membership — now sourced directly from BlackRock/iShares (IVV,
+ * their actual S&P 500 tracking fund), NOT Wikipedia. Same real CSV
+ * pipeline already proven for USMV/QUAL/MTUM. Real trade-off, disclosed:
+ * IVV's holdings CSV has no "date added to index" column the way
+ * Wikipedia's table did, so priorityRank is now based on real published
+ * portfolio WEIGHT (consistent with how USMV/QUAL/MTUM already rank) —
+ * not tenure. Return shape unchanged so nothing downstream needs to change.
+ */
 async function fetchSp500Membership() {
-  const { data: html } = await axios.get(SP500_URL, {
-    timeout: 15000,
-    headers: { "User-Agent": "ledger-stock-board/1.0 (index tier fetch)" },
-  });
-  const rows = parseFirstWikitable(html);
+  const rows = await fetchIsharesFundHoldings("IVV");
   const out = new Map();
-  for (const cells of rows) {
-    const symbol = String(cells[0] || "").trim().toUpperCase();
-    const dateAdded = cells[5] || null;
-    if (!symbol) continue;
-    out.set(symbol, {
+  for (const row of rows) {
+    out.set(row.symbol, {
       tier: 1,
-      priorityRank: daysSinceEpoch(dateAdded) ?? null,
-      dateAdded: dateAdded || null,
+      priorityRank: row.rank, // real published weight rank (1 = largest holding)
+      dateAdded: null, // not available from this source — see note above
     });
   }
   return out;
@@ -294,10 +301,13 @@ async function fetchSp400Or600Membership(url) {
 async function fetchAllIndexMembership() {
   const merged = new Map();
 
+  // S&P 400/600 (Wikipedia) intentionally paused, not deleted — user
+  // decision 2026-08-17: focus on S&P 500 only for now, sourced from real
+  // BlackRock data instead of Wikipedia. fetchSp400Or600Membership() and
+  // the Wikipedia parser stay in this file, working and testable, in case
+  // broader coverage is wanted again later.
   const sources = [
-    { name: "S&P 400", fn: () => fetchSp400Or600Membership(SP400_URL) },
-    { name: "S&P 600", fn: () => fetchSp400Or600Membership(SP600_URL) },
-    { name: "S&P 500", fn: fetchSp500Membership }, // last so it overwrites tier 2 dupes
+    { name: "S&P 500 (IVV/BlackRock)", fn: fetchSp500Membership },
   ];
 
   const results = { ok: [], failed: [] };

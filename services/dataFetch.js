@@ -306,9 +306,67 @@ async function callMarketaux(pathname, params = {}) {
 /**
  * Sole Twelve Data HTTP entry point — always increments twelve_data usage.
  * opts.credits — bill N credits for multi-symbol batch (TD bills 1 credit / symbol).
+ * Soft-caps at 8 credits / rolling 60s window (Twelve Data's real observed
+ * per-minute limit — confirmed directly from their own error message:
+ * "19 API credits were used, with the current limit being 8"), queuing
+ * callers with a short wait instead of flooding past the limit. Same
+ * proven pattern as acquireFinnhubSlot below, adapted for credit-weighted
+ * (not just call-count) consumption since a single batch call can cost
+ * several credits at once.
  */
+const TWELVE_DATA_WINDOW_MS = 60_000;
+const TWELVE_DATA_SOFT_LIMIT = Math.max(
+  1,
+  Number.parseInt(process.env.TWELVE_DATA_PER_MINUTE_LIMIT || "8", 10) || 8
+);
+const twelveDataCreditLog = []; // { at: timestamp, credits: number }
+let twelveDataGate = Promise.resolve();
+
+async function acquireTwelveDataSlot(creditsNeeded) {
+  const needed = Math.max(1, Math.floor(Number(creditsNeeded) || 1));
+  let release;
+  const previous = twelveDataGate;
+  twelveDataGate = new Promise((resolve) => {
+    release = resolve;
+  });
+  await previous;
+
+  try {
+    for (;;) {
+      const now = Date.now();
+      while (
+        twelveDataCreditLog.length &&
+        now - twelveDataCreditLog[0].at >= TWELVE_DATA_WINDOW_MS
+      ) {
+        twelveDataCreditLog.shift();
+      }
+
+      const used = twelveDataCreditLog.reduce((sum, e) => sum + e.credits, 0);
+
+      // If a single request needs more than the whole limit, let it through
+      // alone once the window is empty rather than waiting forever.
+      if (used + needed <= TWELVE_DATA_SOFT_LIMIT || (used === 0 && needed > TWELVE_DATA_SOFT_LIMIT)) {
+        twelveDataCreditLog.push({ at: now, credits: needed });
+        return;
+      }
+
+      const waitMs = TWELVE_DATA_WINDOW_MS - (now - twelveDataCreditLog[0].at) + 50;
+      console.warn(
+        `[callTwelveData] rate-limit delay ${waitMs}ms (${used}/${TWELVE_DATA_SOFT_LIMIT} credits used in 60s window, need ${needed} more)`
+      );
+      await incrementUsage(PROVIDERS.TWELVE_DELAY, {
+        action: "rate_delay",
+      }).catch(() => {});
+      await sleep(Math.max(waitMs, 100));
+    }
+  } finally {
+    release();
+  }
+}
+
 async function callTwelveData(pathname, params = {}, opts = {}) {
   const credits = Math.max(1, Math.floor(Number(opts.credits) || 1));
+  await acquireTwelveDataSlot(credits);
   consumeOrThrow(PROVIDERS.TWELVE, pathname || "twelve_data", credits);
   await incrementUsage(PROVIDERS.TWELVE, {
     action: pathname || "twelve_data",

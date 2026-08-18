@@ -7,9 +7,11 @@ const PROVIDERS = {
   FINNHUB: USAGE_KEYS.finnhub,
   FINNHUB_DELAY: USAGE_KEYS.finnhub_rate_delay,
   TWELVE: USAGE_KEYS.twelve_data,
+  TWELVE_DELAY: USAGE_KEYS.twelve_data_rate_delay,
   FMP: USAGE_KEYS.fmp,
   MARKETAUX: USAGE_KEYS.marketaux,
   GEMINI: USAGE_KEYS.gemini,
+  GEMINI_DELAY: USAGE_KEYS.gemini_rate_delay,
   CLAUDE: USAGE_KEYS.claude,
 };
 

@@ -697,10 +697,34 @@ async function loadSharedStockDataInner(symbol, options = {}) {
       } catch {
         boardPick = null;
       }
-      const dipWatchTrigger = computeDipWatchTrigger(
-        { priceHistory: rawData?.quote?.priceHistory || rawData?.priceHistory },
+      const rawTrigger = computeDipWatchTrigger(
+        {
+          priceHistory: rawData?.quote?.priceHistory || rawData?.priceHistory,
+          // FIX (2026-08-17): indicators was never passed here at all, so
+          // RSI always read as null and the combined price+RSI trigger
+          // could never fire in this live path, regardless of real data —
+          // found while wiring in the daily shortlist gate below.
+          indicators: rawData?.quote?.indicators || rawData?.indicators,
+        },
         boardPick?.board_section || null
       );
+      // Daily shortlist gate (2026-08-17): even if this ticker's fresh data
+      // independently qualifies, only tell Gemini "triggered" if it made
+      // today's top-N severity shortlist (computed once, cheaply, at the
+      // start of the refresh cycle). null shortlist (pre-scan hasn't run
+      // yet / failed) fails OPEN — never silently blocks a real trigger.
+      let dipWatchTrigger = rawTrigger;
+      if (rawTrigger.triggered) {
+        try {
+          const { getTodaysDipWatchShortlist } = require("../lib/rankingStability");
+          const shortlist = await getTodaysDipWatchShortlist();
+          if (shortlist && !shortlist.has(symbol)) {
+            dipWatchTrigger = { ...rawTrigger, triggered: false };
+          }
+        } catch {
+          // fail open — keep rawTrigger as-is
+        }
+      }
       analysis = await analyzeStock(
         symbol,
         rawData.quote,

@@ -299,6 +299,21 @@ async function refreshBoardInner({ force }) {
   }
   const tickers = await getActiveBoardTickers();
 
+  // Daily Dip Watch pre-scan (2026-08-17) — once per refresh cycle, BEFORE
+  // the main per-ticker loop, using only already-cached data (zero new API
+  // cost). Ranks all real triggers by severity and stores the top N so the
+  // loop below only sends "triggered" to Gemini for genuinely the most
+  // severe candidates — bounds AI spend on Dip Watch even during a real
+  // market-wide selloff with many stocks dipping simultaneously. Never
+  // blocks the refresh on failure — if this fails, the per-ticker gate
+  // (getTodaysDipWatchShortlist returning null) fails OPEN, not closed.
+  try {
+    const { computeDailyDipWatchShortlist } = require("../lib/rankingStability");
+    await computeDailyDipWatchShortlist(tickers);
+  } catch (err) {
+    console.warn("[refreshBoard] Dip Watch shortlist pre-scan failed (non-fatal):", err.message);
+  }
+
   const { prefetchBoardNewsAndPrices } = require("../services/boardBatchPrefetch");
 
   const budget = await createQuotaBudget();

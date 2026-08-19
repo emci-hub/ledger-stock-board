@@ -184,6 +184,16 @@
     </div>
 
     <div class="card">
+      <h2>Candidates with no price data (for review)</h2>
+      <p style="margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.4;">
+        Mostly factor/tier-sourced candidates (S&P 500/USMV/QUAL/MTUM) that don't
+        get a daily price refresh yet — known, deliberately deferred gap, not a bug.
+        For manual review — not shown on the public board.
+      </p>
+      <div id="null-price-candidates"></div>
+    </div>
+
+    <div class="card">
       <h2>Scheduled jobs</h2>
       <div style="overflow-x:auto;">
         <table>
@@ -328,6 +338,38 @@
           sectionBlock("Short-term", "short", "#f2c14e") +
           sectionBlock("Penny", "penny", "#e08a8a") +
           sectionBlock("Unclassified (needs backfill)", "unclassified", "var(--muted)");
+      }
+    }
+
+    const nullPriceEl = document.getElementById("null-price-candidates");
+    if (nullPriceEl) {
+      const np = data.nullPriceCandidates || {};
+      if (np.error) {
+        nullPriceEl.innerHTML = `<p class="mono bad">Failed to load: ${escapeHtml(np.error)}</p>`;
+      } else {
+        const count = np.count || 0;
+        const rows = (np.tickers || [])
+          .map(
+            (t) =>
+              `<tr>
+                <td class="mono">${escapeHtml(t.ticker)}</td>
+                <td class="mono">${escapeHtml(t.source || "—")}</td>
+                <td class="mono">${t.tier ?? "—"}</td>
+                <td class="mono">${escapeHtml(t.factorTag || "—")}</td>
+                <td class="mono">${escapeHtml((t.discoveredAt || "").slice(0, 10) || "—")}</td>
+              </tr>`
+          )
+          .join("");
+        nullPriceEl.innerHTML = `
+          <p class="mono" style="color:var(--muted);margin:0 0 10px;">${count} candidate(s) with no price data</p>
+          ${
+            count
+              ? `<div style="overflow-x:auto;"><table>
+                  <thead><tr><th>Ticker</th><th>Source</th><th>Tier</th><th>Factor</th><th>Discovered</th></tr></thead>
+                  <tbody>${rows}</tbody>
+                </table></div>`
+              : ""
+          }`;
       }
     }
 

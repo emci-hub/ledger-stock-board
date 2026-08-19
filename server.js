@@ -774,6 +774,9 @@ async function buildDevStatusPayload() {
     categorySummary: await buildCategorySummary().catch((err) => ({
       error: err.message,
     })),
+    nullPriceCandidates: await buildNullPriceCandidatesReport().catch((err) => ({
+      error: err.message,
+    })),
     resetsAt: nextMidnightPacificIso(),
   };
 }
@@ -785,6 +788,33 @@ async function buildDevStatusPayload() {
  * a second lightweight call, so this can never drift out of sync with what
  * the public board actually shows.
  */
+/**
+ * Diagnostic panel (2026-08-19), per explicit request — surfaces candidates
+ * with null price/percent_change (mostly factor/tier-sourced candidates
+ * that don't get a daily price refresh yet — a known, deliberately
+ * deferred gap, not a bug). For manual review, not a functional fix.
+ */
+async function buildNullPriceCandidatesReport() {
+  const rows = await dbAll(
+    `SELECT ticker, source, tier, factor_tag, discovered_at, last_seen_at
+     FROM board_picks
+     WHERE status = 'candidate' AND (price IS NULL OR percent_change IS NULL)
+     ORDER BY discovered_at DESC
+     LIMIT 500`
+  );
+  return {
+    count: rows.length,
+    tickers: rows.map((r) => ({
+      ticker: r.ticker,
+      source: r.source,
+      tier: r.tier,
+      factorTag: r.factor_tag,
+      discoveredAt: r.discovered_at,
+      lastSeenAt: r.last_seen_at,
+    })),
+  };
+}
+
 async function buildCategorySummary() {
   const picks = await listBoardDisplayPicks();
   const board = [];

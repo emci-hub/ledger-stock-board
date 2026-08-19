@@ -629,6 +629,44 @@ async function refreshBoardInner({ force }) {
     );
   }
 
+  // Per-category cap enforcement (2026-08-19) — runs here specifically
+  // because section data is guaranteed fresh right after the sync above.
+  // Deliberately kept SEPARATE from the promotion flow (where a ticker's
+  // target section isn't known yet at capacity-clearing time) rather than
+  // restructuring that already-tested sequence. Free (DB-only), no API
+  // cost, same as the underlying ensureSectionCapacity it calls.
+  let sectionCapResults = null;
+  try {
+    const { ensureSectionCapacity } = require("../lib/boardPicks");
+    const { BOARD_SECTIONS } = require("../lib/rankingStability");
+    sectionCapResults = {};
+    for (const section of [
+      BOARD_SECTIONS.LONG,
+      BOARD_SECTIONS.SHORT,
+      BOARD_SECTIONS.PENNY,
+    ]) {
+      sectionCapResults[section] = await ensureSectionCapacity(section, 0);
+    }
+    const totalArchived = Object.values(sectionCapResults).reduce(
+      (sum, r) => sum + (r.archived?.length || 0),
+      0
+    );
+    if (totalArchived > 0) {
+      console.log(
+        `[refreshBoard] Per-category cap enforcement: archived ${totalArchived} total (` +
+          Object.entries(sectionCapResults)
+            .map(([s, r]) => `${s}=${r.archived?.length || 0}`)
+            .join(", ") +
+          ")"
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[refreshBoard] per-category cap enforcement failed (non-fatal):",
+      err?.message || err
+    );
+  }
+
   return {
     ok: true,
     mode: "long",
@@ -640,6 +678,7 @@ async function refreshBoardInner({ force }) {
     boardRefreshStatus,
     successes,
     tickerCount: tickers.length,
+    sectionCapResults,
     failures,
     batchPrefetch,
     force,

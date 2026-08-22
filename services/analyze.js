@@ -8,9 +8,7 @@ const {
   FALLBACK,
   parseQuip,
   applyNewsAgreementGuard,
-  parseRank,
 } = require("../lib/aiShape");
-const { NEWLY_TRACKED_LONG_RANK_CAP, isDipWatchConfirmedOverreaction } = require("../lib/rankingStability");
 
 function pickIndicators(quoteData) {
   const ind = quoteData?.indicators;
@@ -26,65 +24,6 @@ function pickIndicators(quoteData) {
     bollinger: ind?.bollinger || null,
   };
   return { short: flat, long: flat };
-}
-
-/**
- * Complements Gemini RANKING_RUBRIC — factual signals that must not rely on the model alone.
- * Soft-clamp Gemini longTermRank using factual rankingContext.
- * Full stability penalties (extreme/penny/exchange/thin real history) are applied
- * once at board read time via assessBoardPlacement — do not re-apply them here.
- * shortTermRank is never modified.
- */
-function applyLongTermRankGuardrails(parsed, rankingContext) {
-  if (!parsed || typeof parsed !== "object") return parsed;
-  const ctx = rankingContext || {};
-  let longRank = parseRank(parsed.longTermRank);
-  if (longRank == null) return parsed;
-
-  // Dip Watch exception: if the deterministic trigger fired (stock was already
-  // Long, took a sharp short-window drop) AND Gemini itself returned a
-  // confirmed "sentiment_overreaction" verdict with real confidence, skip the
-  // extreme-move guardrail below entirely — the whole point of Dip Watch is
-  // that a confirmed overreaction should NOT be punished the way an ordinary
-  // hot-mover spike is. Any other verdict (fundamental_concern, uncertain, or
-  // no verdict at all) falls through to the normal guardrail unchanged.
-  // Reuses the SAME shared function resolveBoardSection uses (was previously
-  // reimplemented inline here — two copies of the same rule, now one).
-  const dipWatchConfirmed = isDipWatchConfirmedOverreaction({
-    triggered: ctx.dipWatch?.triggered,
-    verdict: parsed.dipWatch?.verdict,
-    confidence: parsed.dipWatch?.confidence,
-  });
-
-  if (!dipWatchConfirmed) {
-    // If Gemini copied short onto long for a hot mover, pull long down first.
-    const shortRank = parseRank(parsed.shortTermRank);
-    if (
-      ctx.extremeSingleDayMove &&
-      shortRank != null &&
-      longRank >= shortRank - 5
-    ) {
-      longRank = Math.min(longRank, Math.max(15, shortRank - 20));
-    }
-  }
-
-  const cap =
-    ctx.longTermGuidance?.newlyTrackedLongRankSoftCap != null
-      ? Number(ctx.longTermGuidance.newlyTrackedLongRankSoftCap)
-      : ctx.newlyTracked
-        ? NEWLY_TRACKED_LONG_RANK_CAP
-        : null;
-
-  if (cap != null && Number.isFinite(cap) && longRank > cap) {
-    longRank = cap;
-  }
-
-  if (ctx.missingLongTermFundamentals && longRank > 55) {
-    longRank = Math.min(longRank, 55);
-  }
-
-  parsed.longTermRank = longRank;
-  return parsed;
 }
 
 function flattenIndicators(block) {
@@ -287,7 +226,6 @@ async function analyzeStock(
 
     let parsed = await generateAnalysis(payload, { provider });
     parsed = applyNewsAgreementGuard(parsed, newsAgreement);
-    parsed = applyLongTermRankGuardrails(parsed, payload.rankingContext);
 
     if (!parsed?.quip) {
       parsed.quip = parseQuip(await getFallbackJoke());
@@ -311,7 +249,6 @@ async function analyzeStock(
 module.exports = {
   analyzeStock,
   buildPayload,
-  applyLongTermRankGuardrails,
   TAKE_FALLBACK,
   FALLBACK,
 };

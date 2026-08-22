@@ -911,55 +911,6 @@ app.get("/api/dev/status", async (req, res) => {
   }
 });
 
-/**
- * TEMPORARY — live-key confirmation only. Calls FMP's four candidate
- * fundamentals endpoints (income-statement, balance-sheet-statement,
- * cash-flow-statement, ratios) for one real ticker on our actual account,
- * and reports the raw field shape so it can be checked against what
- * screenLongTermCandidate/longTermVerdict expect (market cap, P/E, profit
- * margin, revenue growth, operating cash flow, capex/FCF, total debt, cash,
- * shares outstanding) before any pipeline code changes. Same password gate
- * as /api/dev/status. Remove once confirmed.
- */
-app.get("/api/dev/fmp-fundamentals-test", async (req, res) => {
-  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
-  try {
-    const { callFmp } = require("./services/dataFetch");
-    const symbol = String(req.query.ticker || "AAPL")
-      .trim()
-      .toUpperCase();
-
-    const endpoints = [
-      { key: "incomeStatement", path: "/stable/income-statement" },
-      { key: "balanceSheetStatement", path: "/stable/balance-sheet-statement" },
-      { key: "cashFlowStatement", path: "/stable/cash-flow-statement" },
-      { key: "ratios", path: "/stable/ratios" },
-    ];
-
-    const results = {};
-    for (const ep of endpoints) {
-      try {
-        const data = await callFmp(ep.path, { symbol, period: "quarter", limit: 8 });
-        const rows = Array.isArray(data) ? data : [data];
-        const first = rows[0] || null;
-        results[ep.key] = {
-          ok: true,
-          rowCount: Array.isArray(data) ? data.length : data ? 1 : 0,
-          fieldsPresent: first ? Object.keys(first) : [],
-          sampleRow: first,
-        };
-      } catch (err) {
-        results[ep.key] = { ok: false, error: err.message };
-      }
-    }
-
-    return res.json({ symbol, generatedAt: new Date().toISOString(), results });
-  } catch (err) {
-    console.error("[GET /api/dev/fmp-fundamentals-test]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
 /** Reclassify live board from cache + run integrity self-check (dev only). */
 app.post("/api/dev/board-section-check", async (req, res) => {
   if (!devAuthOk(req)) return rejectDevUnauthorized(res);

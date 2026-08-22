@@ -922,16 +922,19 @@ app.get("/api/dev/board-freshness-check", async (req, res) => {
   if (!devAuthOk(req)) return rejectDevUnauthorized(res);
   try {
     const { dbAll } = require("./db/schema");
+    // stock_cache is a legacy/unused table for reads — reportFromCache() and
+    // the whole board render path actually go through stock_reports (mode is
+    // display-only, ignored for storage; see services/cache.js). Join against
+    // the real source of truth.
     const rows = await dbAll(
       `SELECT bp.ticker, bp.status, bp.board_section, bp.added_at,
               bp.long_term_verdict,
-              sc.last_updated AS cache_last_updated
+              sr.last_updated AS cache_last_updated
        FROM board_picks bp
-       LEFT JOIN stock_cache sc
-         ON sc.ticker = bp.ticker
-        AND sc.mode = CASE WHEN bp.board_section = 'long' THEN 'long' ELSE 'short' END
+       LEFT JOIN stock_reports sr
+         ON sr.ticker = bp.ticker
        WHERE bp.board_section IN ('long', 'short', 'penny')
-       ORDER BY bp.board_section, sc.last_updated ASC`
+       ORDER BY bp.board_section, sr.last_updated ASC`
     );
 
     const now = Date.now();

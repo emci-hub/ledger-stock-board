@@ -872,6 +872,66 @@ async function getQuoteAndIndicators(ticker, _mode) {
   }
 }
 
+/** Bars needed for the long-term screen's drop math (63-day high + T+5 window + buffer). */
+const LONG_TERM_HISTORY_BARS = 120;
+
+/**
+ * Raw dated daily bars (oldest→newest) for the long-term screen's drop math
+ * (lib/dropMath.js needs { date, close } pairs — the quote-building path
+ * above discards dates, keeping only close values). Same Twelve-Data-first /
+ * Alpha-Vantage-fallback preference as getQuoteAndIndicators, but skips
+ * indicator computation.
+ */
+async function getDailyBarsForPrimary(ticker) {
+  const symbol = String(ticker).toUpperCase();
+
+  if (hasTwelveKey()) {
+    try {
+      const data = await callTwelveData("/time_series", {
+        symbol,
+        interval: "1day",
+        outputsize: LONG_TERM_HISTORY_BARS,
+        order: "DESC",
+      });
+      const bars = extractBarsFromTwelve(data);
+      if (bars.length) {
+        console.log(
+          `[getDailyBarsForPrimary] ${symbol} source=twelve_data bars=${bars.length}`
+        );
+        return bars;
+      }
+    } catch (err) {
+      if (err instanceof QuotaSkippedError) {
+        console.warn(
+          `[getDailyBarsForPrimary] ${symbol} twelve_data skipped — no quota; trying Alpha Vantage`
+        );
+      } else {
+        console.warn(
+          `[getDailyBarsForPrimary] Twelve Data failed for ${symbol} — trying Alpha Vantage:`,
+          err.message
+        );
+      }
+    }
+  }
+
+  try {
+    const timeSeriesData = await callAlphaVantage({
+      function: "TIME_SERIES_DAILY",
+      symbol,
+      outputsize: "compact",
+    });
+    const bars = extractBarsFromAlphaDaily(timeSeriesData);
+    console.log(
+      `[getDailyBarsForPrimary] ${symbol} source=alpha_vantage bars=${bars.length}`
+    );
+    return bars;
+  } catch (err) {
+    if (err instanceof QuotaSkippedError) throw err;
+    console.error(`[getDailyBarsForPrimary] Failed for ${symbol}:`, err.message);
+    return [];
+  }
+}
+
 /**
  * Analyst target from Twelve Data /price_target.
  * Grow-plan-only — used exclusively by the monthly capability probe.
@@ -929,6 +989,10 @@ async function getAnalystTargetFromAlphaOverview(ticker) {
     peRatio: num(overview.PERatio),
     week52High: num(overview["52WeekHigh"]),
     week52Low: num(overview["52WeekLow"]),
+    // Long-term screen gate 1 (stock-alert-spec.md): profitable + revenue
+    // growing. Both already present on the same OVERVIEW payload — no extra call.
+    profitMargin: num(overview.ProfitMargin),
+    quarterlyRevenueGrowthYoy: num(overview.QuarterlyRevenueGrowthYOY),
   };
 }
 
@@ -1890,6 +1954,7 @@ module.exports = {
   getAnalystTargetFromTwelveData,
   getCashFlowFromAlpha,
   getBalanceSheetFromAlpha,
+  getDailyBarsForPrimary,
   getEarningsDateFromFinnhub,
   getCompanyProfileFromFmp,
   getMarketMoversFromFmp,

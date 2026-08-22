@@ -932,6 +932,131 @@ async function getAnalystTargetFromAlphaOverview(ticker) {
   };
 }
 
+const FCF_TREND_LOOKBACK_QUARTERS = 4;
+const DILUTION_LOOKBACK_QUARTERS = 4;
+const DILUTION_THRESHOLD_PCT = 5;
+
+/** "improving"/"declining" require strictly monotonic quarters; anything else is "flat". */
+function computeTrend(valuesNewestFirst) {
+  if (!Array.isArray(valuesNewestFirst) || valuesNewestFirst.length < 2) return null;
+  const oldestFirst = [...valuesNewestFirst].reverse();
+  let increasing = true;
+  let decreasing = true;
+  for (let i = 1; i < oldestFirst.length; i++) {
+    if (oldestFirst[i] <= oldestFirst[i - 1]) increasing = false;
+    if (oldestFirst[i] >= oldestFirst[i - 1]) decreasing = false;
+  }
+  if (increasing) return "improving";
+  if (decreasing) return "declining";
+  return "flat";
+}
+
+/**
+ * Operating cash flow + free cash flow trend from Alpha Vantage CASH_FLOW,
+ * keyed on the PRIMARY listing (company-level facts never come from a
+ * wrapper ticker, per stock-alert-spec.md). Soft-fails to null on error.
+ */
+async function getCashFlowFromAlpha(ticker) {
+  const symbol = String(ticker).toUpperCase();
+  try {
+    const data = await callAlphaVantage({ function: "CASH_FLOW", symbol });
+
+    const reports = Array.isArray(data?.quarterlyReports) ? data.quarterlyReports : [];
+    if (!reports.length) {
+      throw new AlphaVantageError("invalid_ticker", `No cash flow data returned for ${symbol}`);
+    }
+
+    const quarters = reports
+      .map((r) => ({
+        fiscalDateEnding: r.fiscalDateEnding || null,
+        operatingCashflow: num(r.operatingCashflow),
+        capitalExpenditures: num(r.capitalExpenditures),
+      }))
+      .filter((r) => r.fiscalDateEnding && r.operatingCashflow != null)
+      .sort((a, b) => (a.fiscalDateEnding < b.fiscalDateEnding ? 1 : -1));
+
+    const latest = quarters[0] || null;
+    const freeCashFlows = quarters
+      .slice(0, FCF_TREND_LOOKBACK_QUARTERS)
+      .map((q) =>
+        q.capitalExpenditures != null ? q.operatingCashflow - q.capitalExpenditures : null
+      )
+      .filter((v) => v != null);
+
+    return {
+      source: "alpha_vantage",
+      operatingCashFlow: latest?.operatingCashflow ?? null,
+      freeCashFlow: freeCashFlows[0] ?? null,
+      freeCashFlowTrend: computeTrend(freeCashFlows),
+      asOf: latest?.fiscalDateEnding ?? null,
+    };
+  } catch (err) {
+    if (err instanceof QuotaSkippedError) throw err;
+    console.error(`[getCashFlowFromAlpha] Failed for ${symbol}:`, err.message);
+    return null;
+  }
+}
+
+function sumReportedDebt(report) {
+  const combined = num(report.shortLongTermDebtTotal);
+  if (combined != null) return combined;
+  const shortTerm = num(report.shortTermDebt);
+  const longTerm = num(report.longTermDebt);
+  if (shortTerm == null && longTerm == null) return null;
+  return (shortTerm || 0) + (longTerm || 0);
+}
+
+/**
+ * Total debt + a shares-outstanding-based dilution flag from Alpha Vantage
+ * BALANCE_SHEET, keyed on the PRIMARY listing. dilutionFlag is true when
+ * shares outstanding grew more than DILUTION_THRESHOLD_PCT over the
+ * trailing DILUTION_LOOKBACK_QUARTERS quarters. Soft-fails to null on error.
+ */
+async function getBalanceSheetFromAlpha(ticker) {
+  const symbol = String(ticker).toUpperCase();
+  try {
+    const data = await callAlphaVantage({ function: "BALANCE_SHEET", symbol });
+
+    const reports = Array.isArray(data?.quarterlyReports) ? data.quarterlyReports : [];
+    if (!reports.length) {
+      throw new AlphaVantageError("invalid_ticker", `No balance sheet data returned for ${symbol}`);
+    }
+
+    const quarters = reports
+      .map((r) => ({
+        fiscalDateEnding: r.fiscalDateEnding || null,
+        totalDebt: sumReportedDebt(r),
+        sharesOutstanding: num(r.commonStockSharesOutstanding),
+      }))
+      .filter((r) => r.fiscalDateEnding)
+      .sort((a, b) => (a.fiscalDateEnding < b.fiscalDateEnding ? 1 : -1));
+
+    const latest = quarters[0] || null;
+    const priorPeriod = quarters[DILUTION_LOOKBACK_QUARTERS] || null;
+
+    let dilutionFlag = null;
+    if (latest?.sharesOutstanding != null && priorPeriod?.sharesOutstanding != null) {
+      const growthPct =
+        ((latest.sharesOutstanding - priorPeriod.sharesOutstanding) /
+          priorPeriod.sharesOutstanding) *
+        100;
+      dilutionFlag = growthPct > DILUTION_THRESHOLD_PCT;
+    }
+
+    return {
+      source: "alpha_vantage",
+      totalDebt: latest?.totalDebt ?? null,
+      sharesOutstanding: latest?.sharesOutstanding ?? null,
+      dilutionFlag,
+      asOf: latest?.fiscalDateEnding ?? null,
+    };
+  } catch (err) {
+    if (err instanceof QuotaSkippedError) throw err;
+    console.error(`[getBalanceSheetFromAlpha] Failed for ${symbol}:`, err.message);
+    return null;
+  }
+}
+
 /**
  * Analyst target: Alpha Vantage OVERVIEW only.
  * Twelve Data /price_target is Grow-plan-only (confirmed) — not used on the live path;
@@ -1763,6 +1888,8 @@ module.exports = {
   getQuoteAndIndicators,
   getAnalystTarget,
   getAnalystTargetFromTwelveData,
+  getCashFlowFromAlpha,
+  getBalanceSheetFromAlpha,
   getEarningsDateFromFinnhub,
   getCompanyProfileFromFmp,
   getMarketMoversFromFmp,

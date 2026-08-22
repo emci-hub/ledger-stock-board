@@ -35,7 +35,7 @@ const {
   hasProfileExtras,
 } = require("./tickerIdentity");
 const { getPick } = require("../lib/boardPicks");
-const { computeDipWatchTrigger } = require("../lib/rankingStability");
+const { LONG_SECTION_RANK_PLACEHOLDER } = require("../lib/rankingStability");
 const { sourceShortCode, formatSourceList } = require("../lib/dataSources");
 const { resolveProviderId } = require("../lib/aiProvider");
 const { deriveDataCaveats } = require("../lib/dataCaveats");
@@ -237,15 +237,11 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null, pick =
   const shortTermRank =
     parseRank(dual?.shortTermRank ?? analysis?.shortTermRank) ??
     heuristicRank(dual?.short || take);
-  const longTermRank =
-    parseRank(dual?.longTermRank ?? analysis?.longTermRank) ??
-    heuristicRank(dual?.long || take);
-  const dipWatch =
-    dual?.dipWatch && typeof dual.dipWatch === "object"
-      ? dual.dipWatch
-      : analysis?.dipWatch && typeof analysis.dipWatch === "object"
-        ? analysis.dipWatch
-        : null;
+  // Long no longer has an AI-derived conviction score (retired with
+  // RANKING_RUBRIC.longTerm/Dip Watch) — the real signal for a Long stock
+  // is its ignore/watch/add/avoid verdict (lib/longTermVerdict.js, read
+  // from board_picks by server.js), not a 0-100 number.
+  const longTermRank = LONG_SECTION_RANK_PLACEHOLDER;
   // Discovery tier (1 = S&P 500, 2 = S&P 400/600+Nasdaq-100, 3 = rest of
   // major-exchange universe, null = not from the tiered universe system at
   // all — movers-sourced or a manually seeded ticker). Only 1/2 get a badge.
@@ -331,7 +327,6 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null, pick =
     stale,
     shortTermRank,
     longTermRank,
-    dipWatch,
     tier,
     factorTag,
     factorRank,
@@ -697,40 +692,12 @@ async function loadSharedStockDataInner(symbol, options = {}) {
       } catch {
         boardPick = null;
       }
-      const rawTrigger = computeDipWatchTrigger(
-        {
-          priceHistory: rawData?.quote?.priceHistory || rawData?.priceHistory,
-          // FIX (2026-08-17): indicators was never passed here at all, so
-          // RSI always read as null and the combined price+RSI trigger
-          // could never fire in this live path, regardless of real data —
-          // found while wiring in the daily shortlist gate below.
-          indicators: rawData?.quote?.indicators || rawData?.indicators,
-        },
-        boardPick?.board_section || null
-      );
-      // Daily shortlist gate (2026-08-17): even if this ticker's fresh data
-      // independently qualifies, only tell Gemini "triggered" if it made
-      // today's top-N severity shortlist (computed once, cheaply, at the
-      // start of the refresh cycle). null shortlist (pre-scan hasn't run
-      // yet / failed) fails OPEN — never silently blocks a real trigger.
-      let dipWatchTrigger = rawTrigger;
-      if (rawTrigger.triggered) {
-        try {
-          const { getTodaysDipWatchShortlist } = require("../lib/rankingStability");
-          const shortlist = await getTodaysDipWatchShortlist();
-          if (shortlist && !shortlist.has(symbol)) {
-            dipWatchTrigger = { ...rawTrigger, triggered: false };
-          }
-        } catch {
-          // fail open — keep rawTrigger as-is
-        }
-      }
       analysis = await analyzeStock(
         symbol,
         rawData.quote,
         rawData.fundamentals,
         rawData.peers || [],
-        { pick: boardPick, dipWatchTrigger }
+        { pick: boardPick }
       );
       await saveSummaryToCache(symbol, null, analysis);
       noteFieldRefreshed("analysis");

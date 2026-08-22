@@ -438,6 +438,20 @@ async function initSchema() {
       )
     `);
 
+    // Long-term screen (stock-alert-spec.md): AV-sourced fundamentals
+    // (cap/P-E, profit margin, revenue growth, cash flow, debt, dilution)
+    // reported quarterly by the underlying companies — cached here keyed on
+    // PRIMARY ticker (never TRADE) so refetching stays scoped to
+    // services/longTermScreen.js's real Alpha Vantage bottleneck without
+    // touching the event/drop-math parts of the screen, which stay daily.
+    await dbExecute(`
+      CREATE TABLE IF NOT EXISTS long_term_fundamentals_cache (
+        primary_ticker TEXT PRIMARY KEY,
+        data_json TEXT NOT NULL,
+        fetched_at TEXT NOT NULL
+      )
+    `);
+
     await dbExecute(`
       CREATE TABLE IF NOT EXISTS joke_pool (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

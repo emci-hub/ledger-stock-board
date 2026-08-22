@@ -35,8 +35,9 @@ const {
   setSetting,
   PROVIDERS,
 } = require("./services/usage");
-const { AlphaVantageError } = require("./services/dataFetch");
+const { AlphaVantageError, callMarketaux } = require("./services/dataFetch");
 const { screenLongTermCandidate } = require("./services/longTermScreen");
+const { classifySourceType, matchesEventKeywords } = require("./services/newsEvents");
 const {
   DATA_SOURCES,
   hasSourceKey,
@@ -931,6 +932,46 @@ app.get("/api/dev/long-term-screen-test", async (req, res) => {
     }
   }
   return res.json({ generatedAt: new Date().toISOString(), results });
+});
+
+/**
+ * TEMPORARY — raw Marketaux search for Gate 3 calibration, wider limit
+ * than the production news fetch (which caps at 5). Same password gate.
+ * Remove alongside the other temp dry-run endpoints.
+ */
+app.get("/api/dev/marketaux-search-test", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    const symbol = String(req.query.ticker || "NVDA").trim().toUpperCase();
+    const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 25));
+    const data = await callMarketaux("/news/all", {
+      symbols: symbol,
+      filter_entities: true,
+      language: "en",
+      limit,
+    });
+    const articles = Array.isArray(data?.data) ? data.data : [];
+    const candidates = articles.map((a) => {
+      let domain = null;
+      try {
+        domain = new URL(a.url).hostname.replace(/^www\./, "");
+      } catch {
+        domain = null;
+      }
+      return {
+        title: a.title || null,
+        url: a.url || null,
+        publishedAt: a.published_at || null,
+        domain,
+        sourceType: classifySourceType({ source: null, url: a.url }),
+        matchesKeywords: matchesEventKeywords(a.title),
+      };
+    });
+    return res.json({ ticker: symbol, limit, count: candidates.length, candidates });
+  } catch (err) {
+    console.error("[GET /api/dev/marketaux-search-test]", err.message);
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 /** Reclassify live board from cache + run integrity self-check (dev only). */

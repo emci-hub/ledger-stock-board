@@ -1090,6 +1090,7 @@ async function getBalanceSheetFromAlpha(ticker) {
       .map((r) => ({
         fiscalDateEnding: r.fiscalDateEnding || null,
         totalDebt: sumReportedDebt(r),
+        cashAndEquivalents: num(r.cashAndCashEquivalentsAtCarryingValue),
         sharesOutstanding: num(r.commonStockSharesOutstanding),
       }))
       .filter((r) => r.fiscalDateEnding)
@@ -1110,6 +1111,7 @@ async function getBalanceSheetFromAlpha(ticker) {
     return {
       source: "alpha_vantage",
       totalDebt: latest?.totalDebt ?? null,
+      cashAndEquivalents: latest?.cashAndEquivalents ?? null,
       sharesOutstanding: latest?.sharesOutstanding ?? null,
       dilutionFlag,
       asOf: latest?.fiscalDateEnding ?? null,

@@ -61,6 +61,8 @@
   .updated .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:6px;box-shadow:0 0 6px var(--green);}
   .updated .meta-line{display:block;}
   .as-of{font-size:10px;color:var(--muted-dim);font-family:'IBM Plex Mono',monospace;margin:0 0 8px;}
+  .as-of.age-warn{color:var(--muted);}
+  .as-of.age-stale{color:var(--gold);}
 
   .sub{color:var(--muted);font-size:14px;margin:6px 0 24px;}
 
@@ -193,6 +195,7 @@
   .tag.risk-high{background:var(--rust-bg);color:var(--rust);}
   .tag.muted{background:var(--surface-2);color:var(--muted);}
   .verdict-badge{display:inline-flex;margin-left:6px;vertical-align:middle;}
+  .archived-badge{display:inline-flex;margin-left:6px;vertical-align:middle;}
   .tag.complete{
     background:rgba(79,184,138,0.14);color:var(--green);
     border:1px solid rgba(79,184,138,0.28);
@@ -503,7 +506,7 @@
       </div>
     </div>
     <div class="stale-section" id="stale-section" hidden>
-      <div class="section-label">Needs a refresh <span class="stale-badge">stale · 48h+</span></div>
+      <div class="section-label">Archived / not refreshing <span class="stale-badge">stale · 48h+</span></div>
       <div class="grid stale-grid" id="stale-grid"></div>
     </div>
     <!-- Short-term only: penny sub-category (own spotlight + rank) -->
@@ -684,6 +687,24 @@
   }
 
   /**
+   * Archived = rotated off the daily refresh list (board_picks.status),
+   * a structural fact distinct from report.stale's 48h data-age check —
+   * an archived ticker stops refreshing immediately, even if its last
+   * fetch was recent. Shown regardless of which grid (fresh or stale)
+   * the card currently lands in.
+   */
+  function archivedBadgeInfo(status) {
+    if (status !== "archived") return null;
+    return {
+      plain: "Archived",
+      technical: "Rotated off the daily refresh list",
+      explanation:
+        "This ticker was bumped from the live board — its data won't update again unless it's picked back up.",
+      tagClass: "muted",
+    };
+  }
+
+  /**
    * Deep Dive rows for the long-term screen's real, computed facts (TRADE/
    * PRIMARY listing, the dated event, both drop measures, PRIMARY-sourced
    * fundamentals) — never an AI-guessed number, per CLAUDE.md rule 1.
@@ -839,6 +860,7 @@
     const isStarred = starred.has(report.ticker);
     const target = report.analystTarget;
     const asOf = report.priceUpdatedAt || report.lastUpdated;
+    const asOfAgeClass = ageClass(asOf);
     // Tier badge — only shown for tier 1 (S&P 500) / tier 2 (S&P 400/600 +
     // Nasdaq-100). Tier 3 (rest of the major-exchange universe) and null
     // (movers-sourced or seeded, not from the tiered universe system) get no
@@ -856,6 +878,12 @@
     const verdictBadge = verdictInfo
       ? `<span class="verdict-badge">${labelHtml(verdictInfo, {
           asTagClass: verdictInfo.tagClass,
+        })}</span>`
+      : "";
+    const archivedInfo = archivedBadgeInfo(status);
+    const archivedBadge = archivedInfo
+      ? `<span class="archived-badge">${labelHtml(archivedInfo, {
+          asTagClass: archivedInfo.tagClass,
         })}</span>`
       : "";
     const via = report.priceSourceLabel
@@ -1074,7 +1102,7 @@
         <div class="card-top-main">
           ${logoHtml}
           <div class="ticker-block">
-            <div class="ticker">${escapeHtml(report.ticker)}${verdictBadge}${tierBadge}</div>
+            <div class="ticker">${escapeHtml(report.ticker)}${verdictBadge}${archivedBadge}${tierBadge}</div>
             <div class="company">${escapeHtml(report.companyName || report.name || report.ticker)}</div>
             ${blurb}
             ${metaRow}
@@ -1087,7 +1115,7 @@
         <span class="delta ${deltaCls}">${formatPct(report.changePercent)}</span>
         ${via}
       </div>
-      ${asOf ? `<div class="as-of">as of ${escapeHtml(formatAsOf(asOf))}</div>` : ""}
+      ${asOf ? `<div class="as-of ${asOfAgeClass}" title="${escapeHtml(formatAsOf(asOf))}">Updated ${escapeHtml(timeAgo(asOf))}</div>` : ""}
       ${rangeNote}
       ${earningsNote}
       ${sparklineSvg(report.priceHistory, report.price, target, down)}
@@ -1120,6 +1148,17 @@
     const days = Math.round(hours / 24);
     if (days === 1) return "yesterday";
     return days + " days ago";
+  }
+
+  /** Pure function of data age — flags a live ticker's failed refresh too, not just archived ones. */
+  function ageClass(iso) {
+    if (!iso) return "";
+    const then = Date.parse(iso);
+    if (Number.isNaN(then)) return "";
+    const hours = (Date.now() - then) / 3.6e6;
+    if (hours > 48) return "age-stale";
+    if (hours > 24) return "age-warn";
+    return "";
   }
 
   function formatAsOf(iso) {

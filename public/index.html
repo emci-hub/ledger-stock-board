@@ -191,6 +191,8 @@
   .tag.risk-low{background:var(--green-bg);color:var(--green);}
   .tag.risk-med{background:var(--gold-bg);color:var(--gold);}
   .tag.risk-high{background:var(--rust-bg);color:var(--rust);}
+  .tag.muted{background:var(--surface-2);color:var(--muted);}
+  .verdict-badge{display:inline-flex;margin-left:6px;vertical-align:middle;}
   .tag.complete{
     background:rgba(79,184,138,0.14);color:var(--green);
     border:1px solid rgba(79,184,138,0.28);
@@ -632,6 +634,141 @@
     return "pos";
   }
 
+  // --- Long-term screen display (stock-alert-spec.md) ---------------------
+
+  function fmtUsd(n) {
+    if (n == null || !Number.isFinite(Number(n))) return "—";
+    const v = Number(n);
+    const abs = Math.abs(v);
+    const sign = v < 0 ? "-" : "";
+    if (abs >= 1e12) return sign + "$" + (abs / 1e12).toFixed(2) + "T";
+    if (abs >= 1e9) return sign + "$" + (abs / 1e9).toFixed(2) + "B";
+    if (abs >= 1e6) return sign + "$" + (abs / 1e6).toFixed(1) + "M";
+    return sign + "$" + abs.toLocaleString("en-US");
+  }
+
+  function fmtPct1(n) {
+    if (n == null || !Number.isFinite(Number(n))) return "—";
+    return Number(n).toFixed(1) + "%";
+  }
+
+  /**
+   * Plain-English verdict badge info for labelHtml() — one of ignore/watch/
+   * add/avoid/can't screen (lib/longTermVerdict.js), never an AI score.
+   */
+  function verdictBadgeInfo(report) {
+    const verdict = report?.longTermVerdict;
+    if (!verdict) return null;
+    const detail = report.longTermDetail || {};
+    const reasons = Array.isArray(detail.reasons) ? detail.reasons : [];
+    const lastReason = reasons.length ? reasons[reasons.length - 1] : "";
+    const configs = {
+      add: { plain: "Add", tagClass: "pos" },
+      watch: { plain: "Watch", tagClass: "watch" },
+      avoid: { plain: "Avoid", tagClass: "risk-high" },
+      ignore: { plain: "Ignore", tagClass: "muted" },
+      "can't screen": { plain: "Can't screen", tagClass: "muted" },
+    };
+    const cfg = configs[verdict];
+    if (!cfg) return null;
+    const explanation =
+      verdict === "avoid" && detail.killSwitch
+        ? `Structural-break language detected: "${detail.killSwitch}".`
+        : lastReason || "See the long-term screen's six-gate check for detail.";
+    return {
+      plain: cfg.plain,
+      technical: `Long-term screen: ${verdict}`,
+      explanation,
+      tagClass: cfg.tagClass,
+    };
+  }
+
+  /**
+   * Deep Dive rows for the long-term screen's real, computed facts (TRADE/
+   * PRIMARY listing, the dated event, both drop measures, PRIMARY-sourced
+   * fundamentals) — never an AI-guessed number, per CLAUDE.md rule 1.
+   */
+  function longTermDetailHtml(report) {
+    const detail = report?.longTermDetail;
+    if (!detail) return "";
+    const rows = [];
+
+    if (!detail.sameListing && report.primaryTicker) {
+      rows.push(
+        `<div class="deep-label">Listing</div><div>PRIMARY: ${escapeHtml(
+          report.primaryTicker
+        )}${
+          report.primaryExchange ? ` · ${escapeHtml(report.primaryExchange)}` : ""
+        }</div>`
+      );
+    }
+
+    const event = detail.event;
+    if (event?.headline) {
+      const sourceLabel =
+        event.sourceType === "official_press" ? "official press" : "";
+      const headlineHtml = event.url
+        ? `<a href="${escapeHtml(event.url)}" target="_blank" rel="noopener">${escapeHtml(
+            event.headline
+          )}</a>`
+        : escapeHtml(event.headline);
+      rows.push(
+        `<div class="deep-label">Event</div><div>${headlineHtml} — ${escapeHtml(
+          event.date || ""
+        )}${sourceLabel ? ` · ${sourceLabel}` : ""}</div>`
+      );
+    }
+
+    const high63 = detail.dropSignals?.high63;
+    const eventWindow = detail.dropSignals?.eventWindow;
+    const dropParts = [];
+    if (high63?.pctBelowHigh != null) {
+      const t = fmtPct1(high63.pctBelowHigh) + " off the 63-day high";
+      dropParts.push(high63.flagged ? `<b>${t}</b>` : t);
+    }
+    if (eventWindow?.pctChange != null) {
+      const t = fmtPct1(eventWindow.pctChange) + " T-1→T+5 close";
+      dropParts.push(eventWindow.flagged ? `<b>${t}</b>` : t);
+    }
+    if (dropParts.length) {
+      rows.push(
+        `<div class="deep-label">Drop (PRIMARY)</div><div>${dropParts.join(" · ")}</div>`
+      );
+    }
+
+    const f = detail.fundamentals;
+    if (f) {
+      const fundParts = [];
+      if (f.revenueGrowthPct != null) {
+        fundParts.push(`Revenue growth ${fmtPct1(f.revenueGrowthPct)}`);
+      }
+      if (f.operatingCashFlow != null) {
+        fundParts.push(`OCF ${fmtUsd(f.operatingCashFlow)}`);
+      }
+      if (f.freeCashFlowTrend) {
+        fundParts.push(`FCF trend: ${escapeHtml(f.freeCashFlowTrend)}`);
+      }
+      if (f.cashAndEquivalents != null) {
+        fundParts.push(`Cash ${fmtUsd(f.cashAndEquivalents)}`);
+      }
+      if (f.totalDebt != null) {
+        fundParts.push(`Debt ${fmtUsd(f.totalDebt)}`);
+      }
+      if (f.dilutionFlag != null) {
+        fundParts.push(f.dilutionFlag ? "Recent dilution" : "No recent dilution");
+      }
+      if (fundParts.length) {
+        rows.push(
+          `<div class="deep-label">Fundamentals (PRIMARY)</div><div>${fundParts.join(
+            " · "
+          )}</div>`
+        );
+      }
+    }
+
+    return rows.join("\n");
+  }
+
   function trackHtml(trackRecord) {
     if (!trackRecord || trackRecord.building) {
       return `<span class="track building">building track record</span>`;
@@ -714,6 +851,12 @@
         )} index membership — a real, publicly vetted classification">${escapeHtml(
           tierLabel
         )}</span>`
+      : "";
+    const verdictInfo = verdictBadgeInfo(report);
+    const verdictBadge = verdictInfo
+      ? `<span class="verdict-badge">${labelHtml(verdictInfo, {
+          asTagClass: verdictInfo.tagClass,
+        })}</span>`
       : "";
     const via = report.priceSourceLabel
       ? `<span class="via-source" style="margin-left:4px;">via ${escapeHtml(report.priceSourceLabel)}</span>`
@@ -821,6 +964,7 @@
         }
         <div class="deep-label">${peersLabel || "Peers"}</div>
         ${peerHtml}
+        ${longTermDetailHtml(report)}
         <div class="deep-label">AI deep dive ${
           report.analysisSourceLabel
             ? `<span class="via-source">via ${escapeHtml(report.analysisSourceLabel)}</span>`
@@ -930,7 +1074,7 @@
         <div class="card-top-main">
           ${logoHtml}
           <div class="ticker-block">
-            <div class="ticker">${escapeHtml(report.ticker)}${tierBadge}</div>
+            <div class="ticker">${escapeHtml(report.ticker)}${verdictBadge}${tierBadge}</div>
             <div class="company">${escapeHtml(report.companyName || report.name || report.ticker)}</div>
             ${blurb}
             ${metaRow}

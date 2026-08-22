@@ -14,7 +14,9 @@ const { BOARD_TICKERS } = require("../lib/boardTickers");
 const {
   assessBoardPlacement,
   statusFromBoardSection,
+  BOARD_SECTIONS,
 } = require("../lib/rankingStability");
+const { screenLongTermCandidate } = require("../services/longTermScreen");
 const { runCapabilityProbe } = require("./capabilityProbe");
 const {
   getActiveBoardTickers,
@@ -371,6 +373,57 @@ async function refreshBoardInner({ force }) {
     }
   }
 
+  /**
+   * Long-term screen (stock-alert-spec.md), Long-classified tickers only.
+   * Runs inside the same runWithBudget() callback as the caller so its
+   * internal AV/FMP/MX/TD calls stay under the shared quota budget.
+   * Never fails the refresh — non-fatal on error, matching this file's style.
+   */
+  async function persistLongTermVerdict(ticker) {
+    try {
+      const result = await screenLongTermCandidate(ticker);
+      await dbRun(
+        `UPDATE board_picks
+         SET long_term_verdict = ?,
+             primary_ticker = ?,
+             primary_exchange = ?,
+             long_term_detail_json = ?
+         WHERE ticker = ?`,
+        [
+          result.verdict,
+          result.primaryTicker,
+          result.primaryExchange,
+          JSON.stringify({
+            gates: result.gates,
+            reasons: result.reasons,
+            killSwitch: result.killSwitch,
+            capMismatchPct: result.capMismatchPct,
+            event: result.candidate.event,
+            dropSignals: result.candidate.dropSignals,
+            tradeCurrency: result.tradeCurrency,
+            sameListing: result.sameListing,
+            fundamentals: {
+              marketCapUsd: result.candidate.marketCapUsd,
+              marketCapUsdAlt: result.candidate.marketCapUsdAlt,
+              profitable: result.candidate.profitable,
+              revenueGrowthPct: result.candidate.revenueGrowthPct,
+              operatingCashFlow: result.candidate.operatingCashFlow,
+              freeCashFlowTrend: result.candidate.freeCashFlowTrend,
+              dilutionFlag: result.candidate.dilutionFlag,
+            },
+          }),
+          String(ticker).toUpperCase(),
+        ]
+      );
+      console.log(`[refreshBoard] ${ticker} long-term verdict=${result.verdict}`);
+    } catch (err) {
+      console.warn(
+        `[refreshBoard] long-term verdict failed for ${ticker} (non-fatal):`,
+        err.message
+      );
+    }
+  }
+
   const runOutcomes = {
     refreshedFields: [],
     skippedNoQuota: [],
@@ -429,6 +482,9 @@ async function refreshBoardInner({ force }) {
             const risk = report.analysis?.risk;
             const pick = (await getPick(ticker)) || { ticker };
             const placement = assessBoardPlacement(pick, report);
+            if (placement.boardSection === BOARD_SECTIONS.LONG) {
+              await persistLongTermVerdict(ticker);
+            }
             const status = statusFromAnalysis(lean, risk, {
               pick,
               report,
@@ -479,6 +535,9 @@ async function refreshBoardInner({ force }) {
           const risk = report.analysis?.risk;
           const pick = (await getPick(ticker)) || { ticker };
           const placement = assessBoardPlacement(pick, report);
+          if (placement.boardSection === BOARD_SECTIONS.LONG) {
+            await persistLongTermVerdict(ticker);
+          }
           const status = statusFromAnalysis(lean, risk, {
             pick,
             report,

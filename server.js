@@ -397,6 +397,23 @@ function applyPlacementToBoardRow(pick, report, mode) {
     report.longTermPenalties = placement.penalties;
     // Display rankScore is always this row's own sectionRank (never another category's).
     report.rankScore = placement.sectionRank;
+
+    // Long-term screen (stock-alert-spec.md) — ignore/watch/add/avoid verdict,
+    // computed by jobs/refreshBoard.js (services/longTermScreen.js) and read
+    // here from board_picks, never computed live in this request path.
+    if (placement.boardSection === BOARD_SECTIONS.LONG) {
+      report.longTermVerdict = pick.long_term_verdict || null;
+      report.primaryTicker = pick.primary_ticker || pick.ticker;
+      report.primaryExchange = pick.primary_exchange || null;
+      report.longTermDetail = null;
+      if (pick.long_term_detail_json) {
+        try {
+          report.longTermDetail = JSON.parse(pick.long_term_detail_json);
+        } catch {
+          report.longTermDetail = null;
+        }
+      }
+    }
   }
   return {
     ...pick,
@@ -407,6 +424,36 @@ function applyPlacementToBoardRow(pick, report, mode) {
     momentumSection: placement.momentumSection,
     stabilityWarnings: placement.warnings,
     report,
+  };
+}
+
+/**
+ * Long-term screen sort key (stock-alert-spec.md): largest qualifying drop
+ * first, replacing the retired AI-generated longTermRank. Uses whichever
+ * drop measure is larger in magnitude (63-day-high vs. T-1→T+5 event window)
+ * — the one stock-pipeline.md's ASSESS stage ranks Long candidates by.
+ */
+function longTermDropRankValue(detail) {
+  const eventPct = detail?.dropSignals?.eventWindow?.pctChange;
+  const highPct = detail?.dropSignals?.high63?.pctBelowHigh;
+  const magnitudes = [eventPct, highPct]
+    .filter((n) => Number.isFinite(n))
+    .map((n) => Math.abs(n));
+  return magnitudes.length ? Math.max(...magnitudes) : 0;
+}
+
+/** Re-sort a buildSectionPayload() result's fresh items by drop size — Long only. */
+function resortLongSectionByDrop(section) {
+  const sorted = [...section.items].sort(
+    (a, b) =>
+      longTermDropRankValue(b.report?.longTermDetail) -
+      longTermDropRankValue(a.report?.longTermDetail)
+  );
+  return {
+    ...section,
+    items: sorted,
+    spotlight: sorted.slice(0, 3),
+    rest: sorted.slice(3),
   };
 }
 
@@ -450,7 +497,9 @@ app.get("/api/board", async (req, res) => {
 
     const partitioned = partitionBoardBySection(board);
     const sections = {
-      long: buildSectionPayload(partitioned[BOARD_SECTIONS.LONG]),
+      long: resortLongSectionByDrop(
+        buildSectionPayload(partitioned[BOARD_SECTIONS.LONG])
+      ),
       short: buildSectionPayload(partitioned[BOARD_SECTIONS.SHORT]),
       penny: buildSectionPayload(partitioned[BOARD_SECTIONS.PENNY]),
     };

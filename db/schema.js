@@ -395,6 +395,7 @@ async function initSchema() {
       "primary_ticker TEXT",
       "primary_exchange TEXT",
       "long_term_verdict TEXT",
+      "long_term_detail_json TEXT",
     ]) {
       try {
         await dbExecute(`ALTER TABLE board_picks ADD COLUMN ${col}`);

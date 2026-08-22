@@ -5,6 +5,13 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const TARGET_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 /** Earnings calendar — refresh weekly unless date is past. */
 const EARNINGS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * Long-term screen's AV fundamentals (cap/P-E, profit margin, revenue
+ * growth, cash flow, debt, dilution) — sourced from quarterly filings, so
+ * refetching more than weekly buys nothing real. Same reasoning as
+ * EARNINGS_TTL_MS, applied to a slower-moving data set.
+ */
+const LONG_FUNDAMENTALS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const FALLBACK_SUMMARY_SNIPPET = "wasn't available";
 
@@ -206,6 +213,40 @@ async function saveStockToCache(ticker, _mode, data) {
 }
 
 /**
+ * Long-term screen's AV fundamentals cache — keyed on PRIMARY ticker (never
+ * TRADE), separate from stock_reports (which is TRADE-keyed and mixes in
+ * fast-moving price/news data). Returns null on a cache miss or corrupt row.
+ */
+async function getLongTermFundamentalsCache(primaryTicker) {
+  const symbol = String(primaryTicker).toUpperCase();
+  const row = await dbGet(
+    `SELECT data_json, fetched_at FROM long_term_fundamentals_cache WHERE primary_ticker = ?`,
+    [symbol]
+  );
+  if (!row) return null;
+  try {
+    return { data: JSON.parse(row.data_json), fetchedAt: row.fetched_at };
+  } catch {
+    return null;
+  }
+}
+
+function isLongFundamentalsFresh(fetchedAt) {
+  return isFresh(fetchedAt, LONG_FUNDAMENTALS_TTL_MS);
+}
+
+async function saveLongTermFundamentalsCache(primaryTicker, data) {
+  const symbol = String(primaryTicker).toUpperCase();
+  const now = new Date().toISOString();
+  await dbRun(
+    `INSERT OR REPLACE INTO long_term_fundamentals_cache (primary_ticker, data_json, fetched_at)
+     VALUES (?, ?, ?)`,
+    [symbol, JSON.stringify(data), now]
+  );
+  return now;
+}
+
+/**
  * Normalize dual-mode analysis (short + long + quip + mode ranks).
  * Legacy single takes become both modes.
  */
@@ -334,6 +375,7 @@ module.exports = {
   CACHE_TTL_MS,
   TARGET_TTL_MS,
   EARNINGS_TTL_MS,
+  LONG_FUNDAMENTALS_TTL_MS,
   BOARD_STALE_MS,
   isFresh,
   emptyFreshness,
@@ -351,6 +393,9 @@ module.exports = {
   getCachedStock,
   getCachedStockRow,
   saveStockToCache,
+  getLongTermFundamentalsCache,
+  isLongFundamentalsFresh,
+  saveLongTermFundamentalsCache,
   getCachedSummary,
   saveSummaryToCache,
   normalizeDualAnalysis,

@@ -1951,6 +1951,7 @@ module.exports = {
   callFmp,
   getQuoteAndIndicators,
   getAnalystTarget,
+  getAnalystTargetFromAlphaOverview,
   getAnalystTargetFromTwelveData,
   getCashFlowFromAlpha,
   getBalanceSheetFromAlpha,

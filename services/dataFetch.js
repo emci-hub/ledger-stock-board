@@ -185,7 +185,53 @@ function consumeOrThrow(provider, action, n = 1) {
 
 /**
  * Sole Alpha Vantage HTTP entry point — always increments alpha_vantage usage.
+ * Soft-caps at 5 calls / rolling 60s (Alpha Vantage's standard free-tier
+ * per-minute limit) by queuing callers with a short wait instead of risking
+ * 429s. Same proven pattern as acquireFinnhubSlot/acquireTwelveDataSlot.
  */
+const ALPHA_VANTAGE_WINDOW_MS = 60_000;
+const ALPHA_VANTAGE_SOFT_LIMIT = Math.max(
+  1,
+  Number.parseInt(process.env.ALPHA_VANTAGE_PER_MINUTE_LIMIT || "5", 10) || 5
+);
+const alphaVantageCallTimestamps = [];
+let alphaVantageGate = Promise.resolve();
+
+async function acquireAlphaVantageSlot() {
+  let release;
+  const previous = alphaVantageGate;
+  alphaVantageGate = new Promise((resolve) => {
+    release = resolve;
+  });
+  await previous;
+
+  try {
+    for (;;) {
+      const now = Date.now();
+      while (
+        alphaVantageCallTimestamps.length &&
+        now - alphaVantageCallTimestamps[0] >= ALPHA_VANTAGE_WINDOW_MS
+      ) {
+        alphaVantageCallTimestamps.shift();
+      }
+
+      if (alphaVantageCallTimestamps.length < ALPHA_VANTAGE_SOFT_LIMIT) {
+        alphaVantageCallTimestamps.push(Date.now());
+        return;
+      }
+
+      const waitMs =
+        ALPHA_VANTAGE_WINDOW_MS - (now - alphaVantageCallTimestamps[0]) + 50;
+      console.warn(
+        `[callAlphaVantage] rate-limit delay ${waitMs}ms (${alphaVantageCallTimestamps.length}/${ALPHA_VANTAGE_SOFT_LIMIT} in 60s window)`
+      );
+      await sleep(Math.max(waitMs, 100));
+    }
+  } finally {
+    release();
+  }
+}
+
 async function callAlphaVantage(params) {
   if (alphaVantageRateLimited) {
     throw new AlphaVantageError(
@@ -195,6 +241,7 @@ async function callAlphaVantage(params) {
     );
   }
 
+  await acquireAlphaVantageSlot();
   consumeOrThrow(PROVIDERS.ALPHA, params?.function || "alpha_vantage");
   await incrementUsage(PROVIDERS.ALPHA, {
     action: params?.function || "alpha_vantage",
@@ -281,8 +328,55 @@ async function callFinnhub(pathname, params = {}) {
 
 /**
  * Sole Marketaux HTTP entry point — always increments marketaux usage.
+ * Soft-caps at 5 calls / rolling 60s (conservative default for Marketaux's
+ * free/entry tiers) by queuing callers with a short wait instead of risking
+ * 429s. Same proven pattern as acquireFinnhubSlot/acquireTwelveDataSlot.
  */
+const MARKETAUX_WINDOW_MS = 60_000;
+const MARKETAUX_SOFT_LIMIT = Math.max(
+  1,
+  Number.parseInt(process.env.MARKETAUX_PER_MINUTE_LIMIT || "5", 10) || 5
+);
+const marketauxCallTimestamps = [];
+let marketauxGate = Promise.resolve();
+
+async function acquireMarketauxSlot() {
+  let release;
+  const previous = marketauxGate;
+  marketauxGate = new Promise((resolve) => {
+    release = resolve;
+  });
+  await previous;
+
+  try {
+    for (;;) {
+      const now = Date.now();
+      while (
+        marketauxCallTimestamps.length &&
+        now - marketauxCallTimestamps[0] >= MARKETAUX_WINDOW_MS
+      ) {
+        marketauxCallTimestamps.shift();
+      }
+
+      if (marketauxCallTimestamps.length < MARKETAUX_SOFT_LIMIT) {
+        marketauxCallTimestamps.push(Date.now());
+        return;
+      }
+
+      const waitMs =
+        MARKETAUX_WINDOW_MS - (now - marketauxCallTimestamps[0]) + 50;
+      console.warn(
+        `[callMarketaux] rate-limit delay ${waitMs}ms (${marketauxCallTimestamps.length}/${MARKETAUX_SOFT_LIMIT} in 60s window)`
+      );
+      await sleep(Math.max(waitMs, 100));
+    }
+  } finally {
+    release();
+  }
+}
+
 async function callMarketaux(pathname, params = {}) {
+  await acquireMarketauxSlot();
   consumeOrThrow(PROVIDERS.MARKETAUX, pathname || "marketaux");
   await incrementUsage(PROVIDERS.MARKETAUX, {
     action: pathname || "marketaux",

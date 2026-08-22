@@ -115,15 +115,31 @@ async function findDatedEvent(primaryTicker, opts = {}) {
     })),
   ];
 
-  const qualifying = candidates
-    .map((c) => {
-      const publishedAt = parsePublishedAt(c.publishedAtRaw);
-      return {
-        ...c,
-        publishedAt,
-        sourceType: classifySourceType({ source: c.source, url: c.url }),
-      };
-    })
+  const classified = candidates.map((c) => {
+    const publishedAt = parsePublishedAt(c.publishedAtRaw);
+    return {
+      ...c,
+      publishedAt,
+      sourceType: classifySourceType({ source: c.source, url: c.url }),
+    };
+  });
+
+  // TEMPORARY (dry-run calibration) — log every candidate BEFORE Gate 3's
+  // filters so a rejected headline's reason (stale, wrong source, no
+  // keyword match) is visible. Remove once Gate 3 is calibrated.
+  for (const c of classified) {
+    const withinWindow = Boolean(
+      c.publishedAt && c.publishedAt.getTime() >= cutoffMs
+    );
+    console.log(
+      `[findDatedEvent] candidate ticker=${primaryTicker} title=${JSON.stringify(c.title)} ` +
+        `source=${JSON.stringify(c.source)} domain=${hostnameOf(c.url)} ` +
+        `publishedAt=${c.publishedAtRaw} withinWindow=${withinWindow} ` +
+        `sourceType=${c.sourceType} matchesKeywords=${matchesEventKeywords(c.title)}`
+    );
+  }
+
+  const qualifying = classified
     .filter((c) => c.title && c.url && c.publishedAt && c.publishedAt.getTime() >= cutoffMs)
     .filter((c) => c.sourceType === "official_press")
     .filter((c) => matchesEventKeywords(c.title))

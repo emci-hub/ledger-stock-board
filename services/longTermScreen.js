@@ -108,6 +108,10 @@ async function screenLongTermCandidate(tradeTicker) {
     operatingCashFlow: cashFlow?.operatingCashFlow ?? null,
     freeCashFlowTrend: cashFlow?.freeCashFlowTrend ?? null,
     dilutionFlag: balanceSheet?.dilutionFlag ?? null,
+    // Display-only (not consumed by any verdict gate) — spec's "cash, debt,
+    // dilution" output line, same PRIMARY-sourced BALANCE_SHEET call.
+    totalDebt: balanceSheet?.totalDebt ?? null,
+    cashAndEquivalents: balanceSheet?.cashAndEquivalents ?? null,
     event,
     dropSignals,
     eventText: event?.headline || "",

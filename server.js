@@ -911,6 +911,39 @@ app.get("/api/dev/status", async (req, res) => {
   }
 });
 
+/**
+ * TEMPORARY — read-only check: which board_picks rows already have a
+ * persisted long_term_verdict (i.e. refreshBoard has run against them since
+ * the verdict pipeline shipped)? No external API calls, DB read only. Same
+ * password gate as /api/dev/status. Remove once no longer needed.
+ */
+app.get("/api/dev/long-term-cache-check", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    const { dbAll } = require("./db/schema");
+    const rows = await dbAll(
+      `SELECT ticker, status, board_section, primary_ticker, primary_exchange,
+              long_term_verdict, long_term_detail_json
+       FROM board_picks
+       WHERE long_term_verdict IS NOT NULL
+       ORDER BY ticker
+       LIMIT 10`
+    );
+    return res.json({
+      count: rows.length,
+      rows: rows.map((r) => ({
+        ...r,
+        long_term_detail_json: r.long_term_detail_json
+          ? JSON.parse(r.long_term_detail_json)
+          : null,
+      })),
+    });
+  } catch (err) {
+    console.error("[GET /api/dev/long-term-cache-check]", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 /** Reclassify live board from cache + run integrity self-check (dev only). */
 app.post("/api/dev/board-section-check", async (req, res) => {
   if (!devAuthOk(req)) return rejectDevUnauthorized(res);

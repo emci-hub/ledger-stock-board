@@ -36,6 +36,7 @@ const {
   PROVIDERS,
 } = require("./services/usage");
 const { AlphaVantageError } = require("./services/dataFetch");
+const { screenLongTermCandidate } = require("./services/longTermScreen");
 const {
   DATA_SOURCES,
   hasSourceKey,
@@ -909,6 +910,27 @@ app.get("/api/dev/status", async (req, res) => {
     console.error("[GET /api/dev/status]", err.message);
     return res.status(500).json({ error: "Failed to load dev status." });
   }
+});
+
+/**
+ * TEMPORARY — live dry-run of the long-term screen (services/longTermScreen.js)
+ * against real tickers, real API calls. Same password gate as /api/dev/status.
+ * Remove this route once the dry-run against real credentials is confirmed —
+ * it is not meant to stay in the app.
+ */
+app.get("/api/dev/long-term-screen-test", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  const tickers = ["AAPL", "MSFT", "NVDA"];
+  const results = {};
+  for (const ticker of tickers) {
+    try {
+      results[ticker] = await screenLongTermCandidate(ticker);
+    } catch (err) {
+      console.error(`[GET /api/dev/long-term-screen-test] ${ticker}:`, err.message);
+      results[ticker] = { error: err.message };
+    }
+  }
+  return res.json({ generatedAt: new Date().toISOString(), results });
 });
 
 /** Reclassify live board from cache + run integrity self-check (dev only). */

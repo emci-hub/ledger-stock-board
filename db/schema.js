@@ -387,6 +387,14 @@ async function initSchema() {
       "tier INTEGER",
       "factor_tag TEXT",
       "factor_rank INTEGER",
+      // Long-term screen rewrite (stock-alert-spec.md): primary_ticker/
+      // primary_exchange are the PRIMARY listing (company-level facts never
+      // come from the TRADE ticker/`ticker` column above); long_term_verdict
+      // is the ignore/watch/add/avoid output of lib/longTermVerdict.js —
+      // kept separate from `status`, which stays the board lifecycle state.
+      "primary_ticker TEXT",
+      "primary_exchange TEXT",
+      "long_term_verdict TEXT",
     ]) {
       try {
         await dbExecute(`ALTER TABLE board_picks ADD COLUMN ${col}`);

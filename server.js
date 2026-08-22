@@ -911,6 +911,99 @@ app.get("/api/dev/status", async (req, res) => {
   }
 });
 
+/**
+ * TEMPORARY — read-only staleness audit across the whole display board
+ * (live + archived, per board_section), joined against stock_cache's real
+ * last_updated timestamp (not just board_picks bookkeeping columns). No
+ * external API calls, DB reads only. Same password gate as /api/dev/status.
+ * Remove once no longer needed.
+ */
+app.get("/api/dev/board-freshness-check", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    const { dbAll } = require("./db/schema");
+    const rows = await dbAll(
+      `SELECT bp.ticker, bp.status, bp.board_section, bp.added_at,
+              bp.long_term_verdict,
+              sc.last_updated AS cache_last_updated
+       FROM board_picks bp
+       LEFT JOIN stock_cache sc
+         ON sc.ticker = bp.ticker
+        AND sc.mode = CASE WHEN bp.board_section = 'long' THEN 'long' ELSE 'short' END
+       WHERE bp.board_section IN ('long', 'short', 'penny')
+       ORDER BY bp.board_section, sc.last_updated ASC`
+    );
+
+    const now = Date.now();
+    const bySection = {};
+    for (const r of rows) {
+      const section = r.board_section;
+      if (!bySection[section]) {
+        bySection[section] = {
+          total: 0,
+          byStatus: {},
+          withCacheEntry: 0,
+          withoutCacheEntry: 0,
+          oldest: null,
+          newest: null,
+          ages: [],
+        };
+      }
+      const bucket = bySection[section];
+      bucket.total += 1;
+      bucket.byStatus[r.status] = (bucket.byStatus[r.status] || 0) + 1;
+      if (r.cache_last_updated) {
+        bucket.withCacheEntry += 1;
+        const ageHours = (now - new Date(r.cache_last_updated).getTime()) / 3.6e6;
+        bucket.ages.push(ageHours);
+        if (!bucket.oldest || r.cache_last_updated < bucket.oldest.cache_last_updated) {
+          bucket.oldest = r;
+        }
+        if (!bucket.newest || r.cache_last_updated > bucket.newest.cache_last_updated) {
+          bucket.newest = r;
+        }
+      } else {
+        bucket.withoutCacheEntry += 1;
+      }
+    }
+
+    const summary = {};
+    for (const [section, b] of Object.entries(bySection)) {
+      const sortedAges = b.ages.slice().sort((a, c) => a - c);
+      const median = sortedAges.length
+        ? sortedAges[Math.floor(sortedAges.length / 2)]
+        : null;
+      summary[section] = {
+        total: b.total,
+        byStatus: b.byStatus,
+        withCacheEntry: b.withCacheEntry,
+        withoutCacheEntry: b.withoutCacheEntry,
+        oldestAgeHours: sortedAges.length ? Math.max(...sortedAges) : null,
+        newestAgeHours: sortedAges.length ? Math.min(...sortedAges) : null,
+        medianAgeHours: median,
+        oldestTicker: b.oldest
+          ? { ticker: b.oldest.ticker, status: b.oldest.status, lastUpdated: b.oldest.cache_last_updated }
+          : null,
+        newestTicker: b.newest
+          ? { ticker: b.newest.ticker, status: b.newest.status, lastUpdated: b.newest.cache_last_updated }
+          : null,
+      };
+    }
+
+    const longVerdictCounts = {};
+    for (const r of rows) {
+      if (r.board_section !== "long") continue;
+      const key = r.long_term_verdict || "null";
+      longVerdictCounts[key] = (longVerdictCounts[key] || 0) + 1;
+    }
+
+    return res.json({ generatedAt: new Date().toISOString(), summary, longVerdictCounts });
+  } catch (err) {
+    console.error("[GET /api/dev/board-freshness-check]", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 /** Reclassify live board from cache + run integrity self-check (dev only). */
 app.post("/api/dev/board-section-check", async (req, res) => {
   if (!devAuthOk(req)) return rejectDevUnauthorized(res);

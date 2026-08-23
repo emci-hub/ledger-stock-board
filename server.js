@@ -911,6 +911,124 @@ app.get("/api/dev/status", async (req, res) => {
   }
 });
 
+/**
+ * TEMPORARY — manual trigger for a real refreshBoard({force:true}) run
+ * (the same function the 07:00 UTC cron calls), so the new Long-term
+ * fundamentals cache can be observed in action without waiting for
+ * tomorrow's cron. Skips discoverHotStocks/marketMood/didYouKnow (not
+ * relevant to what's being tested) to keep this scoped and cheap. Snapshots
+ * board_picks' Long rows + AV usage before and after so the before/after is
+ * visible in one response. Same password gate as /api/dev/status. Remove
+ * once confirmed.
+ */
+app.post("/api/dev/trigger-refresh-board", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    const { dbAll } = require("./db/schema");
+    const longRowQuery = `
+      SELECT ticker, status, board_section, long_term_verdict, long_term_detail_json
+      FROM board_picks
+      WHERE board_section = 'long'
+      ORDER BY ticker
+    `;
+
+    const before = await dbAll(longRowQuery);
+    const avBefore = await getUsageToday(PROVIDERS.ALPHA);
+
+    const board = await refreshBoard({ force: true });
+
+    const after = await dbAll(longRowQuery);
+    const avAfter = await getUsageToday(PROVIDERS.ALPHA);
+
+    const shrink = (rows) =>
+      rows.map((r) => ({
+        ticker: r.ticker,
+        status: r.status,
+        longTermVerdict: r.long_term_verdict,
+        fundamentalsFetchedAt: (() => {
+          try {
+            return r.long_term_detail_json
+              ? JSON.parse(r.long_term_detail_json)?.fundamentals?.fetchedAt ?? null
+              : null;
+          } catch {
+            return null;
+          }
+        })(),
+      }));
+
+    return res.json({
+      generatedAt: new Date().toISOString(),
+      avUsageBefore: avBefore,
+      avUsageAfter: avAfter,
+      avCallsThisRun: avAfter - avBefore,
+      boardRefreshSummary: {
+        status: board?.boardRefreshStatus,
+        tickerCount: board?.tickerCount,
+        successes: board?.successes,
+        fetched: board?.fetched,
+        cacheReused: board?.cacheReused,
+      },
+      longTickersBefore: shrink(before),
+      longTickersAfter: shrink(after),
+    });
+  } catch (err) {
+    console.error("[POST /api/dev/trigger-refresh-board]", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * TEMPORARY — read-only inspection of one ticker's raw board_picks + cached
+ * analysis rows, to check whether a fallback ("Analysis wasn't available")
+ * summary is genuinely stuck/missing or just what's currently cached. Same
+ * password gate as /api/dev/status. Remove once confirmed.
+ */
+app.get("/api/dev/ticker-raw-check", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    const { dbGet } = require("./db/schema");
+    const ticker = String(req.query.ticker || "AAPL")
+      .trim()
+      .toUpperCase();
+
+    const pick = await dbGet(`SELECT * FROM board_picks WHERE ticker = ?`, [ticker]);
+    const report = await dbGet(
+      `SELECT last_updated, LENGTH(data_json) AS data_len FROM stock_reports WHERE ticker = ?`,
+      [ticker]
+    );
+    const ai = await dbGet(
+      `SELECT generated_at, summary_json FROM ai_reports WHERE ticker = ?`,
+      [ticker]
+    );
+
+    let aiParsed = null;
+    let aiSummarySnippets = null;
+    if (ai?.summary_json) {
+      try {
+        aiParsed = JSON.parse(ai.summary_json);
+        aiSummarySnippets = {
+          longSummary: aiParsed?.long?.summary || null,
+          shortSummary: aiParsed?.short?.summary || null,
+          topLevelSummary: aiParsed?.summary || null,
+        };
+      } catch {
+        aiSummarySnippets = { parseError: true };
+      }
+    }
+
+    return res.json({
+      ticker,
+      generatedAt: new Date().toISOString(),
+      boardPicks: pick,
+      stockReports: report,
+      aiReports: ai ? { generatedAt: ai.generated_at, summarySnippets: aiSummarySnippets } : null,
+    });
+  } catch (err) {
+    console.error("[GET /api/dev/ticker-raw-check]", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 /** Reclassify live board from cache + run integrity self-check (dev only). */
 app.post("/api/dev/board-section-check", async (req, res) => {
   if (!devAuthOk(req)) return rejectDevUnauthorized(res);

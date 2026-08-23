@@ -919,14 +919,19 @@ app.get("/api/dev/status", async (req, res) => {
  * this path, so that endpoint can't substitute for this check). Snapshots
  * GOOGL/EBAY's full long_term_detail_json fundamentals before and after so
  * cash flow / total debt / cash-on-hand filling in is visible directly.
- * Same password gate as /api/dev/status. Remove once the trace is done.
+ * Accepts GET (open the URL directly in a browser, ?tickers=A,B to
+ * override) or POST (body {tickers:[...]})  — same password gate as
+ * /api/dev/status. Remove once the trace is done.
  */
-app.post("/api/dev/trigger-refresh-board", async (req, res) => {
+async function handleTriggerRefreshBoard(req, res) {
   if (!devAuthOk(req)) return rejectDevUnauthorized(res);
   try {
-    const tickers = Array.isArray(req.body?.tickers) && req.body.tickers.length
-      ? req.body.tickers.map((t) => String(t).trim().toUpperCase())
+    const rawTickers = Array.isArray(req.body?.tickers) && req.body.tickers.length
+      ? req.body.tickers
+      : typeof req.query?.tickers === "string" && req.query.tickers.trim()
+      ? req.query.tickers.split(",")
       : ["GOOGL", "EBAY"];
+    const tickers = rawTickers.map((t) => String(t).trim().toUpperCase());
 
     const snapshot = async () => {
       const rows = {};
@@ -979,10 +984,13 @@ app.post("/api/dev/trigger-refresh-board", async (req, res) => {
       after,
     });
   } catch (err) {
-    console.error("[POST /api/dev/trigger-refresh-board]", err.message);
+    console.error("[/api/dev/trigger-refresh-board]", err.message);
     return res.status(500).json({ error: err.message });
   }
-});
+}
+
+app.get("/api/dev/trigger-refresh-board", handleTriggerRefreshBoard);
+app.post("/api/dev/trigger-refresh-board", handleTriggerRefreshBoard);
 
 /**
  * TEMPORARY — removes only tickers this trace test seeded (source =

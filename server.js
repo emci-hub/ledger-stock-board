@@ -912,6 +912,79 @@ app.get("/api/dev/status", async (req, res) => {
 });
 
 /**
+ * TEMPORARY — re-added for one more GOOGL/EBAY trace pass now that the AV
+ * key has a fresh, unused daily quota. Calls the real refreshBoard({force})
+ * path (same one persistLongTermVerdict/screenLongTermCandidate runs
+ * through — /api/admin/force-refresh's smartRefreshAll() does NOT touch
+ * this path, so that endpoint can't substitute for this check). Snapshots
+ * GOOGL/EBAY's full long_term_detail_json fundamentals before and after so
+ * cash flow / total debt / cash-on-hand filling in is visible directly.
+ * Same password gate as /api/dev/status. Remove once the trace is done.
+ */
+app.post("/api/dev/trigger-refresh-board", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    const tickers = Array.isArray(req.body?.tickers) && req.body.tickers.length
+      ? req.body.tickers.map((t) => String(t).trim().toUpperCase())
+      : ["GOOGL", "EBAY"];
+
+    const snapshot = async () => {
+      const rows = {};
+      for (const ticker of tickers) {
+        const row = await dbGet(
+          `SELECT ticker, status, board_section, long_term_verdict, long_term_detail_json FROM board_picks WHERE ticker = ?`,
+          [ticker]
+        );
+        let fundamentals = null;
+        try {
+          fundamentals = row?.long_term_detail_json
+            ? JSON.parse(row.long_term_detail_json)?.fundamentals ?? null
+            : null;
+        } catch {
+          fundamentals = { parseError: true };
+        }
+        rows[ticker] = row
+          ? {
+              status: row.status,
+              boardSection: row.board_section,
+              longTermVerdict: row.long_term_verdict,
+              fundamentals,
+            }
+          : null;
+      }
+      return rows;
+    };
+
+    const before = await snapshot();
+    const avBefore = await getUsageToday(PROVIDERS.ALPHA);
+
+    const board = await refreshBoard({ force: true });
+
+    const after = await snapshot();
+    const avAfter = await getUsageToday(PROVIDERS.ALPHA);
+
+    return res.json({
+      generatedAt: new Date().toISOString(),
+      avUsageBefore: avBefore,
+      avUsageAfter: avAfter,
+      avCallsThisRun: avAfter - avBefore,
+      boardRefreshSummary: {
+        status: board?.boardRefreshStatus,
+        tickerCount: board?.tickerCount,
+        successes: board?.successes,
+        fetched: board?.fetched,
+        cacheReused: board?.cacheReused,
+      },
+      before,
+      after,
+    });
+  } catch (err) {
+    console.error("[POST /api/dev/trigger-refresh-board]", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * TEMPORARY — removes only tickers this trace test seeded (source =
  * 'trace_test'), plus their cache rows, so nothing artificial is left on
  * the live board. Refuses to touch a ticker not tagged with that source.

@@ -29,6 +29,11 @@ const {
   QuotaSkippedError,
 } = require("./dataFetch");
 const { getRecentCloses, backfillFromBars } = require("./priceHistoryLog");
+const {
+  getLongTermFundamentalsCache,
+  saveLongTermFundamentalsCache,
+  isLongFundamentalsFresh,
+} = require("./cache");
 
 /** Minimum trailing closes needed for the 63-day-high + T+5 event window. */
 const MIN_CLOSES_NEEDED = HIGH_WINDOW_BARS + EVENT_WINDOW_TRADING_DAYS;
@@ -68,6 +73,65 @@ async function ensureHistory(primaryTicker) {
 }
 
 /**
+ * Long-term screen's AV fundamentals (cap, profit margin, revenue growth,
+ * cash flow, debt, dilution) — 7-day cache (services/cache.js's
+ * LONG_FUNDAMENTALS_TTL_MS), since these are sourced from quarterly filings
+ * and don't change between them. A cache hit skips all three AV calls
+ * (OVERVIEW/CASH_FLOW/BALANCE_SHEET) entirely — this is the actual fix for
+ * Alpha Vantage being the Long screen's daily quota bottleneck.
+ */
+async function getFundamentals(primaryTicker) {
+  const cached = await getLongTermFundamentalsCache(primaryTicker);
+  if (cached && isLongFundamentalsFresh(cached.fetchedAt)) {
+    console.log(
+      `[screenLongTermCandidate] fundamentals cache hit for ${primaryTicker} (fetched ${cached.fetchedAt})`
+    );
+    return cached.data;
+  }
+
+  const [overview, cashFlow, balanceSheet] = await Promise.all([
+    softFail(getAnalystTargetFromAlphaOverview(primaryTicker), "overview", primaryTicker),
+    softFail(getCashFlowFromAlpha(primaryTicker), "cash flow", primaryTicker),
+    softFail(getBalanceSheetFromAlpha(primaryTicker), "balance sheet", primaryTicker),
+  ]);
+
+  const revenueGrowthPct =
+    overview?.quarterlyRevenueGrowthYoy != null
+      ? overview.quarterlyRevenueGrowthYoy * 100
+      : null;
+
+  const fundamentals = {
+    marketCapUsd: overview?.marketCap ?? null,
+    profitMargin: overview?.profitMargin ?? null,
+    revenueGrowthPct,
+    operatingCashFlow: cashFlow?.operatingCashFlow ?? null,
+    freeCashFlowTrend: cashFlow?.freeCashFlowTrend ?? null,
+    dilutionFlag: balanceSheet?.dilutionFlag ?? null,
+    totalDebt: balanceSheet?.totalDebt ?? null,
+    cashAndEquivalents: balanceSheet?.cashAndEquivalents ?? null,
+  };
+
+  const gotSomething = Object.values(fundamentals).some((v) => v != null);
+  if (gotSomething) {
+    await saveLongTermFundamentalsCache(primaryTicker, fundamentals);
+    return fundamentals;
+  }
+
+  // Refetch attempt came back empty (e.g. AV quota exhausted right as the
+  // 7-day cache expired) — an expired-but-real stale entry beats locking in
+  // an all-null result for another 7 days. Cache is left untouched so the
+  // next run tries a real refetch again instead of extending a null result.
+  if (cached) {
+    console.warn(
+      `[screenLongTermCandidate] fundamentals refetch failed for ${primaryTicker} — reusing stale cache from ${cached.fetchedAt}`
+    );
+    return cached.data;
+  }
+
+  return fundamentals;
+}
+
+/**
  * Screen one TRADE ticker against stock-alert-spec.md. Returns
  * resolveLongTermVerdict()'s result plus the assembled listing/candidate
  * context for display.
@@ -76,10 +140,8 @@ async function screenLongTermCandidate(tradeTicker) {
   const listing = resolveListing(tradeTicker);
   const { primaryTicker } = listing;
 
-  const [overview, cashFlow, balanceSheet, profileAlt, event, closes] = await Promise.all([
-    softFail(getAnalystTargetFromAlphaOverview(primaryTicker), "overview", primaryTicker),
-    softFail(getCashFlowFromAlpha(primaryTicker), "cash flow", primaryTicker),
-    softFail(getBalanceSheetFromAlpha(primaryTicker), "balance sheet", primaryTicker),
+  const [fundamentals, profileAlt, event, closes] = await Promise.all([
+    getFundamentals(primaryTicker),
     softFail(getCompanyProfileFromFmp(primaryTicker), "FMP profile", primaryTicker),
     softFail(findDatedEvent(primaryTicker), "news event", primaryTicker),
     ensureHistory(primaryTicker),
@@ -91,27 +153,21 @@ async function screenLongTermCandidate(tradeTicker) {
 
   const { sessionsSinceNewLow, closesAboveSma20Count } = computeStoppedWorsening(closes);
 
-  const profitMargin = overview?.profitMargin ?? null;
-  const revenueGrowthPct =
-    overview?.quarterlyRevenueGrowthYoy != null
-      ? overview.quarterlyRevenueGrowthYoy * 100
-      : null;
-
   const candidate = {
-    marketCapUsd: overview?.marketCap ?? null,
+    marketCapUsd: fundamentals.marketCapUsd,
     marketCapUsdAlt: profileAlt?.marketCap ?? null,
-    profitable: profitMargin != null ? profitMargin > 0 : null,
-    revenueGrowthPct,
+    profitable: fundamentals.profitMargin != null ? fundamentals.profitMargin > 0 : null,
+    revenueGrowthPct: fundamentals.revenueGrowthPct,
     // No analyst-estimate-revision data source exists in this codebase yet —
     // always null, which resolveLongTermVerdict treats as "not a material cut."
     earningsEstimateCutPct: null,
-    operatingCashFlow: cashFlow?.operatingCashFlow ?? null,
-    freeCashFlowTrend: cashFlow?.freeCashFlowTrend ?? null,
-    dilutionFlag: balanceSheet?.dilutionFlag ?? null,
+    operatingCashFlow: fundamentals.operatingCashFlow,
+    freeCashFlowTrend: fundamentals.freeCashFlowTrend,
+    dilutionFlag: fundamentals.dilutionFlag,
     // Display-only (not consumed by any verdict gate) — spec's "cash, debt,
-    // dilution" output line, same PRIMARY-sourced BALANCE_SHEET call.
-    totalDebt: balanceSheet?.totalDebt ?? null,
-    cashAndEquivalents: balanceSheet?.cashAndEquivalents ?? null,
+    // dilution" output line, same PRIMARY-sourced BALANCE_SHEET fetch.
+    totalDebt: fundamentals.totalDebt,
+    cashAndEquivalents: fundamentals.cashAndEquivalents,
     event,
     dropSignals,
     eventText: event?.headline || "",

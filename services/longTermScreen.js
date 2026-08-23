@@ -86,7 +86,7 @@ async function getFundamentals(primaryTicker) {
     console.log(
       `[screenLongTermCandidate] fundamentals cache hit for ${primaryTicker} (fetched ${cached.fetchedAt})`
     );
-    return cached.data;
+    return { ...cached.data, fetchedAt: cached.fetchedAt };
   }
 
   const [overview, cashFlow, balanceSheet] = await Promise.all([
@@ -113,8 +113,8 @@ async function getFundamentals(primaryTicker) {
 
   const gotSomething = Object.values(fundamentals).some((v) => v != null);
   if (gotSomething) {
-    await saveLongTermFundamentalsCache(primaryTicker, fundamentals);
-    return fundamentals;
+    const fetchedAt = await saveLongTermFundamentalsCache(primaryTicker, fundamentals);
+    return { ...fundamentals, fetchedAt };
   }
 
   // Refetch attempt came back empty (e.g. AV quota exhausted right as the
@@ -125,10 +125,10 @@ async function getFundamentals(primaryTicker) {
     console.warn(
       `[screenLongTermCandidate] fundamentals refetch failed for ${primaryTicker} — reusing stale cache from ${cached.fetchedAt}`
     );
-    return cached.data;
+    return { ...cached.data, fetchedAt: cached.fetchedAt };
   }
 
-  return fundamentals;
+  return { ...fundamentals, fetchedAt: null };
 }
 
 /**
@@ -168,6 +168,10 @@ async function screenLongTermCandidate(tradeTicker) {
     // dilution" output line, same PRIMARY-sourced BALANCE_SHEET fetch.
     totalDebt: fundamentals.totalDebt,
     cashAndEquivalents: fundamentals.cashAndEquivalents,
+    // Display-only — when these fundamentals were actually fetched from AV
+    // (services/cache.js's 7-day cache), so the board can show real "as of"
+    // freshness instead of implying every field is fetched fresh each run.
+    fundamentalsFetchedAt: fundamentals.fetchedAt ?? null,
     event,
     dropSignals,
     eventText: event?.headline || "",

@@ -412,6 +412,7 @@ async function refreshBoardInner({ force }) {
               dilutionFlag: result.candidate.dilutionFlag,
               totalDebt: result.candidate.totalDebt,
               cashAndEquivalents: result.candidate.cashAndEquivalents,
+              fetchedAt: result.candidate.fundamentalsFetchedAt,
             },
           }),
           String(ticker).toUpperCase(),

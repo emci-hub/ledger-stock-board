@@ -779,10 +779,15 @@
         fundParts.push(f.dilutionFlag ? "Recent dilution" : "No recent dilution");
       }
       if (fundParts.length) {
+        const fundAsOf = f.fetchedAt
+          ? `<div class="as-of ${fundamentalsAgeClass(f.fetchedAt)}" title="${escapeHtml(
+              formatAsOf(f.fetchedAt)
+            )}">Fundamentals updated ${escapeHtml(timeAgo(f.fetchedAt))} — refetched at most weekly</div>`
+          : "";
         rows.push(
           `<div class="deep-label">Fundamentals (PRIMARY)</div><div>${fundParts.join(
             " · "
-          )}</div>`
+          )}${fundAsOf}</div>`
         );
       }
     }
@@ -1158,6 +1163,23 @@
     const hours = (Date.now() - then) / 3.6e6;
     if (hours > 48) return "age-stale";
     if (hours > 24) return "age-warn";
+    return "";
+  }
+
+  /**
+   * Same idea as ageClass but tuned to the Long screen's 7-day fundamentals
+   * cache (services/cache.js's LONG_FUNDAMENTALS_TTL_MS) — a few days old is
+   * the expected, healthy state here, not a warning sign. Only flags once a
+   * refetch is overdue (past the 7-day TTL) or has clearly been failing
+   * repeatedly (well past it).
+   */
+  function fundamentalsAgeClass(iso) {
+    if (!iso) return "";
+    const then = Date.parse(iso);
+    if (Number.isNaN(then)) return "";
+    const days = (Date.now() - then) / 8.64e7;
+    if (days > 10) return "age-stale";
+    if (days > 7) return "age-warn";
     return "";
   }
 

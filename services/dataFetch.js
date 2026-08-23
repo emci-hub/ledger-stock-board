@@ -1913,6 +1913,49 @@ async function getPeers(ticker) {
 }
 
 /**
+ * Finnhub /stock/metric — cap/P-E/profit-margin/revenue-growth for the Long
+ * screen, replacing Alpha Vantage OVERVIEW for these fields specifically
+ * (confirmed live 2026-08-23: Finnhub has no operating cash flow, total
+ * debt, or cash-on-hand as absolute dollars, only ratios — those stay on
+ * AV's CASH_FLOW/BALANCE_SHEET). marketCapitalization is confirmed live to
+ * be reported in millions of USD (GOOGL: 4227055 ≈ $4.23T, matching FMP's
+ * independent cross-check figure) — scaled to raw dollars here so it's
+ * comparable to AV's MarketCapitalization and FMP's marketCap fields.
+ *
+ * revenueGrowthTTMYoy's scale is NOT yet confirmed live (only
+ * marketCapitalization was checked) — Finnhub commonly reports growth/
+ * margin metrics already as percentages, unlike AV's fraction convention,
+ * so no *100 is applied here. This field is both gate-checked AND rendered
+ * directly on the card, so guessing its scale risks showing a visibly wrong
+ * number, not just an internal miscalculation. Passed through as-is;
+ * flagged for a live value check before this ships.
+ */
+async function getCompanyMetricsFromFinnhub(ticker) {
+  const symbol = String(ticker).toUpperCase();
+  try {
+    const data = await callFinnhub("/stock/metric", { symbol, metric: "all" });
+    const metric = data?.metric || {};
+
+    const marketCapRaw = num(metric.marketCapitalization);
+
+    return {
+      source: "finnhub",
+      marketCap: marketCapRaw != null ? marketCapRaw * 1e6 : null,
+      peRatio: num(metric.peTTM),
+      profitMargin: num(metric.netProfitMarginTTM),
+      revenueGrowthPct: num(metric.revenueGrowthTTMYoy),
+    };
+  } catch (err) {
+    if (err instanceof QuotaSkippedError) {
+      console.warn(`[getCompanyMetricsFromFinnhub] ${symbol} skipped — no Finnhub quota`);
+      return null;
+    }
+    console.error(`[getCompanyMetricsFromFinnhub] Failed for ${symbol}:`, err.message);
+    return null;
+  }
+}
+
+/**
  * Twelve Data /stocks — US Common Stock symbol list (free tier).
  * One HTTP call; large payload. Caller should cache locally (discovery_universe).
  */
@@ -1973,6 +2016,7 @@ module.exports = {
   getCombinedNewsBatch,
   getFundamentalsAndNews,
   getPeers,
+  getCompanyMetricsFromFinnhub,
   getPriceHistoryFromTwelveData,
   getPriceHistoryFromTwelveDataBatch,
   normalizeTickerList,

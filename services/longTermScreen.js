@@ -21,7 +21,7 @@ const {
 const { resolveLongTermVerdict } = require("../lib/longTermVerdict");
 const { findDatedEvent } = require("./newsEvents");
 const {
-  getAnalystTargetFromAlphaOverview,
+  getCompanyMetricsFromFinnhub,
   getCashFlowFromAlpha,
   getBalanceSheetFromAlpha,
   getCompanyProfileFromFmp,
@@ -73,12 +73,18 @@ async function ensureHistory(primaryTicker) {
 }
 
 /**
- * Long-term screen's AV fundamentals (cap, profit margin, revenue growth,
- * cash flow, debt, dilution) — 7-day cache (services/cache.js's
+ * Long-term screen's fundamentals (cap, profit margin, revenue growth, cash
+ * flow, debt, dilution) — 7-day cache (services/cache.js's
  * LONG_FUNDAMENTALS_TTL_MS), since these are sourced from quarterly filings
- * and don't change between them. A cache hit skips all three AV calls
- * (OVERVIEW/CASH_FLOW/BALANCE_SHEET) entirely — this is the actual fix for
- * Alpha Vantage being the Long screen's daily quota bottleneck.
+ * and don't change between them. A cache hit skips all fetches entirely —
+ * this is the actual fix for Alpha Vantage being the Long screen's daily
+ * quota bottleneck.
+ *
+ * Cap/P-E/profit-margin/revenue-growth come from Finnhub's /stock/metric
+ * (confirmed live 2026-08-23 — AV's OVERVIEW is no longer called here at
+ * all). Operating cash flow, debt, and cash-on-hand stay on AV's
+ * CASH_FLOW/BALANCE_SHEET — Finnhub only has those as ratios, not absolute
+ * dollars.
  */
 async function getFundamentals(primaryTicker) {
   const cached = await getLongTermFundamentalsCache(primaryTicker);
@@ -89,38 +95,70 @@ async function getFundamentals(primaryTicker) {
     return { ...cached.data, fetchedAt: cached.fetchedAt };
   }
 
-  const [overview, cashFlow, balanceSheet] = await Promise.all([
-    softFail(getAnalystTargetFromAlphaOverview(primaryTicker), "overview", primaryTicker),
+  const [metrics, cashFlow, balanceSheet] = await Promise.all([
+    softFail(getCompanyMetricsFromFinnhub(primaryTicker), "finnhub metrics", primaryTicker),
     softFail(getCashFlowFromAlpha(primaryTicker), "cash flow", primaryTicker),
     softFail(getBalanceSheetFromAlpha(primaryTicker), "balance sheet", primaryTicker),
   ]);
 
-  const revenueGrowthPct =
-    overview?.quarterlyRevenueGrowthYoy != null
-      ? overview.quarterlyRevenueGrowthYoy * 100
-      : null;
+  // Finnhub and AV are now two independent sources feeding one cached
+  // record — one can fail while the other succeeds. Each falls back to its
+  // OWN previously-cached fields independently when its fetch fails, so a
+  // Finnhub outage can never wipe out perfectly good AV data still sitting
+  // in cache, and vice versa (confirmed necessary via testing — the naive
+  // "any field non-null" merge silently nulled out a working source's
+  // fields whenever a different source failed).
+  const stale = cached?.data || {};
 
-  const fundamentals = {
-    marketCapUsd: overview?.marketCap ?? null,
-    profitMargin: overview?.profitMargin ?? null,
-    revenueGrowthPct,
-    operatingCashFlow: cashFlow?.operatingCashFlow ?? null,
-    freeCashFlowTrend: cashFlow?.freeCashFlowTrend ?? null,
-    dilutionFlag: balanceSheet?.dilutionFlag ?? null,
-    totalDebt: balanceSheet?.totalDebt ?? null,
-    cashAndEquivalents: balanceSheet?.cashAndEquivalents ?? null,
-  };
+  const finnhubFields = metrics
+    ? {
+        marketCapUsd: metrics.marketCap ?? null,
+        profitMargin: metrics.profitMargin ?? null,
+        revenueGrowthPct: metrics.revenueGrowthPct ?? null,
+      }
+    : {
+        marketCapUsd: stale.marketCapUsd ?? null,
+        profitMargin: stale.profitMargin ?? null,
+        revenueGrowthPct: stale.revenueGrowthPct ?? null,
+      };
 
-  const gotSomething = Object.values(fundamentals).some((v) => v != null);
-  if (gotSomething) {
+  const cashFlowFields = cashFlow
+    ? {
+        operatingCashFlow: cashFlow.operatingCashFlow ?? null,
+        freeCashFlowTrend: cashFlow.freeCashFlowTrend ?? null,
+      }
+    : {
+        operatingCashFlow: stale.operatingCashFlow ?? null,
+        freeCashFlowTrend: stale.freeCashFlowTrend ?? null,
+      };
+
+  const balanceSheetFields = balanceSheet
+    ? {
+        dilutionFlag: balanceSheet.dilutionFlag ?? null,
+        totalDebt: balanceSheet.totalDebt ?? null,
+        cashAndEquivalents: balanceSheet.cashAndEquivalents ?? null,
+      }
+    : {
+        dilutionFlag: stale.dilutionFlag ?? null,
+        totalDebt: stale.totalDebt ?? null,
+        cashAndEquivalents: stale.cashAndEquivalents ?? null,
+      };
+
+  const fundamentals = { ...finnhubFields, ...cashFlowFields, ...balanceSheetFields };
+
+  // At least one source actually returned fresh data this round — persist
+  // the merged record (fresh where available, stale fallback elsewhere).
+  const anyFreshData = metrics != null || cashFlow != null || balanceSheet != null;
+  if (anyFreshData) {
     const fetchedAt = await saveLongTermFundamentalsCache(primaryTicker, fundamentals);
     return { ...fundamentals, fetchedAt };
   }
 
-  // Refetch attempt came back empty (e.g. AV quota exhausted right as the
-  // 7-day cache expired) — an expired-but-real stale entry beats locking in
-  // an all-null result for another 7 days. Cache is left untouched so the
-  // next run tries a real refetch again instead of extending a null result.
+  // All three fetches failed entirely this round (e.g. AV quota exhausted
+  // right as the cache expired, or a rate-limited process). An
+  // expired-but-real stale entry beats locking in an all-null result for
+  // another 7 days. Cache is left untouched so the next run tries a real
+  // refetch again instead of extending a null result.
   if (cached) {
     console.warn(
       `[screenLongTermCandidate] fundamentals refetch failed for ${primaryTicker} — reusing stale cache from ${cached.fetchedAt}`

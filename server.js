@@ -1030,6 +1030,47 @@ app.get("/api/dev/ticker-raw-check", async (req, res) => {
 });
 
 /**
+ * TEMPORARY — live-key check of Finnhub's basic-financials (/stock/metric)
+ * and Twelve Data's /statistics endpoints, to see whether either actually
+ * returns the Long screen's needed fields (cap, P/E, profit margin, revenue
+ * growth, operating cash flow, total debt, cash) on our real free-tier
+ * keys, before deciding whether either can reduce AV's load. Reports raw
+ * field names/values, not just success/failure, so this can be checked
+ * against what's needed rather than assumed from docs. Same password gate
+ * as /api/dev/status. Remove once confirmed.
+ */
+app.get("/api/dev/alt-fundamentals-test", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    const { callFinnhub, callTwelveData } = require("./services/dataFetch");
+    const symbol = String(req.query.ticker || "GOOGL")
+      .trim()
+      .toUpperCase();
+
+    const results = {};
+
+    try {
+      const data = await callFinnhub("/stock/metric", { symbol, metric: "all" });
+      results.finnhub = { ok: true, raw: data };
+    } catch (err) {
+      results.finnhub = { ok: false, error: err.message };
+    }
+
+    try {
+      const data = await callTwelveData("/statistics", { symbol });
+      results.twelveData = { ok: true, raw: data };
+    } catch (err) {
+      results.twelveData = { ok: false, error: err.message };
+    }
+
+    return res.json({ symbol, generatedAt: new Date().toISOString(), results });
+  } catch (err) {
+    console.error("[GET /api/dev/alt-fundamentals-test]", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * TEMPORARY — end-to-end trace test seeding. Adds two real, currently-
  * untracked tickers to board_picks the same way the existing seed tickers
  * got there (source-tagged so cleanup can safely identify and remove only

@@ -1029,6 +1029,84 @@ app.get("/api/dev/ticker-raw-check", async (req, res) => {
   }
 });
 
+/**
+ * TEMPORARY — end-to-end trace test seeding. Adds two real, currently-
+ * untracked tickers to board_picks the same way the existing seed tickers
+ * got there (source-tagged so cleanup can safely identify and remove only
+ * what this seeded, never touching anything already on the board). Board
+ * section, verdict, etc. are left to the real pipeline to compute — nothing
+ * here pre-determines the outcome. Refuses to touch a ticker that already
+ * exists (never overwrites real data). Same password gate as
+ * /api/dev/status. Remove once the trace is done.
+ */
+app.post("/api/dev/seed-trace-tickers", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    const { dbGet, dbRun } = require("./db/schema");
+    const tickers = Array.isArray(req.body?.tickers) && req.body.tickers.length
+      ? req.body.tickers
+      : ["GOOGL", "EBAY"];
+    const now = new Date().toISOString();
+    const results = [];
+    for (const raw of tickers) {
+      const ticker = String(raw).trim().toUpperCase();
+      const existing = await dbGet(`SELECT ticker, source FROM board_picks WHERE ticker = ?`, [ticker]);
+      if (existing) {
+        results.push({ ticker, action: "skipped", reason: "already exists", existingSource: existing.source });
+        continue;
+      }
+      await dbRun(
+        `INSERT INTO board_picks (ticker, status, added_at, source, tracked_since, last_seen_at)
+         VALUES (?, 'watch', ?, 'trace_test', ?, ?)`,
+        [ticker, now, now, now]
+      );
+      results.push({ ticker, action: "seeded", addedAt: now });
+    }
+    return res.json({ generatedAt: now, results });
+  } catch (err) {
+    console.error("[POST /api/dev/seed-trace-tickers]", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * TEMPORARY — removes only tickers this trace test seeded (source =
+ * 'trace_test'), plus their cache rows, so nothing artificial is left on
+ * the live board. Refuses to touch a ticker not tagged with that source.
+ * Same password gate as /api/dev/status. Remove once the trace is done.
+ */
+app.post("/api/dev/cleanup-trace-tickers", async (req, res) => {
+  if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  try {
+    const { dbAll, dbRun } = require("./db/schema");
+    const tickers = Array.isArray(req.body?.tickers) && req.body.tickers.length
+      ? req.body.tickers
+      : ["GOOGL", "EBAY"];
+    const results = [];
+    for (const raw of tickers) {
+      const ticker = String(raw).trim().toUpperCase();
+      const rows = await dbAll(
+        `SELECT ticker FROM board_picks WHERE ticker = ? AND source = 'trace_test'`,
+        [ticker]
+      );
+      if (!rows.length) {
+        results.push({ ticker, action: "skipped", reason: "not a trace_test row" });
+        continue;
+      }
+      await dbRun(`DELETE FROM board_picks WHERE ticker = ?`, [ticker]);
+      await dbRun(`DELETE FROM long_term_fundamentals_cache WHERE primary_ticker = ?`, [ticker]);
+      await dbRun(`DELETE FROM stock_reports WHERE ticker = ?`, [ticker]);
+      await dbRun(`DELETE FROM ai_reports WHERE ticker = ?`, [ticker]);
+      await dbRun(`DELETE FROM price_history_log WHERE ticker = ?`, [ticker]);
+      results.push({ ticker, action: "removed" });
+    }
+    return res.json({ generatedAt: new Date().toISOString(), results });
+  } catch (err) {
+    console.error("[POST /api/dev/cleanup-trace-tickers]", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 /** Reclassify live board from cache + run integrity self-check (dev only). */
 app.post("/api/dev/board-section-check", async (req, res) => {
   if (!devAuthOk(req)) return rejectDevUnauthorized(res);

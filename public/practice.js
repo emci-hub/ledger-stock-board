@@ -1,14 +1,18 @@
 /**
- * Practice Run home — one scoreboard card per synced account.
+ * Practice Run home — scoreboard, then one account’s detail at a time.
  *
- * Renders every id in GET /api/paper. Display order is PREFERRED_ORDER then
- * unknown ids appended; nothing is dropped (see practice-lib.js).
+ * No global/cross-account sections. Every pick, chart, projection, lesson and
+ * rule lives inside the selected account. Tapping a scoreboard card expands
+ * that account below. Unknown synced ids are never dropped.
  */
 (function () {
   "use strict";
 
   const P = window.PracticeRun;
   const el = (id) => document.getElementById(id);
+  let accounts = [];
+  let snapshot = null;
+  let activeId = null;
 
   function showState(message, isError) {
     const node = el("state-msg");
@@ -18,13 +22,13 @@
     el("dash").hidden = true;
   }
 
-  function renderHeader(snapshot) {
-    const day = snapshot.day;
-    const total = snapshot.totalDays || 10;
+  function renderHeader(doc) {
+    const day = doc.day;
+    const total = doc.totalDays || 10;
     el("day-pill").textContent = Number.isFinite(day) ? `day ${day} of ${total}` : "day — of —";
     el("updated-label").innerHTML =
-      `<span class="dot"></span>updated ${P.escapeHtml(P.formatMt(snapshot.updatedAt))} MT`;
-    const run = snapshot.run || {};
+      `<span class="dot"></span>updated ${P.escapeHtml(P.formatMt(doc.updatedAt))} MT`;
+    const run = doc.run || {};
     el("run-range").textContent =
       run.startDate && run.endDate
         ? `${P.formatDay(run.startDate)} – ${P.formatDay(run.endDate)}`
@@ -48,7 +52,9 @@
     const tone = paused ? "paused-card" : P.tone(account.returnPct);
     const label = P.displayLabel(account);
     const status = paused ? "paused" : "active";
-    return `<a class="home-card ${tone}" href="${P.accountHref(account)}" id="card-${P.escapeHtml(account.id)}">
+    const id = P.escapeHtml(account.id);
+    return `<button type="button" class="home-card ${tone}" id="card-${id}"
+        data-account="${id}" aria-controls="acct-panel">
       <div class="hc-top">
         <div>
           <div class="hc-name">${P.escapeHtml(P.displayName(account))}</div>
@@ -62,17 +68,95 @@
       </div>
       <div class="hc-bench">${vsLine(account)}</div>
       <div class="hc-spark">${P.sparklineSvg(account.equityCurve)}</div>
-    </a>`;
+    </button>`;
   }
 
-  function renderList(accounts) {
+  function tabButton(account) {
+    const id = P.escapeHtml(account.id);
+    return `<button type="button" class="acct-tab" role="tab" id="tab-${id}"
+        data-account="${id}" aria-controls="acct-panel">${P.escapeHtml(P.displayName(account))}</button>`;
+  }
+
+  function idFromHash() {
+    const raw = (location.hash || "").replace(/^#/, "");
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+
+  function selectAccount(id, { scroll, pushHash } = {}) {
+    const account = accounts.find((row) => String(row.id) === String(id)) || accounts[0];
+    if (!account) return;
+    activeId = account.id;
+
+    document.querySelectorAll(".home-card").forEach((card) => {
+      const on = card.dataset.account === activeId;
+      card.classList.toggle("is-selected", on);
+      card.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    document.querySelectorAll(".acct-tab").forEach((tab) => {
+      const on = tab.dataset.account === activeId;
+      tab.setAttribute("aria-selected", on ? "true" : "false");
+      tab.tabIndex = on ? 0 : -1;
+      if (on && scroll) tab.scrollIntoView({ inline: "center", block: "nearest" });
+    });
+
+    const panel = el("acct-panel");
+    panel.innerHTML = P.accountDetailHtml(account, snapshot, {
+      compact: true,
+      idPrefix: "home",
+    });
+    panel.dataset.account = activeId;
+
+    if (pushHash !== false) {
+      const next = `#${encodeURIComponent(activeId)}`;
+      if (location.hash !== next) history.replaceState(null, "", next);
+    }
+
+    if (scroll) {
+      el("account-detail").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
+  function renderShell() {
     el("home-list").innerHTML = accounts.map(homeCard).join("");
+    el("acct-tabs").innerHTML = accounts.map(tabButton).join("");
     const n = accounts.length;
     const names = accounts.map((a) => P.displayName(a)).join(", ");
     el("home-foot").textContent =
       n === 0
         ? "The latest snapshot has no accounts in it."
-        : `${n} account${n === 1 ? "" : "s"} from the synced document: ${names}.`;
+        : `${n} account${n === 1 ? "" : "s"} from the synced document: ${names}. Tap a card to open that account below.`;
+  }
+
+  function wire() {
+    el("home-list").addEventListener("click", (event) => {
+      const card = event.target.closest("[data-account]");
+      if (card) selectAccount(card.dataset.account, { scroll: true });
+    });
+    el("acct-tabs").addEventListener("click", (event) => {
+      const tab = event.target.closest("[data-account]");
+      if (tab) selectAccount(tab.dataset.account, { scroll: true });
+    });
+    el("acct-tabs").addEventListener("keydown", (event) => {
+      const keys = { ArrowRight: 1, ArrowLeft: -1 };
+      const dir = keys[event.key];
+      if (!dir) return;
+      event.preventDefault();
+      const idx = accounts.findIndex((a) => a.id === activeId);
+      const next = accounts[(idx + dir + accounts.length) % accounts.length];
+      selectAccount(next.id, { scroll: false });
+      const tab = document.getElementById(`tab-${next.id}`);
+      if (tab) tab.focus();
+    });
+    window.addEventListener("hashchange", () => {
+      const fromHash = idFromHash();
+      if (fromHash && fromHash !== activeId) {
+        selectAccount(fromHash, { scroll: true, pushHash: false });
+      }
+    });
   }
 
   async function load() {
@@ -97,14 +181,21 @@
       return;
     }
 
-    const { snapshot, accounts } = result;
+    snapshot = result.snapshot;
+    accounts = result.accounts;
     if (!accounts.length) {
       showState("The latest snapshot has no accounts in it.", true);
       return;
     }
 
     renderHeader(snapshot);
-    renderList(accounts);
+    renderShell();
+    wire();
+
+    const wanted = idFromHash();
+    const start = accounts.some((a) => a.id === wanted) ? wanted : accounts[0].id;
+    selectAccount(start, { scroll: false, pushHash: Boolean(wanted) });
+
     el("state-msg").hidden = true;
     el("dash").hidden = false;
   }

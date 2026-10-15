@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="dark">
 <title>Practice Run — Ledger</title>
-<meta name="description" content="Paper-trading scoreboard. One card per account. Pretend money, not financial advice.">
+<meta name="description" content="Paper-trading scoreboard, then one account at a time. Pretend money, not financial advice.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -30,7 +30,7 @@
         <span class="run-range" id="run-range"></span>
       </div>
     </div>
-    <p class="sub" id="run-note">One card per paper account. Tap a card for that account’s page — picks, trades, scorecard and rules.</p>
+    <p class="sub" id="run-note">Scoreboard first. Tap a card to open that account’s own detail — nothing is shared across accounts.</p>
     <p class="disclaimer" role="note">
       <strong>Pretend money, not financial advice.</strong>
       <span>Every number below is on paper. Nothing here is a brokerage account and nothing is an instruction to buy or sell.</span>
@@ -40,11 +40,20 @@
   <p class="state-msg" id="state-msg" role="status">Loading the practice run…</p>
 
   <main id="dash" hidden>
+
     <section aria-labelledby="scoreboard-label">
-      <div class="section-label" id="scoreboard-label">All accounts</div>
+      <div class="section-label" id="scoreboard-label">Scoreboard</div>
       <div class="home-list" id="home-list"></div>
       <p class="home-foot" id="home-foot"></p>
     </section>
+
+    <section class="detail-wrap" id="account-detail" aria-labelledby="detail-label">
+      <div class="section-label" id="detail-label">Account detail</div>
+      <p class="section-intro">One account at a time. Scorecard, that account’s picks, its trades, then its chart, projection, lessons and rules.</p>
+      <div class="acct-tabs" id="acct-tabs" role="tablist" aria-label="Accounts"></div>
+      <div class="detail-panel" id="acct-panel" role="tabpanel" aria-labelledby="detail-label"></div>
+    </section>
+
   </main>
 
   <footer>
@@ -57,6 +66,7 @@
 
 </div>
 <script src="/practice-lib.js"></script>
+<script src="/practice-detail.js"></script>
 <script src="/practice.js"></script>
 </body>
 </html>

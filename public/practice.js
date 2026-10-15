@@ -100,7 +100,11 @@
       const on = tab.dataset.account === activeId;
       tab.setAttribute("aria-selected", on ? "true" : "false");
       tab.tabIndex = on ? 0 : -1;
-      if (on && scroll) tab.scrollIntoView({ inline: "center", block: "nearest" });
+      if (on) {
+        const scroller = el("acct-tabs");
+        const left = tab.offsetLeft - scroller.clientWidth / 2 + tab.offsetWidth / 2;
+        scroller.scrollTo({ left: Math.max(0, left), behavior: "smooth" });
+      }
     });
 
     const panel = el("acct-panel");

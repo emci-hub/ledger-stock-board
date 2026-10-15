@@ -177,6 +177,8 @@ function normalizeSnapshot(doc) {
     errors.push("accounts must be a non-empty array");
   }
 
+  // Keep every account that passes shape checks. Display order is a renderer
+  // concern (lib/paperAccounts.js) — this store never filters by known id.
   const accounts = (Array.isArray(accountsRaw) ? accountsRaw : [])
     .map((raw, idx) => normalizeAccount(raw, idx, errors))
     .filter(Boolean);

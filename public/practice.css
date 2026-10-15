@@ -53,7 +53,7 @@ body{
 }
 
 @media (max-width:430px){
-  :root{ --text:16px; --text-sm:13px; }
+  :root{ --text:14px; --text-sm:12px; --space-2:12px; }
 }
 @media (min-width:768px){
   :root{ --text:15px; --text-sm:12px; }
@@ -237,8 +237,9 @@ body{
     background:var(--bg);
     margin-left:calc(-1 * var(--space-2));
     margin-right:calc(-1 * var(--space-2));
-    padding:8px var(--space-2);
+    padding:0 var(--space-2);
     border-bottom:1px solid var(--line);
+    gap:4px;
   }
 }
 
@@ -461,3 +462,85 @@ footer{
 }
 @media (min-width:1200px){ .foot-links a{min-height:auto;} }
 .foot-links a:hover{color:var(--ink);}
+
+/* ---- iPhone only (Apple Stocks / Robinhood watchlist density) ----
+   HIG: body can go to 13–14px; custom type min 11pt; controls 44×44pt.
+   Secondary copy stays >=12px. Inputs 16px so iOS does not zoom. */
+@media (max-width:430px){
+  html{font-size:14px;}
+  body{line-height:1.35;}
+  .wrap{padding:8px 12px 40px;}
+
+  .brand h1{font-size:clamp(1.1rem, 4vw, 1.25rem);}
+  .tick{font-size:12px;padding:2px 8px;}
+  .updated,.run-range{font-size:12px;}
+  .sub{font-size:12px;margin:4px 0 8px;}
+  .disclaimer{padding:8px 10px;margin:0 0 8px;font-size:12px;border-radius:8px;}
+  .paused-banner{padding:8px 10px;margin:0 0 8px;}
+  .paused-banner b,.paused-banner p{font-size:12px;}
+  .state-msg{padding:8px 10px;font-size:12px;}
+
+  .site-nav{margin:0 0 8px;padding:2px;border-radius:8px;}
+  .site-nav a{font-size:13px;padding:0 8px;}
+
+  .home-list{grid-template-columns:repeat(2, minmax(0, 1fr));gap:8px;}
+  .home-card{padding:12px;border-radius:8px;}
+  .hc-top{margin-bottom:4px;gap:4px;}
+  .hc-name{font-size:13px;}
+  .hc-label{display:none;}
+  .status-pill{font-size:12px;padding:2px 6px;letter-spacing:0.04em;}
+  .hc-value{font-size:13px;}
+  .hc-return{font-size:12px;margin-left:4px;}
+  .hc-bench{
+    font-size:12px;margin-top:2px;line-height:1.25;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .hc-spark{height:16px;margin-top:4px;}
+  .spark{height:16px;}
+  .home-foot{font-size:12px;margin:8px 0 0;}
+
+  .detail-wrap{margin-top:12px;}
+  .acct-tab{
+    font-size:13px;padding:0 10px;border-radius:8px;
+    min-height:44px;min-width:44px;
+  }
+  .section-intro{display:none;}
+  .detail-panel{padding:8px;border-radius:8px;}
+  .detail-head{margin:0 0 8px;}
+  .detail-head h2{font-size:clamp(1.05rem, 4vw, 1.2rem);}
+  .acct-kicker{font-size:12px;}
+  .acct-hero{margin:0 0 8px;}
+  .acct-hero h1{font-size:clamp(1.15rem, 5vw, 1.35rem);}
+  .acct-value-row{margin:6px 0 4px;}
+  .acct-stats{gap:8px;margin-top:8px;}
+  .acct-stat{padding:8px;}
+  .acct-stat dt,.acct-stat dd{font-size:12px;}
+
+  .section{margin:0 0 12px;}
+  .section-label{font-size:12px;margin:0 0 6px;gap:8px;}
+  .block{padding:12px;margin-bottom:8px;border-radius:8px;}
+  .empty{padding:8px 10px;font-size:12px;}
+  .grade{padding:6px 2px;}
+  .grade dt{font-size:12px;margin-bottom:2px;}
+  .grade dd{font-size:1.05rem;}
+  .grade-note,.weak-fix div,.derived-note{font-size:12px;}
+  .weak-fix{gap:8px;margin-top:8px;}
+  .weak-fix div{padding:8px 10px;}
+  .history-label{font-size:12px;margin:8px 0 6px;}
+  .tag,.pill{font-size:12px;}
+  .pick-ticker{font-size:1.05rem;}
+  .pick-headline,.pick-reason,.pick-plan,.pick-meta,.pc li,.verdict p{font-size:12px;}
+  .level{padding:6px 8px;}
+  .level dt,.level dd,.leg{font-size:12px;}
+  .pos-ticker,.pos-meta,.pos-note,.pos-item .hold{font-size:12px;}
+  .data-table{font-size:12px;min-width:440px;}
+  .data-table th,.data-table td{padding:4px 6px;font-size:12px;}
+  .data-table td.reason{min-width:140px;font-size:12px;}
+  .chart-legend,.chart-foot,.proj-grid dt,.proj-grid dd,.proj-sit,.proj-note{font-size:12px;}
+  .lesson p,.strategy p,.strategy li{font-size:12px;margin-bottom:4px;}
+  .lesson b,.strategy .review{font-size:12px;}
+  footer{margin-top:12px;padding-top:8px;font-size:12px;}
+
+  /* iOS zooms focused fields under 16px */
+  input, textarea, select{font-size:16px;}
+}

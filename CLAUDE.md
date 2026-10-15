@@ -14,7 +14,7 @@ Read this first, every session. This is the Code-side twin of the "Stock Big" Cl
 - Repo: emci-hub/ledger-stock-board (public)
 
 ## Screens and routes
-- `/` — **Practice Run** (`public/index.html` + `practice.css` + `practice.js` + `practice-lib.js` + `practice-detail.js`). Scoreboard of every synced account at the top; **directly below**, one account’s detail at a time (tabs / tap a card to jump). **No global/cross-account sections**. Layout is density-aware: iPhone single column (~16px, sticky tabs, 44px targets); tablet two columns; desktop (≥1200px) uses ~1600px and a 3-column detail (scorecard+picks | trades | analysis). Renderer never drops unknown ids.
+- `/` — **Practice Run** (`public/index.html` + `practice.css` + `practice.js` + `practice-lib.js` + `practice-detail.js`). Scoreboard of every synced account at the top; **directly below**, one account’s detail at a time (tabs / tap a card to jump). **No global/cross-account sections**. Layout is density-aware: iPhone (≤430px) compact 2-column mini cards, ~14px base (≥12px secondary), sticky 44px tabs; tablet two columns; desktop (≥1200px) uses ~1600px and a 3-column detail (scorecard+picks | trades | analysis). Renderer never drops unknown ids.
 - `/account/:id` — the same four sections for that one account (`public/account.html` + `account.js`). Order: (1) scorecard (2) today’s picks (3) trades — positions + history (4) analysis — that account’s equity vs its own benchmark, its projection vs actual, lessons, strategy.
 - `/board` — the family stock board (`public/board.html`, formerly `public/index.html`). All of its APIs, `/archive`, `/dev-status`, search and watchlist are unchanged.
 - `/healthz` — unchanged, still what UptimeRobot pings.

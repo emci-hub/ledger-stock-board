@@ -14,13 +14,16 @@ Read this first, every session. This is the Code-side twin of the "Stock Big" Cl
 - Repo: emci-hub/ledger-stock-board (public)
 
 ## Screens and routes
-- `/` — **Practice Run** dashboard (`public/index.html` + `public/practice.css` + `public/practice.js`). The paper-trading scoreboard. Read-only; it renders whatever `GET /api/paper` returns and nothing else.
+- `/` — **Practice Run** scoreboard (`public/index.html` + `public/practice.css` + `public/practice.js` + `public/practice-lib.js`). One card per synced account (value, return, vs benchmark, active/paused, sparkline). Read-only; it renders every id in `GET /api/paper` and never drops unknown ids.
+- `/account/:id` — that account’s own page (`public/account.html` + `public/account.js`). Section order: scorecard → today’s picks → trades (open positions + log) → analysis (equity vs benchmark, lessons, strategy).
 - `/board` — the family stock board (`public/board.html`, formerly `public/index.html`). All of its APIs, `/archive`, `/dev-status`, search and watchlist are unchanged.
 - `/healthz` — unchanged, still what UptimeRobot pings.
-- Top nav on both pages switches between the two.
+- Top nav on both surfaces switches between Practice Run and the family board.
 
-## Practice Run (paper trading) — `/` and `/api/paper*`
-A fixed two-week paper test (Oct 15–29, 2026, pretend money, **never real trades**) across four accounts: `us-day`, `us-swing` (US$1,000 each, benchmark VOO) and `ca-day`, `ca-swing` (C$1,000 each, benchmark XIU.TO). The data is produced on a separate machine and pushed here — this app never computes, estimates or AI-fills a paper number. Anything the snapshot doesn't carry renders as "unavailable" (rule 1 applies to this screen too).
+## Practice Run (paper trading) — `/`, `/account/:id` and `/api/paper*`
+A fixed two-week paper test (Oct 15–29, 2026, pretend money, **never real trades**). The synced document can carry any account ids; the renderer sorts for display (`lib/paperAccounts.js` `PREFERRED_ORDER`, then unknowns appended) and **never drops** an id. Current live ids: `us-swing`, `ca-swing`, `glb-branch` (Green line breakout, benchmark VOO/SPY), `lottery-us`, `lottery-ca`, then paused `us-day`, `ca-day`. The data is produced on a separate machine and pushed here — this app never computes, estimates or AI-fills a paper number. Anything the snapshot doesn't carry renders as "unavailable" (rule 1 applies to this screen too).
+
+`GET /api/paper` stays in document order (sync API is backward-compatible). Sorting is display-only.
 
 **Endpoints**
 | Route | Auth | What it does |
@@ -38,6 +41,7 @@ A fixed two-week paper test (Oct 15–29, 2026, pretend money, **never real trad
   run: { name, startDate, endDate, note },
   accounts: [{
     id, name, label, currency: "USD" | "CAD",          // id, currency and value are required
+    status: "active"|"paused", paused: bool,           // optional; missing = active
     startValue, value, returnPct, cash, valueNote,
     benchmark:  { ticker, name, value, returnPct },     // ticker required
     projection: { bear, baseLow, baseHigh, bull, note },// percentages

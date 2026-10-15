@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="dark">
 <title>Practice Run — Ledger</title>
-<meta name="description" content="A two-week paper-trading practice run across four pretend accounts. Pretend money, not financial advice.">
+<meta name="description" content="Paper-trading scoreboard. One card per account. Pretend money, not financial advice.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -30,67 +30,25 @@
         <span class="run-range" id="run-range"></span>
       </div>
     </div>
-    <p class="sub" id="run-note">A two-week test of four paper accounts against their benchmarks — what the rules picked, what it cost, and how it scored.</p>
+    <p class="sub" id="run-note">One card per paper account. Tap a card for that account’s page — picks, trades, scorecard and rules.</p>
     <p class="disclaimer" role="note">
       <strong>Pretend money, not financial advice.</strong>
-      <span>Every trade below is on paper. Nothing here is a brokerage account and nothing is an instruction to buy or sell.</span>
+      <span>Every number below is on paper. Nothing here is a brokerage account and nothing is an instruction to buy or sell.</span>
     </p>
   </header>
 
   <p class="state-msg" id="state-msg" role="status">Loading the practice run…</p>
 
   <main id="dash" hidden>
-
     <section aria-labelledby="scoreboard-label">
-      <div class="section-label" id="scoreboard-label">Scoreboard</div>
-      <div class="score-grid" id="score-grid"></div>
-      <p class="section-foot" id="scoreboard-foot"></p>
+      <div class="section-label" id="scoreboard-label">All accounts</div>
+      <div class="home-list" id="home-list"></div>
+      <p class="home-foot" id="home-foot"></p>
     </section>
-
-    <section aria-labelledby="picks-label">
-      <div class="section-label" id="picks-label">Today's picks</div>
-      <p class="section-intro" id="picks-date"></p>
-      <div class="picks-grid" id="picks-grid"></div>
-    </section>
-
-    <section aria-labelledby="curves-label">
-      <div class="section-label" id="curves-label">Equity curves vs benchmark</div>
-      <p class="section-intro">Each account is indexed to its own starting balance, drawn against the benchmark it has to beat.</p>
-      <div class="chart-grid" id="chart-grid"></div>
-    </section>
-
-    <section aria-labelledby="projections-label">
-      <div class="section-label" id="projections-label">Projections vs actual</div>
-      <p class="section-intro">Ranges were written on Oct 15 before any results. Over ten trading days the noise is bigger than any edge, so "inside the base range" is the expected outcome.</p>
-      <div class="proj-table-wrap">
-        <table class="data-table proj-table">
-          <thead>
-            <tr>
-              <th scope="col">Account</th>
-              <th scope="col">Bear</th>
-              <th scope="col">Base</th>
-              <th scope="col">Bull</th>
-              <th scope="col">Actual</th>
-              <th scope="col">Where it sits</th>
-            </tr>
-          </thead>
-          <tbody id="proj-body"></tbody>
-        </table>
-      </div>
-      <div class="proj-notes" id="proj-notes"></div>
-    </section>
-
-    <section aria-labelledby="accounts-label">
-      <div class="section-label" id="accounts-label">Account detail</div>
-      <div class="account-tabs" id="account-tabs" role="tablist" aria-label="Accounts"></div>
-      <div id="account-panels"></div>
-    </section>
-
   </main>
 
   <footer>
     <span>Paper trading only — pretend money, no real trades, not financial advice.</span>
-    <span class="foot-meta" id="foot-meta"></span>
     <span class="foot-links">
       <a href="/board">Family board</a>
       <a href="/api/paper">Raw snapshot</a>
@@ -98,6 +56,7 @@
   </footer>
 
 </div>
+<script src="/practice-lib.js"></script>
 <script src="/practice.js"></script>
 </body>
 </html>

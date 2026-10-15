@@ -865,6 +865,19 @@ app.get("/board", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "board.html"));
 });
 
+/**
+ * One page per paper account. The same HTML is served for every id — including
+ * unknown ones — so the renderer can look the account up in GET /api/paper
+ * instead of a hardcoded allow-list. JS never drops a synced id.
+ */
+app.get("/account/:id", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "account.html"));
+});
+
+app.get("/account", (req, res) => {
+  res.redirect(302, "/");
+});
+
 app.get("/archive", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "archive.html"));
 });

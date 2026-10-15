@@ -3,6 +3,7 @@
  */
 
 const { generateJson } = require("../lib/aiProvider");
+const { isAiPaused, logPausedOnce } = require("../lib/aiEnabled");
 const {
   getSetting,
   setSetting,
@@ -40,6 +41,10 @@ function pacificWeekId() {
 }
 
 async function regenerateTidbitBatch() {
+  if (isAiPaused()) {
+    logPausedOnce("regenerateTidbitBatch");
+    throw new Error("AI paused — not generating a new did-you-know batch");
+  }
   const prompt = `Create ${BATCH_SIZE} beginner-friendly "Did you know?" tidbits for a family learning about stocks.
 
 Rules:
@@ -67,6 +72,10 @@ Rules:
 }
 
 async function ensureTidbitBatch({ force = false } = {}) {
+  if (isAiPaused()) {
+    logPausedOnce("ensureTidbitBatch");
+    return loadBatch();
+  }
   const cached = await loadBatch();
   const weekId = pacificWeekId();
   if (!force && cached?.items?.length && cached.weekId === weekId) {

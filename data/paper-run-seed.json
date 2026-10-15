@@ -1,0 +1,679 @@
+{
+  "updatedAt": "2026-10-15T15:00:00.000Z",
+  "day": 1,
+  "totalDays": 10,
+  "run": {
+    "name": "Practice Run",
+    "startDate": "2026-10-15",
+    "endDate": "2026-10-29",
+    "note": "Paper only — pretend money, no real trades. Marks taken Oct 15 ~09:00 MT. Day-account entries today were simulated after the fact from 5-minute bars."
+  },
+  "sourceNote": "Seeded from the Oct 15, 2026 scoreboard, projections, daily picks, ledgers and strategy files. Replaced by the first real POST /api/paper/sync.",
+  "accounts": [
+    {
+      "id": "us-day",
+      "name": "US-DAY",
+      "label": "US day trading",
+      "currency": "USD",
+      "startValue": 1000,
+      "value": 1008.04,
+      "returnPct": 0.8,
+      "cash": 307.4,
+      "valueNote": "Includes the open UNH position marked at 410.57.",
+      "benchmark": {
+        "ticker": "VOO",
+        "name": "Vanguard S&P 500 ETF",
+        "value": 1002.46,
+        "returnPct": 0.25
+      },
+      "projection": {
+        "bear": -5,
+        "baseLow": -1.5,
+        "baseHigh": 1.5,
+        "bull": 5,
+        "note": "≈ −3R to +3R over 10 trading days. Expected win rate 30-45%, max drawdown 3-6%, ~40% chance of beating VOO."
+      },
+      "equityCurve": [
+        { "date": "2026-10-14", "value": 1000, "benchmark": 1000 },
+        { "date": "2026-10-15", "value": 1008.04, "benchmark": 1002.46 }
+      ],
+      "positions": [
+        {
+          "ticker": "UNH",
+          "shares": 1.7065,
+          "avgPrice": 405.86,
+          "costBasis": 692.6,
+          "lastPrice": 410.57,
+          "marketValue": 700.64,
+          "stop": 400,
+          "target": 423.44,
+          "openedAt": "2026-10-15 07:40 MT",
+          "note": "ORB long, +0.8R, above VWAP 405.95. Breakeven stop after 414.65; flat by 13:55 MT."
+        }
+      ],
+      "trades": [
+        {
+          "date": "2026-10-15",
+          "time": "07:40 MT",
+          "ticker": "UNH",
+          "side": "BUY",
+          "shares": 1.7065,
+          "price": 405.86,
+          "value": 692.6,
+          "reason": "Simulated after the fact (decision 09:05 MT): ORB long, first-bar rvol 9.1, gap +1.4%, catalyst Q3 beat+raise (Oct 13); entry ORH 405.45+0.1% slip at 09:40 ET; stop ORL 400.00; risk US$10",
+          "confidence": "Low-Medium"
+        }
+      ],
+      "picks": [
+        {
+          "date": "2026-10-15",
+          "action": "BUY",
+          "ticker": "UNH",
+          "headline": "ORB long; simulated from 09:40 ET",
+          "entry": 405.86,
+          "stop": 400,
+          "target": 423.44,
+          "size": "1.7065 sh = US$693, risk US$10",
+          "confidence": "Low-Medium",
+          "reason": "Top first-bar rvol (9.1×) with a green candle and a +1.4% gap; catalyst = Q3 beat + guidance raise (Oct 13), day-2 follow-through.",
+          "pros": [
+            "Real catalyst (PEAD-style)",
+            "Highest relative volume of the eligible names",
+            "Now 410.57 (+0.8R), above VWAP 405.95"
+          ],
+          "cons": [
+            "Day 3 after earnings, so some of the move is used up",
+            "Analysts mixed (TD Cowen Hold, PT 402)",
+            "Entry was simulated, not live"
+          ],
+          "whyProsWin": "Catalyst + volume + trend agree, and the risk is fixed at 1% with a clear stop.",
+          "plan": "Entry 405.86 (ORH 405.45 + 0.1%); stop 400.00 (ORL); breakeven after 414.65; half off at 423.44 (+3R); else exit 13:55 MT."
+        }
+      ],
+      "scorecards": [
+        {
+          "date": "2026-10-15",
+          "derived": true,
+          "basis": "Derived from this account's own published rubric (A = rules followed, F = any rule break) against the Oct 15 ledger, picks and marks. Not a hand-entered card.",
+          "grades": {
+            "analysis": {
+              "grade": "B",
+              "note": "Ranked candidates by first-bar rvol with a real catalyst, exactly as the method says."
+            },
+            "execution": {
+              "grade": "C",
+              "note": "Decision came at 09:05 MT and the entry was reconstructed from bars, so the fill was never live."
+            },
+            "risk": {
+              "grade": "A",
+              "note": "1% risk (US$10), stop at ORL, size solved from entry − stop, no margin."
+            },
+            "review": {
+              "grade": "B",
+              "note": "Marks, R-multiple and the simulated-entry label are all recorded; expectancy waits for more trades."
+            },
+            "result": {
+              "grade": "B",
+              "note": "Provisional: +0.8R unrealized at the 09:00 MT mark, +0.80% vs VOO +0.25%, but the day is not closed."
+            }
+          },
+          "weakest": "Execution",
+          "fix": "Write the pick at 07:40 MT off bar 1 and let the buy-stop trigger live, instead of reconstructing the entry after 11:00 ET."
+        }
+      ],
+      "lessons": [
+        {
+          "date": "2026-10-15",
+          "errorType": "EXECUTION",
+          "what": "The pick was decided at 09:05 MT, after the 11:00 ET trigger window, so the UNH entry had to be labelled \"simulated after the fact\".",
+          "fix": "Run the 07:40 MT bar-1 ranking before the open window closes; one fix for this account only.",
+          "status": "proposed",
+          "derived": true
+        }
+      ],
+      "strategy": {
+        "summary": "US$1,000, US-listed only, USD. One stock a day or flat; flat by the close. 5-minute opening range breakout on stocks in play, long only.",
+        "benchmark": "VOO",
+        "framing": "Day trading is the hardest version of this test — most retail day traders lose. The best published intraday evidence is Zarattini, Barbon & Aziz (2024): a 5-minute ORB on stocks in play, 1% risk, exit at the close. Expect roughly flat with a low win rate (30-45%) and a few big winners.",
+        "rules": [
+          "Pick one: highest first-bar rvol (≥2) with a green first 5-min candle and a gap ≥ +0.5%, preferably with a catalyst. Otherwise FLAT.",
+          "Entry: buy-stop at the opening range high from bar 2 on, fill + 0.1% slippage, must trigger by 11:00 ET.",
+          "Stop: opening range low, at least 0.3% below entry. No moving the stop down, no averaging down.",
+          "Target: hold to the close; half off at +3R, stop to breakeven after +1.5R, exit on a 5-min close below VWAP after +1R.",
+          "Time exit: flat at 13:55 MT. Sizing: risk 1% of equity ÷ (entry − stop), no margin.",
+          "Daily loss limit −2% of equity; −5% from peak cuts risk to 0.5% per trade."
+        ],
+        "reviewMetrics": "R-multiple per trade, cumulative R, win rate, average win/loss, rule breaks, missed setups, slippage vs assumption."
+      }
+    },
+    {
+      "id": "us-swing",
+      "name": "US-SWING",
+      "label": "US swing trading",
+      "currency": "USD",
+      "startValue": 1000,
+      "value": 1001.33,
+      "returnPct": 0.13,
+      "cash": 200.01,
+      "benchmark": {
+        "ticker": "VOO",
+        "name": "Vanguard S&P 500 ETF",
+        "value": 1002.46,
+        "returnPct": 0.25
+      },
+      "projection": {
+        "bear": -8,
+        "baseLow": -2,
+        "baseHigh": 3,
+        "bull": 6,
+        "note": "Bear = AI/chip selloff or an FOMC Oct 28 shock; bull = earnings beat into a rally. Expected win rate 45-55%, max drawdown 4-8%, ~45% chance of beating VOO (higher beta, cash drag)."
+      },
+      "equityCurve": [
+        { "date": "2026-10-14", "value": 1000, "benchmark": 1000 },
+        { "date": "2026-10-15", "value": 1001.33, "benchmark": 1002.46 }
+      ],
+      "positions": [
+        {
+          "ticker": "ADBE",
+          "shares": 1.3844,
+          "avgPrice": 252.8126,
+          "costBasis": 349.99,
+          "lastPrice": 253.68,
+          "marketValue": 351.19,
+          "stop": 238.4,
+          "target": 274.4,
+          "openedAt": "2026-10-15 08:40 MT",
+          "note": "Score 73, bought below the US$267 buy price. +5.4% on the day."
+        },
+        {
+          "ticker": "AVGO",
+          "shares": 0.7321,
+          "avgPrice": 341.4811,
+          "costBasis": 250,
+          "lastPrice": null,
+          "marketValue": null,
+          "stop": 322.5,
+          "target": 369.9,
+          "openedAt": "2026-10-15 08:40 MT",
+          "note": "Starter tranche (score 70, within 10% of the US$323 buy price, below the MA200 of 368). Mark price not in this snapshot."
+        },
+        {
+          "ticker": "NVDA",
+          "shares": 0.923,
+          "avgPrice": 216.6815,
+          "costBasis": 200,
+          "lastPrice": null,
+          "marketValue": null,
+          "stop": 207,
+          "target": 231.1,
+          "openedAt": "2026-10-15 08:40 MT",
+          "note": "Starter tranche (score 71, ~8% above the US$200 buy price, below the 50-day). Mark price not in this snapshot."
+        }
+      ],
+      "trades": [
+        {
+          "date": "2026-10-15",
+          "time": "08:40 MT",
+          "ticker": "ADBE",
+          "side": "BUY",
+          "shares": 1.3844,
+          "price": 252.8126,
+          "value": 349.99,
+          "reason": "Score 73, price below buy US$267; no earnings until Dec; quality dip (-2% 1mo)",
+          "confidence": "Medium"
+        },
+        {
+          "date": "2026-10-15",
+          "time": "08:40 MT",
+          "ticker": "AVGO",
+          "side": "BUY",
+          "shares": 0.7321,
+          "price": 341.4811,
+          "value": 250,
+          "reason": "Score 70, ~6% above buy US$323 -> starter tranche (dip-buy rule: >=70, within 10% of buy, below MA200 368); earnings Dec",
+          "confidence": "Low-Medium"
+        },
+        {
+          "date": "2026-10-15",
+          "time": "08:40 MT",
+          "ticker": "NVDA",
+          "side": "BUY",
+          "shares": 0.923,
+          "price": 216.6815,
+          "value": 200,
+          "reason": "Score 71, ~8% above buy US$200 -> starter tranche; below 50-day; earnings Nov 18 outside window",
+          "confidence": "Low-Medium"
+        }
+      ],
+      "picks": [
+        {
+          "date": "2026-10-15",
+          "action": "HOLD",
+          "ticker": "ADBE · AVGO · NVDA",
+          "headline": "No new buys",
+          "entry": null,
+          "stop": null,
+          "target": null,
+          "levels": [
+            { "ticker": "ADBE", "stop": 238.4, "target": 274.4 },
+            { "ticker": "AVGO", "stop": 322.5, "target": 369.9 },
+            { "ticker": "NVDA", "stop": 207, "target": 231.1 }
+          ],
+          "reason": "Positions are hours old; no new pullback or post-earnings-drift setup passes the checklist. The US$200 cash stays.",
+          "pros": [
+            "ADBE +5.4% today (253.68)",
+            "Avoids churn and costs",
+            "ATR stops are now defined on every position"
+          ],
+          "cons": [
+            "AVGO and NVDA are below their 50-day lines (downtrend, against the pullback-in-uptrend rule)",
+            "Chips are weak today (TSM −2.9%, AMD −4.3%)"
+          ],
+          "whyProsWin": "The starters were tiny and pre-defined; the ATR stops cap each loss at roughly 1-2% of equity, so holding costs little.",
+          "plan": "ATR stops (close basis, entry − 2×ATR): ADBE 238.4, AVGO 322.5, NVDA 207.0. Targets (+3×ATR, half off): ADBE 274.4, AVGO 369.9, NVDA 231.1."
+        }
+      ],
+      "scorecards": [
+        {
+          "date": "2026-10-15",
+          "derived": true,
+          "basis": "Derived from this account's own published rubric (A = rules followed and ≥ VOO; C = rules followed and below VOO; F = any rule break) against the Oct 15 ledger, picks and marks. Not a hand-entered card.",
+          "grades": {
+            "analysis": {
+              "grade": "B",
+              "note": "Every buy carried a playbook score ≥70 and a buy-price check, but two starters sit below their 50-day lines."
+            },
+            "execution": {
+              "grade": "B",
+              "note": "Fills at the stated prices with 0.1% slippage; ATR stops were assigned the same day, which the rule allows retroactively."
+            },
+            "risk": {
+              "grade": "A",
+              "note": "20% cash, largest name 35% (cap 40%), AI-semis 45% (cap 50%), 3 positions, no trade over 2 per day."
+            },
+            "review": {
+              "grade": "B",
+              "note": "Daily card written with marks, stops and pros/cons; thesis hit rate and R stats need more days."
+            },
+            "result": {
+              "grade": "C",
+              "note": "Rules followed but +0.13% trails VOO +0.25% — a C by this account's own rubric."
+            }
+          },
+          "weakest": "Analysis",
+          "fix": "No new chip adds while AVGO and NVDA trade below their 50-day lines; wait for a close back above before sizing up."
+        }
+      ],
+      "lessons": [
+        {
+          "date": "2026-10-15",
+          "errorType": "ANALYSIS",
+          "what": "Two of three starters (AVGO, NVDA) were bought below their 50-day lines on the dip-buy exception while the pullback-in-uptrend setup asks for price above the 50-day.",
+          "fix": "Require a close back above the 50-day before any further chip add in this account.",
+          "status": "proposed",
+          "derived": true
+        }
+      ],
+      "strategy": {
+        "summary": "US$1,000, US-listed stocks only, USD. Holds 2-10 trading days to the Oct 29 end. Limit orders, cash only, max 40% in one name, at least 3 positions, 0.1% slippage.",
+        "benchmark": "VOO (SPY for reference)",
+        "framing": "Full size only when the playbook score is ≥70 and price is at or below the buy price. A starter tranche (≤25%) is allowed at score ≥70 within 10% of the buy price on a dip below the 50- or 200-day average. No buys after a +10% week.",
+        "rules": [
+          "Setups in order: pullback in an uptrend (above the 50-day, 3-5% off the 20-day high, RSI(2) < 10 or 2+ red days, then the first green day); post-earnings drift on a beat + raise that holds day 1; existing playbook buy price hit.",
+          "Stop: entry − 2×ATR(14) on the close. Target: +3×ATR, sell half and trail the rest 2×ATR below the highest close.",
+          "Time stop: 7 trading days with less than +1 ATR of progress is an exit.",
+          "Sizing: risk 1% of equity per trade ÷ (2×ATR), capped by position limits. High-vol semis ≤20% each, AI-semis total ≤50%, ≥10% cash, ≤2 new trades/day.",
+          "Earnings: max 20% in any name reporting inside the window, no adds in the 2 days before the report (META Oct 21, V Oct 27, MSFT/GOOGL Oct 28, AMZN Oct 29).",
+          "Politician, insider and 13F activity is a research flag only — it never counts as a buy reason."
+        ],
+        "reviewMetrics": "Thesis hit rate, P&L in R, max drawdown from peak, return vs VOO, rule breaks."
+      }
+    },
+    {
+      "id": "ca-day",
+      "name": "CA-DAY",
+      "label": "Canada day trading",
+      "currency": "CAD",
+      "startValue": 1000,
+      "value": 1000.75,
+      "returnPct": 0.08,
+      "cash": 556.41,
+      "valueNote": "Includes the open LMN.V position marked at 23.55.",
+      "benchmark": {
+        "ticker": "XIU.TO",
+        "name": "iShares S&P/TSX 60 Index ETF",
+        "value": 1002.99,
+        "returnPct": 0.3
+      },
+      "projection": {
+        "bear": -4,
+        "baseLow": -1,
+        "baseHigh": 1,
+        "bull": 3,
+        "note": "Many FLAT days expected. Win rate 30-45%, max drawdown 2-5%, ~35% chance of beating XIU."
+      },
+      "equityCurve": [
+        { "date": "2026-10-14", "value": 1000, "benchmark": 1000 },
+        { "date": "2026-10-15", "value": 1000.75, "benchmark": 1002.99 }
+      ],
+      "positions": [
+        {
+          "ticker": "LMN.V",
+          "shares": 18.868,
+          "avgPrice": 23.51,
+          "costBasis": 443.59,
+          "lastPrice": 23.55,
+          "marketValue": 444.34,
+          "stop": 22.98,
+          "target": 25.1,
+          "openedAt": "2026-10-15 07:35 MT",
+          "note": "ORB long, now below VWAP 23.87. Breakeven stop at 24.31; exit 13:55 MT."
+        }
+      ],
+      "trades": [
+        {
+          "date": "2026-10-15",
+          "time": "07:35 MT",
+          "ticker": "LMN.V",
+          "side": "BUY",
+          "shares": 18.868,
+          "price": 23.51,
+          "value": 443.59,
+          "reason": "Simulated after the fact: ORB long, first-bar rvol 5.9, gap +1.3%, no clear catalyst; entry ORH 23.25 broke 09:35 ET, fill 23.51 incl 0.2% TSXV slip; stop ORL 22.98; risk C$10",
+          "confidence": "Low"
+        }
+      ],
+      "picks": [
+        {
+          "date": "2026-10-15",
+          "action": "BUY",
+          "ticker": "LMN.V",
+          "headline": "ORB long; simulated from 09:35 ET, low confidence",
+          "entry": 23.51,
+          "stop": 22.98,
+          "target": 25.1,
+          "size": "18.868 sh = C$444, risk C$10",
+          "confidence": "Low",
+          "reason": "The only Canadian name meeting all the rules (first-bar rvol 5.9×, green first candle, gap +1.3%).",
+          "pros": [
+            "In play on volume",
+            "Rebound off the lows",
+            "Buyback support (bought back near C$35)"
+          ],
+          "cons": [
+            "No clear news catalyst",
+            "TSXV listing with thin liquidity",
+            "Now below VWAP (23.87)",
+            "Earnings Oct 30"
+          ],
+          "whyProsWin": "Barely. The rules pick it, and taking it tests the method fairly; size is risk-capped at C$10. If the qualifiers keep lacking catalysts, the self-fix could require one.",
+          "plan": "Entry 23.51 (ORH 23.25 + break + 0.2% TSXV slip); stop 22.98; breakeven 24.31; half off 25.10; exit 13:55 MT."
+        }
+      ],
+      "scorecards": [
+        {
+          "date": "2026-10-15",
+          "derived": true,
+          "basis": "Derived from this account's own published rubric (A-F on rule-following) against the Oct 15 ledger, picks and marks. Not a hand-entered card.",
+          "grades": {
+            "analysis": {
+              "grade": "C",
+              "note": "The rules were applied honestly, but the only qualifier had no catalyst and the pick was written as \"barely\"."
+            },
+            "execution": {
+              "grade": "C",
+              "note": "Simulated after the fact from the bars; the wider 0.2% TSXV slippage was applied correctly."
+            },
+            "risk": {
+              "grade": "A",
+              "note": "C$10 risk (1%), stop at the opening range low, position 44% of equity, no margin."
+            },
+            "review": {
+              "grade": "B",
+              "note": "Position marked and the VWAP break flagged; the FLAT-day rate and liquidity-cost metrics need more days."
+            },
+            "result": {
+              "grade": "C",
+              "note": "+0.08% trails XIU +0.30%, and the position sits below VWAP at the mark."
+            }
+          },
+          "weakest": "Analysis",
+          "fix": "If the daily qualifiers keep arriving without catalysts, require a named catalyst for TSXV entries — the self-fix already flagged in today's pick."
+        }
+      ],
+      "lessons": [
+        {
+          "date": "2026-10-15",
+          "errorType": "ANALYSIS",
+          "what": "The only qualifying name (LMN.V) had no news catalyst and is a thin TSXV listing, so the pick was taken on volume alone.",
+          "fix": "Candidate fix already named in the pick: require a catalyst for TSXV entries if catalyst-free qualifiers keep showing up.",
+          "status": "proposed",
+          "derived": true
+        }
+      ],
+      "strategy": {
+        "summary": "C$1,000, TSX/TSXV-listed only, CAD. One stock a day or flat; flat by the close. Same ORB method as US-DAY with stricter liquidity filters.",
+        "benchmark": "XIU.TO",
+        "framing": "The ORB evidence is US-only. TSX names have lower relative volume, wider spreads and fewer catalysts, so expect more FLAT days and a smaller edge.",
+        "rules": [
+          "Pick: highest first-bar rvol ≥2, green first candle, gap ≥ +0.5%, long only; tiebreak by catalyst, then TSX over TSXV. None qualifying means FLAT.",
+          "Universe: the CA-SWING names plus TSX names at ≥ C$5 and ≥ C$5M/day traded (TSXV allowed at ≥ C$2M/day).",
+          "Entry: buy-stop at the opening range high from bar 2, +0.1% slippage (0.2% on TSXV), must trigger by 11:00 ET.",
+          "Stop: opening range low, ≥0.3% away. Breakeven after +1.5R; exit on a 5-min close below VWAP after +1R; half off at +3R.",
+          "Flat at 13:55 MT. Sizing: risk 1% (≈C$10) ÷ (entry − stop), no margin.",
+          "Daily loss limit −2%; −5% from peak drops risk to 0.5% per trade."
+        ],
+        "reviewMetrics": "R-multiple, cumulative R, win rate, average win/loss, rule breaks, FLAT-day rate, liquidity cost vs the 0.1% assumption."
+      }
+    },
+    {
+      "id": "ca-swing",
+      "name": "CA-SWING",
+      "label": "Canada swing trading",
+      "currency": "CAD",
+      "startValue": 1000,
+      "value": 998.87,
+      "returnPct": -0.11,
+      "cash": 200.09,
+      "valueNote": "Start includes the migrated CSU and T positions. Legacy ADBE closed at C$−2.40.",
+      "benchmark": {
+        "ticker": "XIU.TO",
+        "name": "iShares S&P/TSX 60 Index ETF",
+        "value": 1002.99,
+        "returnPct": 0.3
+      },
+      "projection": {
+        "bear": -5,
+        "baseLow": -1.5,
+        "baseHigh": 2,
+        "bull": 4,
+        "note": "Bear = hawkish BoC and oil down. Expected win rate 45-55%, max drawdown 3-6%, ~45-50% chance of beating XIU."
+      },
+      "equityCurve": [
+        { "date": "2026-10-14", "value": 1000, "benchmark": 1000 },
+        { "date": "2026-10-15", "value": 998.87, "benchmark": 1002.99 }
+      ],
+      "positions": [
+        {
+          "ticker": "CSU.TO",
+          "shares": 0.0764,
+          "avgPrice": 3270.9176,
+          "costBasis": 249.9,
+          "lastPrice": null,
+          "marketValue": null,
+          "stop": 3067,
+          "target": 3576,
+          "openedAt": "2026-10-15 08:30 MT",
+          "note": "Migrated from the legacy account at the original fill. +4.5% on the day; mark price not in this snapshot."
+        },
+        {
+          "ticker": "T.TO",
+          "shares": 16.6085,
+          "avgPrice": 12.042,
+          "costBasis": 200,
+          "lastPrice": null,
+          "marketValue": null,
+          "stop": 11.42,
+          "target": 12.97,
+          "openedAt": "2026-10-15 08:30 MT",
+          "note": "Migrated from the legacy account at the original fill. +3.7% on the day, still below its 50-day."
+        },
+        {
+          "ticker": "ENB.TO",
+          "shares": 2.625,
+          "avgPrice": 66.6666,
+          "costBasis": 175,
+          "lastPrice": null,
+          "marketValue": null,
+          "stop": 64.83,
+          "target": 69.43,
+          "openedAt": "2026-10-15 08:40 MT",
+          "note": "Pipeline toll-road, ~5.5%+ yield, low beta. −1.6% today. Unscored by the playbook (grade C, capped at 20%)."
+        },
+        {
+          "ticker": "CNR.TO",
+          "shares": 1.0193,
+          "avgPrice": 171.6915,
+          "costBasis": 175.01,
+          "lastPrice": null,
+          "marketValue": null,
+          "stop": 165.97,
+          "target": 180.27,
+          "openedAt": "2026-10-15 08:40 MT",
+          "note": "Wide-moat rail duopoly, dividend grower. Earnings late Oct, size kept under 20%. Unscored (grade C)."
+        }
+      ],
+      "trades": [
+        {
+          "date": "2026-10-15",
+          "time": "08:30 MT",
+          "ticker": "CSU.TO",
+          "side": "BUY",
+          "shares": 0.0764,
+          "price": 3270.9176,
+          "value": 249.9,
+          "reason": "Migrated from legacy account at original fill",
+          "confidence": "Low-Medium"
+        },
+        {
+          "date": "2026-10-15",
+          "time": "08:30 MT",
+          "ticker": "T.TO",
+          "side": "BUY",
+          "shares": 16.6085,
+          "price": 12.042,
+          "value": 200,
+          "reason": "Migrated from legacy account at original fill",
+          "confidence": "Low"
+        },
+        {
+          "date": "2026-10-15",
+          "time": "08:40 MT",
+          "ticker": "ENB.TO",
+          "side": "BUY",
+          "shares": 2.625,
+          "price": 66.6666,
+          "value": 175,
+          "reason": "Pipeline toll-road, ~5.5%+ yield, low beta; rate-sensitive upside if BoC cuts Oct 28; flat 1mo (no chasing). Unscored by playbook (grade C)",
+          "confidence": "Low"
+        },
+        {
+          "date": "2026-10-15",
+          "time": "08:40 MT",
+          "ticker": "CNR.TO",
+          "side": "BUY",
+          "shares": 1.0193,
+          "price": 171.6915,
+          "value": 175.01,
+          "reason": "Wide-moat rail duopoly, dividend grower, value tilt; flat 1mo; earnings ~late Oct, size kept <20%. Unscored (grade C)",
+          "confidence": "Low"
+        }
+      ],
+      "picks": [
+        {
+          "date": "2026-10-15",
+          "action": "HOLD",
+          "ticker": "CSU · T · ENB · CNR",
+          "headline": "No new buys",
+          "entry": null,
+          "stop": null,
+          "target": null,
+          "levels": [
+            { "ticker": "CSU.TO", "stop": 3067, "target": 3576 },
+            { "ticker": "T.TO", "stop": 11.42, "target": 12.97 },
+            { "ticker": "ENB.TO", "stop": 64.83, "target": 69.43 },
+            { "ticker": "CNR.TO", "stop": 165.97, "target": 180.27 }
+          ],
+          "reason": "No new setup passes the checklist; CSU +4.5% and T +3.7% today.",
+          "pros": [
+            "Diversified and defensive",
+            "Dividends",
+            "No TSX earnings this week for these names"
+          ],
+          "cons": [
+            "ENB −1.6% today and TRP −2.9% (pipelines weak)",
+            "BoC Oct 28 rate risk",
+            "T is below its 50-day"
+          ],
+          "whyProsWin": "The account is near flat with stops set; adding now would break the max 2 trades/day and no-chasing rules.",
+          "plan": "ATR stops: CSU 3,067, T 11.42, ENB 64.83, CNR 165.97. Targets: CSU 3,576, T 12.97, ENB 69.43, CNR 180.27."
+        }
+      ],
+      "scorecards": [
+        {
+          "date": "2026-10-15",
+          "derived": true,
+          "basis": "Derived from this account's own published rubric (A = rules followed and ≥ XIU; C = rules followed and below XIU; F = any rule break) against the Oct 15 ledger, picks and marks. Not a hand-entered card.",
+          "grades": {
+            "analysis": {
+              "grade": "B",
+              "note": "Dividend and value tilt held; ENB and CNR are honestly labelled unscored grade C and capped at 20%."
+            },
+            "execution": {
+              "grade": "B",
+              "note": "Four fills at stated prices, ATR stops set the same day, CSU and T migrated at their original fills."
+            },
+            "risk": {
+              "grade": "A",
+              "note": "20% cash, largest name 25%, no oil exposure added before the Oct 20 CPI and Oct 28 BoC events."
+            },
+            "review": {
+              "grade": "B",
+              "note": "Marks and stops recorded; income captured and drawdown metrics need more days."
+            },
+            "result": {
+              "grade": "C",
+              "note": "Rules followed but −0.11% trails XIU +0.30% — a C by this account's own rubric."
+            }
+          },
+          "weakest": "Result",
+          "fix": "Hold the no-chasing and max 2 trades/day rules through the Oct 20 CPI print; no rebalancing before the event, only after."
+        }
+      ],
+      "lessons": [
+        {
+          "date": "2026-10-15",
+          "errorType": "none",
+          "what": "Four positions opened to the plan and the account finished day 1 near flat, just behind XIU. T.TO sits below its 50-day, which the pullback setup would normally avoid.",
+          "fix": "No change today — rebalance only after the Oct 20 CPI and Oct 28 BoC events, as the strategy already requires.",
+          "status": "proposed",
+          "derived": true
+        }
+      ],
+      "strategy": {
+        "summary": "C$1,000, TSX-listed only, CAD. Dividend and value tilt, holds 2-10 trading days to Oct 29. Max 2 trades a day, at least 10% cash.",
+        "benchmark": "XIU.TO",
+        "framing": "Prefer moats with growing dividends; no chasing momentum spikes (SHOP up 34% in a month and CLS volatile are watch-only). Keep oil exposure (CNQ) ≤25% and treat WTI as a risk factor.",
+        "rules": [
+          "Setups in order: pullback in an uptrend; post-earnings drift on a beat + raise that holds day 1; existing playbook buy price hit.",
+          "Stop: entry − 2×ATR(14) on the close. Target: +3×ATR, half off, trail the rest 2×ATR below the highest close. Time stop at 7 days under +1 ATR.",
+          "Sizing: risk 1% of equity (C$10) ÷ (2×ATR). Low-vol (RY, TD, ENB, T, CNR) ≤30%, high-vol (SHOP, CLS, CCO) ≤20%, AI-adjacent total ≤30%.",
+          "Names not formally scored by the playbook (ENB, CNR) are grade C and capped at 20% each until scored.",
+          "Macro: Canada CPI Oct 20 and the BoC decision Oct 28 — rebalance only after each event, never before, and no trade built purely on a rate-cut guess.",
+          "SEDI cluster buys count as +1 confirmation only, never a reason."
+        ],
+        "reviewMetrics": "Thesis hit rate, P&L in R, max drawdown, return vs XIU.TO, income captured, rule breaks."
+      }
+    }
+  ]
+}

@@ -1,0 +1,1862 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger — Family Stock Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0D1210;
+    --bg-line:#141B18;
+    --surface:#151C1A;
+    --surface-2:#1A231F;
+    --line:#26302B;
+    --line-soft:#1E2723;
+    --ink:#EDEFE9;
+    --muted:#8B978F;
+    --muted-dim:#5C6862;
+
+    --green:#4FB88A;
+    --green-bg:rgba(79,184,138,0.12);
+    --rust:#E2735A;
+    --rust-bg:rgba(226,115,90,0.13);
+    --gold:#D9A857;
+    --gold-bg:rgba(217,168,87,0.12);
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      repeating-linear-gradient(0deg, var(--bg-line) 0px, var(--bg-line) 1px, transparent 1px, transparent 64px),
+      var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 90px;}
+
+  /* header */
+  header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:10px;}
+  .brand{display:flex;align-items:baseline;gap:10px;}
+  .brand h1{
+    font-family:'Fraunces',serif;
+    font-weight:600;
+    font-size:27px;
+    margin:0;
+    letter-spacing:-0.01em;
+    color:#F5F6F1;
+  }
+  .brand .tick{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+    border:1px solid var(--line);
+    border-radius:20px;
+    padding:3px 10px;
+    letter-spacing:0.02em;
+  }
+  .updated{font-size:12px;color:var(--muted-dim);font-family:'IBM Plex Mono',monospace;text-align:right;line-height:1.45;}
+  .updated .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:6px;box-shadow:0 0 6px var(--green);}
+  .updated .meta-line{display:block;}
+  .as-of{font-size:10px;color:var(--muted-dim);font-family:'IBM Plex Mono',monospace;margin:0 0 8px;}
+  .as-of.age-warn{color:var(--muted);}
+  .as-of.age-stale{color:var(--gold);}
+
+  .sub{color:var(--muted);font-size:14px;margin:6px 0 24px;}
+
+  /* controls row */
+  .controls{
+    display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+    margin-bottom:28px;
+  }
+  .mode-toggle{
+    display:flex;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;
+  }
+  .mode-toggle button{
+    border:none;background:transparent;padding:9px 16px;font-family:'Inter';font-size:13px;font-weight:600;
+    color:var(--muted);cursor:pointer;transition:background .15s, color .15s;
+  }
+  .mode-toggle button.active{background:var(--surface-2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line);}
+  .search{
+    flex:1;min-width:220px;
+    display:flex;align-items:center;gap:8px;
+    background:var(--surface);border:1px solid var(--line);border-radius:10px;
+    padding:9px 14px;
+  }
+  .search:focus-within{border-color:#3A4A43;}
+  .search input{
+    border:none;outline:none;background:transparent;font-family:'Inter';font-size:14px;width:100%;color:var(--ink);
+  }
+  .search input::placeholder{color:var(--muted-dim);}
+  .search svg{flex:none;color:var(--muted);}
+
+  /* section labels */
+  .section-label{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.09em;
+    text-transform:uppercase;
+    color:var(--muted-dim);
+    margin:32px 0 12px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .section-label::after{content:"";flex:1;height:1px;background:var(--line);}
+
+  /* grid of cards */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px;}
+
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:16px;
+    position:relative;
+    overflow:hidden;
+  }
+  .card::before{
+    content:"";position:absolute;top:0;left:0;right:0;height:2px;
+    background:var(--accent, var(--muted-dim));
+  }
+  .card.lean-pos::before{background:var(--green);}
+  .card.lean-watch::before{background:var(--gold);}
+  .card.lean-risk::before{background:var(--rust);}
+
+  .card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:10px;}
+  .card-top-main{display:flex;align-items:flex-start;gap:10px;min-width:0;flex:1;}
+  .logo-box{
+    width:36px;height:36px;border-radius:8px;flex-shrink:0;
+    background:rgba(245,246,241,0.06);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;overflow:hidden;
+  }
+  .logo-box img{
+    width:100%;height:100%;object-fit:contain;display:block;
+  }
+  .logo-fallback{
+    font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:14px;
+    color:var(--muted);line-height:1;
+  }
+  .ticker-block{min-width:0;}
+  .ticker-block .ticker{font-family:'Fraunces',serif;font-weight:600;font-size:19px;color:#F5F6F1;}
+  .ticker-block .company{font-size:12px;color:var(--muted-dim);margin-top:1px;}
+  .ticker-block .blurb{
+    font-size:11px;line-height:1.4;color:var(--muted-dim);margin-top:4px;max-width:220px;
+  }
+  .ticker-meta{
+    display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:5px;
+  }
+  .market-cap{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+  }
+  .instrument-tag{
+    font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;
+    letter-spacing:0.04em;text-transform:uppercase;
+    color:var(--gold);border:1px solid rgba(212,162,76,0.45);
+    background:rgba(212,162,76,0.12);border-radius:5px;padding:1px 6px;
+  }
+  .sector{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);
+    border:1px solid var(--line);border-radius:6px;padding:2px 6px;white-space:nowrap;
+  }
+
+  .price-row{display:flex;align-items:baseline;gap:8px;margin:10px 0 2px;flex-wrap:wrap;}
+  .price{font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:600;font-variant-numeric:tabular-nums;color:#F5F6F1;}
+  .delta{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;}
+  .delta.up{color:var(--green);}
+  .delta.down{color:var(--rust);}
+  .via-source{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+  }
+  .via-row{
+    display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;
+    margin-top:6px;
+  }
+  .via-row .via-source,
+  .via-row .news-via{
+    display:inline;margin:0;
+  }
+
+  .spark{display:block;margin:10px 0 2px;filter:drop-shadow(0 0 3px rgba(79,184,138,0.35));}
+  .spark.down{filter:drop-shadow(0 0 3px rgba(226,115,90,0.35));}
+
+  .target-line{font-size:11px;color:var(--muted-dim);font-family:'IBM Plex Mono',monospace;margin-bottom:11px;display:flex;align-items:center;gap:5px;}
+  .target-line .dots{color:var(--muted-dim);letter-spacing:1px;}
+  .target-line b{color:var(--muted);font-weight:600;}
+
+  .tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:11px;}
+  .tag{
+    font-size:11px;font-weight:500;padding:3px 8px;border-radius:6px;
+  }
+  .tag.pos{background:var(--green-bg);color:var(--green);}
+  .tag.watch{background:var(--gold-bg);color:var(--gold);}
+  .tag.risk-low{background:var(--green-bg);color:var(--green);}
+  .tag.risk-med{background:var(--gold-bg);color:var(--gold);}
+  .tag.risk-high{background:var(--rust-bg);color:var(--rust);}
+  .tag.muted{background:var(--surface-2);color:var(--muted);}
+  .verdict-badge{display:inline-flex;margin-left:6px;vertical-align:middle;}
+  .archived-badge{display:inline-flex;margin-left:6px;vertical-align:middle;}
+  .tag.complete{
+    background:rgba(79,184,138,0.14);color:var(--green);
+    border:1px solid rgba(79,184,138,0.28);
+  }
+
+  .gloss{
+    display:inline-flex;flex-direction:column;align-items:flex-start;
+    max-width:100%;vertical-align:middle;
+  }
+  .gloss-main{
+    display:inline-flex;align-items:center;gap:4px;
+    background:transparent;border:0;padding:0;margin:0;
+    font:inherit;color:inherit;cursor:pointer;text-align:left;
+  }
+  .gloss-chevron{
+    font-size:9px;opacity:0.7;line-height:1;
+    transition:transform 0.15s ease;
+  }
+  .gloss.open .gloss-chevron{transform:rotate(90deg);}
+  .gloss-detail{
+    display:none;margin-top:4px;max-width:240px;
+    font-size:11px;line-height:1.4;color:var(--muted-dim);
+    font-weight:400;font-family:'IBM Plex Mono',monospace;
+  }
+  .gloss.open .gloss-detail{display:block;}
+  .gloss-detail .gloss-tech{color:var(--muted);display:block;margin-bottom:2px;}
+  .tag .gloss-detail{padding:2px 0 0;}
+  .target-line .gloss,.deep-label .gloss{display:inline-flex;}
+  .deep-label .gloss-main{color:var(--muted);}
+
+  .summary{font-size:13px;line-height:1.5;color:var(--muted);margin-bottom:11px;}
+  .news-pending{
+    display:inline-block;margin-top:6px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--gold);
+  }
+  .news-via{
+    display:block;margin-top:6px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+  }
+  .news-via-inline{
+    display:inline-block;margin:0 0 0 6px;vertical-align:middle;
+  }
+  .tags .news-via-inline{margin-top:0;}
+  .range-flag,.earnings-flag{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+    margin:0 0 8px;
+  }
+  .earnings-flag{color:var(--gold);}
+  .caveat-row{
+    display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+    margin:0 0 8px;
+  }
+  .caveat-badge{
+    display:inline-flex;align-items:center;gap:4px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;
+    color:var(--muted-dim);background:transparent;
+    border:1px solid var(--line-soft);border-radius:999px;
+    padding:2px 8px;cursor:help;line-height:1.3;
+  }
+  .caveat-badge .caveat-icon{color:var(--muted);font-style:normal;}
+  .caveat-inline{
+    display:inline-flex;align-items:center;gap:4px;margin-left:6px;
+    vertical-align:middle;
+  }
+  .tier-badge{
+    display:inline-flex;align-items:center;
+    font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;
+    color:var(--muted-dim);background:transparent;
+    border:1px solid var(--line-soft);border-radius:999px;
+    padding:1px 7px;margin-left:6px;cursor:help;vertical-align:middle;
+    letter-spacing:0.02em;
+  }
+  .mood-line{
+    font-family:'Fraunces',serif;font-size:17px;font-weight:500;line-height:1.45;
+    color:#F5F6F1;margin:0 0 14px;padding:4px 0 10px;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .mood-line .mood-label{
+    display:block;font-family:'IBM Plex Mono',monospace;font-size:10px;
+    color:var(--muted-dim);letter-spacing:0.04em;margin-bottom:4px;font-weight:500;
+  }
+  .dyk{
+    font-size:13px;line-height:1.5;color:var(--muted);margin:0 0 18px;
+    padding:10px 12px;border-left:2px solid var(--gold);
+    background:rgba(217,168,87,0.06);
+  }
+  .dyk strong{color:var(--gold);font-weight:600;font-size:11px;
+    font-family:'IBM Plex Mono',monospace;display:block;margin-bottom:4px;}
+  .ai-paused-banner{
+    font-size:12.5px;line-height:1.45;color:var(--muted);
+    margin:0 0 16px;padding:9px 12px;
+    border:1px solid var(--line);border-radius:10px;
+    background:var(--surface);
+  }
+  .ai-paused-banner b{
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:0.05em;
+    text-transform:uppercase;color:var(--muted-dim);font-weight:600;
+    display:block;margin-bottom:2px;
+  }
+  .ai-paused-note{
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--muted-dim);
+    margin:6px 0 0;
+  }
+  .discovery-blurb{
+    font-size:12px;line-height:1.45;color:var(--muted);
+    margin:0 0 10px;padding:8px 10px;
+    border:1px dashed var(--line);border-radius:8px;
+    background:rgba(79,184,138,0.06);
+  }
+  .discovery-blurb .db-label{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--green);
+    display:block;margin-bottom:3px;
+  }
+  .deeper-look-btn{
+    display:inline-flex;align-items:center;gap:6px;
+    margin:8px 0 4px;padding:6px 10px;
+    font-family:'IBM Plex Mono',monospace;font-size:11px;
+    color:#C4B5FD;background:rgba(124,58,237,0.12);
+    border:1px solid rgba(167,139,250,0.35);border-radius:8px;
+    cursor:pointer;
+  }
+  .deeper-look-btn:hover{border-color:rgba(167,139,250,0.7);}
+  .deeper-look-btn:disabled{opacity:0.55;cursor:wait;}
+  .deeper-panel{
+    margin:8px 0 10px;padding:10px 12px;border-radius:10px;
+    border:1px solid rgba(167,139,250,0.35);
+    background:rgba(124,58,237,0.08);
+  }
+  .deeper-panel .dl-via{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:#C4B5FD;
+    margin-bottom:6px;
+  }
+  .deeper-panel .dl-body{font-size:13px;line-height:1.5;color:var(--muted);}
+
+  .deep-dive{
+    margin:10px 0 4px;border-top:1px solid var(--line-soft);padding-top:8px;
+  }
+  .deep-dive > summary{
+    cursor:pointer;list-style:none;font-size:12px;color:var(--muted);
+    font-family:'IBM Plex Mono',monospace;user-select:none;
+  }
+  .deep-dive > summary::-webkit-details-marker{display:none;}
+  .deep-dive > summary::after{content:" ▾";color:var(--muted-dim);}
+  .deep-dive[open] > summary::after{content:" ▴";}
+  .deep-body{margin-top:10px;font-size:12px;line-height:1.45;color:var(--muted);}
+  .deep-body .deep-label{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+    text-transform:uppercase;letter-spacing:0.04em;margin:10px 0 4px;
+  }
+  .deep-body .deep-label:first-child{margin-top:0;}
+  .deep-body ul{margin:0;padding-left:16px;}
+  .deep-body li{margin:2px 0;}
+  .deep-ai{
+    margin-top:6px;padding:8px 10px;background:var(--surface-2);
+    border-radius:8px;border:1px solid var(--line-soft);
+  }
+
+  .lighter-side{
+    margin:8px 0 2px;border-top:1px dashed var(--line-soft);padding-top:6px;
+    opacity:0.85;
+  }
+  .lighter-side > summary{
+    cursor:pointer;list-style:none;font-size:11px;color:var(--muted-dim);
+    font-family:'IBM Plex Mono',monospace;user-select:none;
+  }
+  .lighter-side > summary::-webkit-details-marker{display:none;}
+  .lighter-side > summary::after{content:" ▾";}
+  .lighter-side[open] > summary::after{content:" ▴";}
+  .lighter-body{
+    margin-top:8px;font-size:12px;line-height:1.45;color:var(--muted);
+    font-style:italic;padding:6px 8px;
+    border-left:2px solid var(--line);
+  }
+
+  .card-foot{
+    display:flex;justify-content:space-between;align-items:center;
+    border-top:1px solid var(--line-soft);padding-top:11px;margin-top:2px;
+  }
+  .track{font-size:11px;color:var(--muted-dim);font-family:'IBM Plex Mono',monospace;}
+  .track.building{font-style:italic;}
+  .star{background:none;border:none;cursor:pointer;font-size:16px;color:var(--muted-dim);transition:color .15s;}
+  .star.active,.star:hover{color:var(--gold);}
+
+  .why-help{
+    font-size:10px;color:var(--muted-dim);cursor:help;border-bottom:1px dotted var(--muted-dim);
+  }
+
+  /* recently viewed - compact rows instead of cards */
+  .row-list{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;}
+  .row-item{
+    display:flex;align-items:center;gap:14px;padding:12px 16px;
+    border-bottom:1px solid var(--line-soft);font-size:13px;
+  }
+  .row-item:last-child{border-bottom:none;}
+  .row-item:hover{background:var(--surface-2);}
+  .row-item .r-ticker{font-family:'IBM Plex Mono',monospace;font-weight:600;width:56px;color:var(--ink);}
+  .row-item .r-name{color:var(--muted-dim);flex:1;}
+  .row-item .r-price{font-family:'IBM Plex Mono',monospace;width:70px;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);}
+  .row-item .r-delta{width:60px;text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600;font-variant-numeric:tabular-nums;}
+  .row-item .r-when{width:70px;text-align:right;color:var(--muted-dim);font-size:11px;}
+  .row-item.expandable{cursor:pointer;}
+  .row-item.expandable:hover{background:var(--surface-2);}
+  .more-picks-wrap{margin:8px 0 18px;}
+  .more-picks-toggle{
+    display:inline-flex;align-items:center;gap:6px;
+    border:1px solid var(--line);background:var(--surface-2);color:var(--muted);
+    border-radius:8px;padding:8px 12px;font-size:12px;font-family:'IBM Plex Mono',monospace;
+    cursor:pointer;
+  }
+  .more-picks-toggle:hover{border-color:#3A4A43;color:var(--ink);}
+  .more-picks-panel{margin-top:10px;}
+  .more-picks-panel[hidden]{display:none !important;}
+  .more-expand{margin-top:10px;}
+  .spotlight-grid{
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px;
+  }
+  @media (max-width:900px){
+    .spotlight-grid{grid-template-columns:1fr;}
+  }
+  .card.spotlight{
+    border-color:#3A4A43;
+    box-shadow:0 0 0 1px rgba(79,184,138,0.12);
+  }
+  .stale-section{margin:22px 0 8px;}
+  .stale-section .section-label{color:var(--muted-dim);}
+  .stale-grid .card{
+    opacity:0.78;border-style:dashed;
+  }
+  .stale-badge{
+    display:inline-block;margin-left:8px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;
+    color:var(--gold);border:1px solid rgba(217,168,87,0.35);
+    border-radius:6px;padding:1px 6px;vertical-align:middle;
+  }
+  .momentum-section{margin:28px 0 8px;}
+  .momentum-section .section-label{color:var(--gold);}
+  .momentum-sub{
+    color:var(--muted);font-size:13px;margin:0 0 12px;max-width:560px;line-height:1.45;
+  }
+  .momentum-warns{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 2px;}
+  .momentum-warn{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--gold);
+    border:1px solid rgba(217,168,87,0.35);border-radius:6px;padding:2px 6px;
+  }
+
+  footer{margin-top:38px;font-size:12px;color:var(--muted-dim);text-align:center;}
+  .sources-legend{
+    margin-top:14px;padding-top:12px;border-top:1px solid var(--line-soft);
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+    display:flex;flex-wrap:wrap;justify-content:center;gap:6px 14px;
+  }
+  .sources-legend .leg-item{white-space:nowrap;}
+  .sources-legend .leg-code{color:var(--ink);font-weight:600;}
+  footer .dev-link{
+    display:inline-block;margin-top:10px;font-family:'IBM Plex Mono',monospace;
+    font-size:10px;color:var(--muted-dim);text-decoration:none;opacity:0.55;
+  }
+  footer .dev-link:hover{opacity:0.9;color:var(--muted);text-decoration:underline;}
+  #search-section{display:none;}
+  .empty-note{font-size:13px;color:var(--muted-dim);padding:8px 2px;}
+  .search-msg{
+    font-size:13px;line-height:1.45;color:var(--muted);
+    background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    padding:14px 16px;
+  }
+  .search-msg.warn{border-color:#5a4a2a;color:var(--gold);}
+  .search-msg.err{border-color:#5a3530;color:var(--rust);}
+  .pw-row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;}
+  .pw-row input{
+    flex:1;min-width:160px;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:8px;padding:8px 10px;color:var(--ink);font-family:'Inter';font-size:13px;
+  }
+  .pw-row button{
+    border:1px solid var(--line);background:var(--surface-2);color:var(--ink);
+    border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;
+  }
+  .pw-row button:hover{border-color:#3A4A43;}
+
+  /* top nav — switches between the Practice Run dashboard (/) and this board */
+  .site-nav{
+    display:flex;gap:4px;margin:0 0 20px;padding:4px;
+    background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    width:fit-content;max-width:100%;
+  }
+  .site-nav a{
+    font-size:13px;font-weight:600;color:var(--muted);text-decoration:none;
+    padding:8px 15px;border-radius:9px;white-space:nowrap;transition:background .15s,color .15s;
+  }
+  .site-nav a:hover{color:var(--ink);}
+  .site-nav a[aria-current="page"]{background:var(--surface-2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line);}
+  @media (max-width:480px){
+    .site-nav{width:100%;}
+    .site-nav a{flex:1;text-align:center;padding:8px 10px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="site-nav" aria-label="Ledger sections">
+    <a href="/">Practice Run</a>
+    <a href="/board" aria-current="page">Family Board</a>
+  </nav>
+
+  <header>
+    <div class="brand">
+      <h1>Ledger</h1>
+      <span class="tick">family board</span>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+      <a href="/archive" style="font-size:12px;color:var(--muted);text-decoration:none;border-bottom:1px solid var(--line);">Archive</a>
+      <span class="updated" id="updated-label"><span class="dot"></span>loading…</span>
+    </div>
+  </header>
+  <p class="sub">A quiet daily read on stocks worth knowing about — plus anything you want to look up yourself.</p>
+
+  <div id="did-you-know" class="dyk" hidden></div>
+  <div id="ai-paused-banner" class="ai-paused-banner" hidden></div>
+
+  <div class="controls">
+    <div class="mode-toggle">
+      <button type="button" class="active" data-mode="long">Long-term</button>
+      <button type="button" data-mode="short">Short-term</button>
+    </div>
+    <div class="search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="search-input" type="text" placeholder="Look up any stock — e.g. AAPL, Tesla, Costco">
+    </div>
+  </div>
+
+  <div id="search-section">
+    <div class="section-label">Search result</div>
+    <div class="grid" id="search-grid"></div>
+  </div>
+
+  <div id="mood-line" class="mood-line" hidden></div>
+  <div class="section-label" id="picks-label">Today's picks · stable, long-term</div>
+  <div id="picks-board">
+    <div class="spotlight-grid" id="spotlight-grid"></div>
+    <div class="grid" id="picks-grid"></div>
+    <div class="more-picks-wrap" id="more-picks-wrap" hidden>
+      <button type="button" class="more-picks-toggle" id="more-picks-toggle">Show 6 more picks</button>
+      <div class="more-picks-panel" id="more-picks-panel" hidden>
+        <div class="row-list" id="more-picks-list"></div>
+        <div class="more-expand" id="more-expand"></div>
+      </div>
+    </div>
+    <div class="stale-section" id="stale-section" hidden>
+      <div class="section-label">Archived / not refreshing <span class="stale-badge">stale · 48h+</span></div>
+      <div class="grid stale-grid" id="stale-grid"></div>
+    </div>
+    <!-- Short-term only: penny sub-category (own spotlight + rank) -->
+    <div class="momentum-section" id="penny-section" hidden>
+      <div class="section-label">Penny stocks <span class="stale-badge">higher risk</span></div>
+      <p class="momentum-sub" id="penny-sub">Sub-$5 names — ranked separately from general short-term picks.</p>
+      <div class="spotlight-grid" id="penny-spotlight"></div>
+      <div class="grid" id="penny-grid"></div>
+    </div>
+  </div>
+
+  <div class="section-label">Recently looked up <span class="why-help" title="Pulled instantly from what your family has already searched — no new data cost">why instant?</span></div>
+  <div class="row-list" id="recent-list"></div>
+
+  <footer>
+    Not financial advice — a plain-English read to help your family learn, not a broker.
+    <div class="sources-legend" id="sources-legend" aria-label="Data source legend"></div>
+    <a class="dev-link" href="/dev-status">dev</a>
+  </footer>
+
+</div>
+
+<script>
+  let currentMode = "long";
+  const starred = new Set();
+  /** From /api/status — when false, Claude deeper-look button is not rendered. */
+  let deeperLookEnabled = false;
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  /** Normalize any label into { plain, technical, explanation }. */
+  function asLabel(value) {
+    if (value == null) return null;
+    if (typeof value === "string") {
+      const t = value.trim();
+      return t ? { plain: t, technical: t, explanation: "" } : null;
+    }
+    if (typeof value === "object") {
+      const plain = String(value.plain ?? value.plainLabel ?? value.label ?? "").trim();
+      const technical = String(value.technical ?? value.technicalTerm ?? plain).trim();
+      const explanation = String(value.explanation ?? "").trim();
+      if (!plain && !technical) return null;
+      return { plain: plain || technical, technical: technical || plain, explanation };
+    }
+    return null;
+  }
+
+  /**
+   * Plain text by default; chevron expands technical + explanation.
+   * Same UI for Gemini tags and our fixed indicator tags.
+   */
+  function labelHtml(value, { asTagClass = "" } = {}) {
+    const entry = asLabel(value);
+    if (!entry) return "";
+    const plain = escapeHtml(entry.plain);
+    const tech = escapeHtml(entry.technical);
+    const explain = escapeHtml(entry.explanation);
+    const canReveal = Boolean(entry.technical || entry.explanation);
+    if (!canReveal) {
+      if (asTagClass) return `<span class="tag ${asTagClass}">${plain}</span>`;
+      return plain;
+    }
+    const detailBits = [];
+    if (entry.technical && entry.technical !== entry.plain) {
+      detailBits.push(`<span class="gloss-tech">${tech}</span>`);
+    } else if (entry.technical) {
+      detailBits.push(`<span class="gloss-tech">${tech}</span>`);
+    }
+    if (entry.explanation) detailBits.push(explain);
+    const detail = `<span class="gloss-detail">${detailBits.join(" ")}</span>`;
+    const inner = `<span class="gloss"><button type="button" class="gloss-main" aria-expanded="false"><span class="gloss-label">${plain}</span><span class="gloss-chevron" aria-hidden="true">▸</span></button>${detail}</span>`;
+    if (asTagClass) return `<span class="tag ${asTagClass}">${inner}</span>`;
+    return inner;
+  }
+
+  function formatMoney(n) {
+    if (n == null || Number.isNaN(Number(n))) return "—";
+    return "$" + Number(n).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  function formatPct(n) {
+    if (n == null || Number.isNaN(Number(n))) return "—";
+    const v = Number(n);
+    const arrow = v >= 0 ? "▲" : "▼";
+    return arrow + " " + Math.abs(v).toFixed(1) + "%";
+  }
+
+  function shortSector(sector) {
+    if (!sector) return "—";
+    const map = {
+      Technology: "Tech",
+      Healthcare: "Healthcare",
+      "Consumer Defensive": "Staples",
+      "Consumer Cyclical": "Consumer",
+      Financial: "Finance",
+      "Financial Services": "Finance",
+      Energy: "Energy",
+    };
+    return map[sector] || sector;
+  }
+
+  function leanClass(report, status) {
+    const lean = report?.analysis?.lean;
+    const risk = report?.analysis?.risk;
+    if (status === "watch" || lean === "bearish" || risk === "high") return "lean-risk";
+    if (lean === "neutral") return "lean-watch";
+    return "lean-pos";
+  }
+
+  function riskClass(risk) {
+    if (risk === "low") return "risk-low";
+    if (risk === "high") return "risk-high";
+    return "risk-med";
+  }
+
+  function tagClass(lean) {
+    if (lean === "bearish") return "watch";
+    if (lean === "neutral") return "watch";
+    return "pos";
+  }
+
+  // --- Long-term screen display (stock-alert-spec.md) ---------------------
+
+  function fmtUsd(n) {
+    if (n == null || !Number.isFinite(Number(n))) return "—";
+    const v = Number(n);
+    const abs = Math.abs(v);
+    const sign = v < 0 ? "-" : "";
+    if (abs >= 1e12) return sign + "$" + (abs / 1e12).toFixed(2) + "T";
+    if (abs >= 1e9) return sign + "$" + (abs / 1e9).toFixed(2) + "B";
+    if (abs >= 1e6) return sign + "$" + (abs / 1e6).toFixed(1) + "M";
+    return sign + "$" + abs.toLocaleString("en-US");
+  }
+
+  function fmtPct1(n) {
+    if (n == null || !Number.isFinite(Number(n))) return "—";
+    return Number(n).toFixed(1) + "%";
+  }
+
+  /**
+   * Plain-English verdict badge info for labelHtml() — one of ignore/watch/
+   * add/avoid/can't screen (lib/longTermVerdict.js), never an AI score.
+   */
+  function verdictBadgeInfo(report) {
+    const verdict = report?.longTermVerdict;
+    if (!verdict) return null;
+    const detail = report.longTermDetail || {};
+    const reasons = Array.isArray(detail.reasons) ? detail.reasons : [];
+    const lastReason = reasons.length ? reasons[reasons.length - 1] : "";
+    const configs = {
+      add: { plain: "Add", tagClass: "pos" },
+      watch: { plain: "Watch", tagClass: "watch" },
+      avoid: { plain: "Avoid", tagClass: "risk-high" },
+      ignore: { plain: "Ignore", tagClass: "muted" },
+      "can't screen": { plain: "Can't screen", tagClass: "muted" },
+    };
+    const cfg = configs[verdict];
+    if (!cfg) return null;
+    const explanation =
+      verdict === "avoid" && detail.killSwitch
+        ? `Structural-break language detected: "${detail.killSwitch}".`
+        : lastReason || "See the long-term screen's six-gate check for detail.";
+    return {
+      plain: cfg.plain,
+      technical: `Long-term screen: ${verdict}`,
+      explanation,
+      tagClass: cfg.tagClass,
+    };
+  }
+
+  /**
+   * Archived = rotated off the daily refresh list (board_picks.status),
+   * a structural fact distinct from report.stale's 48h data-age check —
+   * an archived ticker stops refreshing immediately, even if its last
+   * fetch was recent. Shown regardless of which grid (fresh or stale)
+   * the card currently lands in.
+   */
+  function archivedBadgeInfo(status) {
+    if (status !== "archived") return null;
+    return {
+      plain: "Archived",
+      technical: "Rotated off the daily refresh list",
+      explanation:
+        "This ticker was bumped from the live board — its data won't update again unless it's picked back up.",
+      tagClass: "muted",
+    };
+  }
+
+  /**
+   * Deep Dive rows for the long-term screen's real, computed facts (TRADE/
+   * PRIMARY listing, the dated event, both drop measures, PRIMARY-sourced
+   * fundamentals) — never an AI-guessed number, per CLAUDE.md rule 1.
+   */
+  function longTermDetailHtml(report) {
+    const detail = report?.longTermDetail;
+    if (!detail) return "";
+    const rows = [];
+
+    if (!detail.sameListing && report.primaryTicker) {
+      rows.push(
+        `<div class="deep-label">Listing</div><div>PRIMARY: ${escapeHtml(
+          report.primaryTicker
+        )}${
+          report.primaryExchange ? ` · ${escapeHtml(report.primaryExchange)}` : ""
+        }</div>`
+      );
+    }
+
+    const event = detail.event;
+    if (event?.headline) {
+      const sourceLabel =
+        event.sourceType === "official_press" ? "official press" : "";
+      const headlineHtml = event.url
+        ? `<a href="${escapeHtml(event.url)}" target="_blank" rel="noopener">${escapeHtml(
+            event.headline
+          )}</a>`
+        : escapeHtml(event.headline);
+      rows.push(
+        `<div class="deep-label">Event</div><div>${headlineHtml} — ${escapeHtml(
+          event.date || ""
+        )}${sourceLabel ? ` · ${sourceLabel}` : ""}</div>`
+      );
+    }
+
+    const high63 = detail.dropSignals?.high63;
+    const eventWindow = detail.dropSignals?.eventWindow;
+    const dropParts = [];
+    if (high63?.pctBelowHigh != null) {
+      const t = fmtPct1(high63.pctBelowHigh) + " off the 63-day high";
+      dropParts.push(high63.flagged ? `<b>${t}</b>` : t);
+    }
+    if (eventWindow?.pctChange != null) {
+      const t = fmtPct1(eventWindow.pctChange) + " T-1→T+5 close";
+      dropParts.push(eventWindow.flagged ? `<b>${t}</b>` : t);
+    }
+    if (dropParts.length) {
+      rows.push(
+        `<div class="deep-label">Drop (PRIMARY)</div><div>${dropParts.join(" · ")}</div>`
+      );
+    }
+
+    const f = detail.fundamentals;
+    if (f) {
+      const fundParts = [];
+      if (f.revenueGrowthPct != null) {
+        fundParts.push(`Revenue growth ${fmtPct1(f.revenueGrowthPct)}`);
+      }
+      if (f.operatingCashFlow != null) {
+        fundParts.push(`OCF ${fmtUsd(f.operatingCashFlow)}`);
+      }
+      if (f.freeCashFlowTrend) {
+        fundParts.push(`FCF trend: ${escapeHtml(f.freeCashFlowTrend)}`);
+      }
+      if (f.cashAndEquivalents != null) {
+        fundParts.push(`Cash ${fmtUsd(f.cashAndEquivalents)}`);
+      }
+      if (f.totalDebt != null) {
+        fundParts.push(`Debt ${fmtUsd(f.totalDebt)}`);
+      }
+      if (f.dilutionFlag != null) {
+        fundParts.push(f.dilutionFlag ? "Recent dilution" : "No recent dilution");
+      }
+      if (fundParts.length) {
+        const fundAsOf = f.fetchedAt
+          ? `<div class="as-of ${fundamentalsAgeClass(f.fetchedAt)}" title="${escapeHtml(
+              formatAsOf(f.fetchedAt)
+            )}">Fundamentals updated ${escapeHtml(timeAgo(f.fetchedAt))} — refetched at most weekly</div>`
+          : "";
+        rows.push(
+          `<div class="deep-label">Fundamentals (PRIMARY)</div><div>${fundParts.join(
+            " · "
+          )}${fundAsOf}</div>`
+        );
+      }
+    }
+
+    return rows.join("\n");
+  }
+
+  function trackHtml(trackRecord) {
+    if (!trackRecord || trackRecord.building) {
+      return `<span class="track building">building track record</span>`;
+    }
+    return `<span class="track">${escapeHtml(trackRecord.hitRate)}% on-target · ${escapeHtml(trackRecord.resolvedCount)} picks</span>`;
+  }
+
+  function sparklineSvg(history, price, target, down) {
+    const w = 240;
+    const h = 34;
+    const padY = 4;
+    const values = (Array.isArray(history) ? history.map(Number).filter(Number.isFinite) : []).slice(-12);
+    if (!values.length && price != null) values.push(Number(price));
+    if (!values.length) values.push(100);
+
+    const lastX = 200;
+    const points = values.map((v, i) => {
+      const x = values.length === 1 ? lastX : (i / (values.length - 1)) * lastX;
+      return { x, v };
+    });
+
+    const all = [...points.map((p) => p.v)];
+    if (target != null && Number.isFinite(Number(target))) all.push(Number(target));
+    const min = Math.min(...all);
+    const max = Math.max(...all);
+    const span = max - min || 1;
+    const yAt = (v) => padY + (1 - (v - min) / span) * (h - padY * 2);
+
+    const stroke = down ? "#E2735A" : "#4FB88A";
+    const solid = points.map((p) => `${p.x.toFixed(1)},${yAt(p.v).toFixed(1)}`).join(" ");
+    const last = points[points.length - 1];
+    const targetY = target != null && Number.isFinite(Number(target)) ? yAt(Number(target)) : yAt(last.v);
+    const dashed = `${last.x.toFixed(1)},${yAt(last.v).toFixed(1)} 240,${targetY.toFixed(1)}`;
+
+    return `<svg class="spark${down ? " down" : ""}" width="100%" height="34" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <polyline points="${solid}" fill="none" stroke="${stroke}" stroke-width="2"/>
+      <polyline points="${dashed}" fill="none" stroke="${stroke}" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.55"/>
+    </svg>`;
+  }
+
+  function caveatsForPlace(report, place) {
+    const list = Array.isArray(report?.caveats) ? report.caveats : [];
+    return list.filter((c) => c && c.place === place);
+  }
+
+  function caveatBadgesHtml(caveats, { inline = false } = {}) {
+    if (!caveats || !caveats.length) return "";
+    const badges = caveats
+      .map((c) => {
+        const tip = escapeHtml(c.tooltip || c.label || "");
+        const label = escapeHtml(c.label || c.id || "Note");
+        const icon = escapeHtml(c.icon || "ⓘ");
+        return `<span class="caveat-badge" title="${tip}" aria-label="${tip}"><span class="caveat-icon" aria-hidden="true">${icon}</span>${label}</span>`;
+      })
+      .join("");
+    if (inline) return `<span class="caveat-inline">${badges}</span>`;
+    return `<div class="caveat-row">${badges}</div>`;
+  }
+
+  function buildCardHtml(report, status, options = {}) {
+    if (!report) return "";
+    const lean = report.analysis?.lean || "neutral";
+    const risk = report.analysis?.risk || "medium";
+    const pct = Number(report.changePercent);
+    const down = Number.isFinite(pct) ? pct < 0 : false;
+    const deltaCls = down ? "down" : "up";
+    const tags = Array.isArray(report.analysis?.tags) ? report.analysis.tags.slice(0, 4) : [];
+    const isStarred = starred.has(report.ticker);
+    const target = report.analystTarget;
+    const asOf = report.priceUpdatedAt || report.lastUpdated;
+    const asOfAgeClass = ageClass(asOf);
+    // Tier badge — only shown for tier 1 (S&P 500) / tier 2 (S&P 400/600 +
+    // Nasdaq-100). Tier 3 (rest of the major-exchange universe) and null
+    // (movers-sourced or seeded, not from the tiered universe system) get no
+    // badge — the badge is specifically "this is a real, index-vetted name."
+    const tierLabel =
+      report.tier === 1 ? "S&P 500" : report.tier === 2 ? "S&P 400/600" : null;
+    const tierBadge = tierLabel
+      ? `<span class="tier-badge" title="Discovered via ${escapeHtml(
+          tierLabel
+        )} index membership — a real, publicly vetted classification">${escapeHtml(
+          tierLabel
+        )}</span>`
+      : "";
+    const verdictInfo = verdictBadgeInfo(report);
+    const verdictBadge = verdictInfo
+      ? `<span class="verdict-badge">${labelHtml(verdictInfo, {
+          asTagClass: verdictInfo.tagClass,
+        })}</span>`
+      : "";
+    const archivedInfo = archivedBadgeInfo(status);
+    const archivedBadge = archivedInfo
+      ? `<span class="archived-badge">${labelHtml(archivedInfo, {
+          asTagClass: archivedInfo.tagClass,
+        })}</span>`
+      : "";
+    const via = report.priceSourceLabel
+      ? `<span class="via-source" style="margin-left:4px;">via ${escapeHtml(report.priceSourceLabel)}</span>`
+      : "";
+    // Analysis attribution under the summary; news sources sit beside the
+    // agree/disagree badge in the tags row so dual MX+AV is visible without Deep Dive.
+    const viaBits = [];
+    if (report.analysisSourceLabel) {
+      viaBits.push(
+        `<span class="via-source">via ${escapeHtml(report.analysisSourceLabel)}</span>`
+      );
+    }
+    const viaRow = viaBits.length
+      ? `<div class="via-row">${viaBits.join("")}</div>`
+      : "";
+    const rangeFlagLabel = report.weekRange?.labelTag
+      ? labelHtml(report.weekRange.labelTag)
+      : report.weekRange?.label
+        ? escapeHtml(report.weekRange.label)
+        : "";
+    const rangeNote = rangeFlagLabel
+      ? `<div class="range-flag">${rangeFlagLabel}${
+          report.weekRange.low != null && report.weekRange.high != null
+            ? ` · ${escapeHtml(formatMoney(report.weekRange.low))}–${escapeHtml(formatMoney(report.weekRange.high))}`
+            : ""
+        }${caveatBadgesHtml(caveatsForPlace(report, "range"), { inline: true })}</div>`
+      : caveatBadgesHtml(caveatsForPlace(report, "range"));
+    const earningsNote = report.earnings?.text
+      ? `<div class="earnings-flag">${escapeHtml(report.earnings.text)}</div>`
+      : "";
+
+    const blurb = report.description
+      ? `<div class="blurb">${escapeHtml(report.description)}</div>`
+      : "";
+    const marketCapLine = report.marketCapLabel
+      ? `<span class="market-cap">${escapeHtml(report.marketCapLabel)}</span>`
+      : "";
+    const instrumentTag = report.instrumentLabel
+      ? `<span class="instrument-tag" title="This is a ${escapeHtml(
+          report.instrumentLabel
+        )}, not a single-company stock">${escapeHtml(report.instrumentLabel)}</span>`
+      : "";
+    const metaBits = [instrumentTag, marketCapLine].filter(Boolean).join("");
+    const metaRow = metaBits
+      ? `<div class="ticker-meta">${metaBits}</div>`
+      : "";
+    const logoUrl = report.logo || null;
+    const logoHtml = logoUrl
+      ? `<div class="logo-box" aria-hidden="true"><img src="${escapeHtml(
+          logoUrl
+        )}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"></div>`
+      : `<div class="logo-box" aria-hidden="true"><span class="logo-fallback">${escapeHtml(
+          report.logoFallback ||
+            String(report.ticker || "?").charAt(0).toUpperCase()
+        )}</span></div>`;
+
+    const peers = Array.isArray(report.peers) ? report.peers : [];
+    const peerCaveats = caveatBadgesHtml(caveatsForPlace(report, "peers"));
+    const peerHtml = peers.length
+      ? `<ul>${peers
+          .map((p) => {
+            const t = typeof p === "string" ? p : p.ticker || p.symbol;
+            return t ? `<li>${escapeHtml(String(t).toUpperCase())}</li>` : "";
+          })
+          .join("")}</ul>`
+      : peerCaveats || `<div class="caveat-row"></div>`;
+
+    const src = report.deepDive?.sources || {};
+    const sparkCaveats = caveatBadgesHtml(caveatsForPlace(report, "sparkline"));
+    const targetCaveats = caveatBadgesHtml(caveatsForPlace(report, "target"), {
+      inline: true,
+    });
+    const summaryCaveats = caveatBadgesHtml(caveatsForPlace(report, "summary"));
+    const labels = report.labels || {};
+    const rangeLabel = labelHtml(labels.week52Range);
+    const peersLabel = labelHtml(labels.peers);
+    const targetLabel = labelHtml(labels.analystTarget);
+
+    const deepHtml = `<details class="deep-dive">
+      <summary>Deep dive</summary>
+      <div class="deep-body">
+        <div class="deep-label">Sources</div>
+        <ul>
+          <li>Price: ${escapeHtml(src.price || "—")}</li>
+          <li>Target: ${escapeHtml(src.target || "—")}</li>
+          <li>News: ${escapeHtml(src.news || "—")}</li>
+          <li>Peers: ${escapeHtml(src.peers || "—")}</li>
+        </ul>
+        <div class="deep-label">${rangeLabel || "Range"}</div>
+        <div>${
+          report.weekRange?.low != null && report.weekRange?.high != null
+            ? `${escapeHtml(formatMoney(report.weekRange.low))} – ${escapeHtml(formatMoney(report.weekRange.high))}${
+                report.weekRange.labelTag
+                  ? ` · ${labelHtml(report.weekRange.labelTag)}`
+                  : report.weekRange.label
+                    ? ` · ${escapeHtml(report.weekRange.label)}`
+                    : ""
+              }`
+            : caveatBadgesHtml(caveatsForPlace(report, "range")) || "—"
+        }</div>
+        ${
+          report.earnings?.text
+            ? `<div class="deep-label">Earnings</div><div>${escapeHtml(report.earnings.text)}</div>`
+            : ""
+        }
+        <div class="deep-label">${peersLabel || "Peers"}</div>
+        ${peerHtml}
+        ${longTermDetailHtml(report)}
+        <div class="deep-label">AI deep dive ${
+          report.analysisSourceLabel
+            ? `<span class="via-source">via ${escapeHtml(report.analysisSourceLabel)}</span>`
+            : ""
+        }</div>
+        <div class="deep-ai">${escapeHtml(report.analysis?.deepDive || "A longer AI deep dive wasn't available for this name yet.")}</div>
+      </div>
+    </details>`;
+
+    const quipLabel = asLabel(report.quip);
+    const lighterHtml = quipLabel?.plain
+      ? `<details class="lighter-side">
+          <summary>Lighter side</summary>
+          <div class="lighter-body">${labelHtml(quipLabel)}</div>
+        </details>`
+      : "";
+
+    const completeBadge =
+      report.fullyAnalyzed === true ||
+      (Array.isArray(report.caveats) && report.caveats.length === 0)
+        ? labelHtml(labels.complete || { plain: "Complete", technical: "Fully analyzed", explanation: "All the usual data checks for this card passed." }, { asTagClass: "complete" })
+        : "";
+
+    const newsAgreeBadge = labels.newsAgreement
+      ? labelHtml(labels.newsAgreement, {
+          asTagClass:
+            report.newsAgreement?.status === "disagree" ? "watch" : tagClass(lean),
+        })
+      : "";
+
+    // Keep dual news attribution visible next to agree/disagree on the main card.
+    const newsViaBesideAgreement =
+      !report.newsPending && report.newsSourceLabel
+        ? `<span class="news-via news-via-inline">via ${escapeHtml(
+            report.newsSourceLabel
+          )}</span>`
+        : "";
+
+    const riskLabel =
+      report.analysis?.riskTag || labels.risk || { plain: risk, technical: risk, explanation: "" };
+
+    const tagHtml =
+      tags.map((t) => labelHtml(t, { asTagClass: tagClass(lean) })).join("") +
+      labelHtml(riskLabel, { asTagClass: riskClass(risk) }) +
+      newsAgreeBadge +
+      newsViaBesideAgreement +
+      completeBadge;
+
+    const targetLine =
+      target != null && Number.isFinite(Number(target))
+        ? `<div class="target-line">
+        <span class="dots">┈┈</span> ${targetLabel || "Target"}: <b>${formatMoney(target)}</b> · 12mo
+      </div>`
+        : `<div class="target-line">${targetCaveats}</div>`;
+
+    const discoveryBlurb =
+      report.discoveryBlurb || report.discovery_blurb
+        ? `<div class="discovery-blurb"><span class="db-label">New on the board</span>${escapeHtml(
+            report.discoveryBlurb || report.discovery_blurb
+          )}</div>`
+        : "";
+
+    const warnList = Array.isArray(report.stabilityWarnings)
+      ? report.stabilityWarnings
+      : [];
+    const stabilityWarns =
+      options.showStabilityWarnings && warnList.length
+        ? `<div class="momentum-warns">${warnList
+            .map(
+              (w) =>
+                `<span class="momentum-warn">${escapeHtml(w.text || w.id || "")}</span>`
+            )
+            .join("")}</div>`
+        : "";
+
+    const deeper = report.deeperLook;
+    // Toggle fully owns visibility — never show a prior Claude panel when off.
+    const deeperPanel =
+      deeperLookEnabled && deeper?.analysis?.summary
+        ? `<div class="deeper-panel" data-deeper="${escapeHtml(report.ticker)}">
+          <div class="dl-via">via Claude · Deeper look</div>
+          <div class="dl-body">${escapeHtml(deeper.analysis.summary)}</div>
+          ${
+            deeper.analysis.deepDive
+              ? `<div class="dl-body" style="margin-top:8px;">${escapeHtml(deeper.analysis.deepDive)}</div>`
+              : ""
+          }
+        </div>`
+        : deeperLookEnabled
+          ? `<div class="deeper-panel" data-deeper="${escapeHtml(report.ticker)}" hidden></div>`
+          : "";
+
+    const deeperBtn = deeperLookEnabled
+      ? `<button type="button" class="deeper-look-btn" data-deeper-look="${escapeHtml(
+          report.ticker
+        )}" title="Uses paid Claude credits — only when you ask">${
+          deeperLookEnabled && deeper?.analysis?.summary
+            ? "Refresh deeper look (Claude)"
+            : "Deeper look via Claude"
+        }</button>`
+      : "";
+
+    return `<div class="card ${leanClass(report, status)}${
+      options.spotlight ? " spotlight" : ""
+    }${report.stale ? " is-stale" : ""}" data-ticker="${escapeHtml(report.ticker)}">
+      <div class="card-top">
+        <div class="card-top-main">
+          ${logoHtml}
+          <div class="ticker-block">
+            <div class="ticker">${escapeHtml(report.ticker)}${verdictBadge}${archivedBadge}${tierBadge}</div>
+            <div class="company">${escapeHtml(report.companyName || report.name || report.ticker)}</div>
+            ${blurb}
+            ${metaRow}
+          </div>
+        </div>
+        <div class="sector">${escapeHtml(shortSector(report.sector))}</div>
+      </div>
+      <div class="price-row">
+        <span class="price">${formatMoney(report.price)}</span>
+        <span class="delta ${deltaCls}">${formatPct(report.changePercent)}</span>
+        ${via}
+      </div>
+      ${asOf ? `<div class="as-of ${asOfAgeClass}" title="${escapeHtml(formatAsOf(asOf))}">Updated ${escapeHtml(timeAgo(asOf))}</div>` : ""}
+      ${rangeNote}
+      ${earningsNote}
+      ${sparklineSvg(report.priceHistory, report.price, target, down)}
+      ${sparkCaveats}
+      ${targetLine}
+      ${discoveryBlurb}
+      ${stabilityWarns}
+      <div class="tags">${tagHtml}</div>
+      <div class="summary">${escapeHtml(report.analysis?.summary || "")}${viaRow}</div>
+      ${report.aiPaused ? `<div class="ai-paused-note">AI analysis paused</div>` : ""}
+      ${summaryCaveats}
+      ${deeperBtn}
+      ${deeperPanel}
+      ${deepHtml}
+      ${lighterHtml}
+      <div class="card-foot">
+        ${trackHtml(report.trackRecord)}
+        <button class="star${isStarred ? " active" : ""}" type="button" data-star="${escapeHtml(report.ticker)}" aria-label="Add to watchlist">${isStarred ? "★" : "☆"}</button>
+      </div>
+    </div>`;
+  }
+
+  function timeAgo(iso) {
+    if (!iso) return "";
+    const then = Date.parse(iso);
+    if (Number.isNaN(then)) return "";
+    const mins = Math.round((Date.now() - then) / 60000);
+    if (mins < 60) return mins <= 1 ? "just now" : mins + "m ago";
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return hours + "h ago";
+    const days = Math.round(hours / 24);
+    if (days === 1) return "yesterday";
+    return days + " days ago";
+  }
+
+  /** Pure function of data age — flags a live ticker's failed refresh too, not just archived ones. */
+  function ageClass(iso) {
+    if (!iso) return "";
+    const then = Date.parse(iso);
+    if (Number.isNaN(then)) return "";
+    const hours = (Date.now() - then) / 3.6e6;
+    if (hours > 48) return "age-stale";
+    if (hours > 24) return "age-warn";
+    return "";
+  }
+
+  /**
+   * Same idea as ageClass but tuned to the Long screen's 7-day fundamentals
+   * cache (services/cache.js's LONG_FUNDAMENTALS_TTL_MS) — a few days old is
+   * the expected, healthy state here, not a warning sign. Only flags once a
+   * refetch is overdue (past the 7-day TTL) or has clearly been failing
+   * repeatedly (well past it).
+   */
+  function fundamentalsAgeClass(iso) {
+    if (!iso) return "";
+    const then = Date.parse(iso);
+    if (Number.isNaN(then)) return "";
+    const days = (Date.now() - then) / 8.64e7;
+    if (days > 10) return "age-stale";
+    if (days > 7) return "age-warn";
+    return "";
+  }
+
+  function formatAsOf(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
+  function setUpdatedNow() {
+    // kept for search completion; status endpoint owns the main header text
+    loadStatus();
+  }
+
+  async function loadStatus() {
+    const el = document.getElementById("updated-label");
+    const legendEl = document.getElementById("sources-legend");
+    const moodEl = document.getElementById("mood-line");
+    const dykEl = document.getElementById("did-you-know");
+    const pausedEl = document.getElementById("ai-paused-banner");
+    try {
+      const res = await fetch("/api/status");
+      const s = await res.json();
+      const refreshed = s.lastBoardRefresh
+        ? formatAsOf(s.lastBoardRefresh)
+        : "not yet";
+      const searches =
+        s.newSearchesAvailableToday != null ? s.newSearchesAvailableToday : "—";
+
+      deeperLookEnabled = Boolean(s.deeperLookEnabled);
+
+      if (pausedEl) {
+        if (s.aiPaused) {
+          pausedEl.hidden = false;
+          pausedEl.innerHTML = `<b>${escapeHtml(
+            s.aiPausedLabel || "AI analysis paused"
+          )}</b>${escapeHtml(
+            s.aiPausedMessage ||
+              "Stored results are still shown; nothing new is being generated."
+          )}`;
+        } else {
+          pausedEl.hidden = true;
+          pausedEl.innerHTML = "";
+        }
+      }
+
+      if (moodEl) {
+        if (s.marketMood?.text) {
+          moodEl.hidden = false;
+          moodEl.innerHTML = `<span class="mood-label">Today's market mood</span>${escapeHtml(
+            s.marketMood.text
+          )}`;
+        } else {
+          moodEl.hidden = true;
+          moodEl.innerHTML = "";
+        }
+      }
+      if (dykEl) {
+        if (s.didYouKnow?.text) {
+          dykEl.hidden = false;
+          dykEl.innerHTML = `<strong>Did you know?</strong>${escapeHtml(
+            s.didYouKnow.text
+          )}`;
+        } else {
+          dykEl.hidden = true;
+          dykEl.innerHTML = "";
+        }
+      }
+
+      const legend = Array.isArray(s.sourcesLegend) ? s.sourcesLegend : [];
+      if (legendEl) {
+        legendEl.innerHTML = legend.length
+          ? legend
+              .map((src) => {
+                const detail = src.legendLabel || src.label;
+                return `<span class="leg-item"><span class="leg-code">${escapeHtml(
+                  src.shortCode
+                )}</span> = ${escapeHtml(detail)}</span>`;
+              })
+              .join("")
+          : "";
+      }
+
+      // Usage line from registry-driven sourcesUsage (falls back to legacy fields).
+      let usageBits = "";
+      if (Array.isArray(s.sourcesUsage) && s.sourcesUsage.length) {
+        usageBits = s.sourcesUsage
+          .map((src) => {
+            if (src.limit == null) {
+              return src.used != null
+                ? `${src.used} ${src.shortCode}`
+                : null;
+            }
+            return `${src.used ?? 0}/${src.limit} ${src.shortCode}`;
+          })
+          .filter(Boolean)
+          .join(" · ");
+      } else {
+        const shortOf = (id, fallback) => {
+          const hit = legend.find((x) => x.id === id);
+          return hit?.shortCode || fallback;
+        };
+        usageBits = [
+          s.twelveDataUsedToday != null && s.twelveDataLimit != null
+            ? `${s.twelveDataUsedToday}/${s.twelveDataLimit} ${shortOf("twelve_data", "TD")}`
+            : null,
+          s.fmpUsedToday != null && s.fmpLimit != null
+            ? `${s.fmpUsedToday}/${s.fmpLimit} ${shortOf("fmp", "FMP")}`
+            : null,
+          s.alphaVantageUsedToday != null && s.alphaVantageLimit != null
+            ? `${s.alphaVantageUsedToday}/${s.alphaVantageLimit} ${shortOf("alpha_vantage", "AV")}`
+            : null,
+          s.finnhubUsedToday != null
+            ? `${s.finnhubUsedToday} ${shortOf("finnhub", "FH")}`
+            : null,
+          s.marketauxUsedToday != null && s.marketauxLimit != null
+            ? `${s.marketauxUsedToday}/${s.marketauxLimit} ${shortOf("marketaux", "MX")}`
+            : null,
+          s.geminiUsedToday != null
+            ? `${s.geminiUsedToday} ${shortOf("gemini", "AI")}`
+            : null,
+          s.claudeUsedToday != null
+            ? `${s.claudeUsedToday} ${shortOf("claude", "CL")}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      }
+      el.innerHTML = `<span class="dot"></span><span class="meta-line">Board last refreshed: ${escapeHtml(refreshed)}</span><span class="meta-line">New stock searches available today: ${escapeHtml(searches)}</span>${usageBits ? `<span class="meta-line">${escapeHtml(usageBits)}</span>` : ""}`;
+    } catch (err) {
+      console.error(err);
+      el.innerHTML = `<span class="dot"></span>status unavailable`;
+    }
+  }
+
+  function compactRowHtml(report, { expandable = false, whenIso = null } = {}) {
+    if (!report) return "";
+    const pct = Number(report.changePercent);
+    const color = Number.isFinite(pct) && pct < 0 ? "#E2735A" : "#4FB88A";
+    const when = timeAgo(whenIso || report.lastFieldRefresh || report.priceUpdatedAt || report.lastUpdated);
+    const cls = expandable ? "row-item expandable" : "row-item";
+    const tickerAttr = expandable
+      ? ` data-expand-ticker="${escapeHtml(report.ticker)}"`
+      : "";
+    return `<div class="${cls}"${tickerAttr}>
+      <span class="r-ticker">${escapeHtml(report.ticker)}</span>
+      <span class="r-name">${escapeHtml(report.companyName || report.name || report.ticker)}</span>
+      <span class="r-price">${formatMoney(report.price)}</span>
+      <span class="r-delta" style="color:${color};">${formatPct(report.changePercent).replace(" ", "")}</span>
+      <span class="r-when">${escapeHtml(when)}</span>
+    </div>`;
+  }
+
+  function sectionRankOf(row) {
+    if (!row) return -1;
+    const n = Number(row.sectionRank ?? row.report?.sectionRank);
+    return Number.isFinite(n) ? n : -1;
+  }
+
+  let morePicksRows = [];
+  let morePicksExpandedTicker = null;
+
+  function renderMoreExpand() {
+    const host = document.getElementById("more-expand");
+    if (!host) return;
+    if (!morePicksExpandedTicker) {
+      host.innerHTML = "";
+      return;
+    }
+    const hit = morePicksRows.find(
+      (r) => r.report && r.report.ticker === morePicksExpandedTicker
+    );
+    host.innerHTML = hit
+      ? buildCardHtml(hit.report, hit.status)
+      : "";
+  }
+
+  function renderCategoryBlock({
+    spotlightEl,
+    gridEl,
+    moreWrap,
+    moreToggle,
+    moreList,
+    moreExpandHost,
+    sectionPayload,
+    emptyNote,
+    showStabilityWarnings = false,
+  }) {
+    const spotlight = sectionPayload?.spotlight || [];
+    const restAll = sectionPayload?.rest || [];
+    const mid = restAll.slice(0, 6);
+    const rest = restAll.slice(6);
+
+    if (spotlightEl) {
+      spotlightEl.innerHTML = spotlight
+        .map((row) =>
+          buildCardHtml(row.report, row.status, {
+            spotlight: true,
+            showStabilityWarnings,
+          })
+        )
+        .join("");
+    }
+
+    if (gridEl) {
+      if (mid.length) {
+        gridEl.innerHTML = mid
+          .map((row) =>
+            buildCardHtml(row.report, row.status, { showStabilityWarnings })
+          )
+          .join("");
+      } else if (spotlight.length) {
+        gridEl.innerHTML = "";
+      } else {
+        gridEl.innerHTML = `<div class="empty-note">${emptyNote}</div>`;
+      }
+    }
+
+    if (moreWrap && moreToggle && moreList) {
+      if (rest.length) {
+        moreWrap.hidden = false;
+        moreToggle.textContent = `Show ${rest.length} more pick${
+          rest.length === 1 ? "" : "s"
+        }`;
+        if (document.getElementById("more-picks-panel")) {
+          document.getElementById("more-picks-panel").hidden = true;
+        }
+        moreList.innerHTML = rest
+          .map((row) =>
+            compactRowHtml(row.report, {
+              expandable: true,
+              whenIso: row.report.lastFieldRefresh || row.report.priceUpdatedAt,
+            })
+          )
+          .join("");
+        morePicksRows = rest;
+      } else {
+        moreWrap.hidden = true;
+        moreList.innerHTML = "";
+        morePicksRows = [];
+      }
+      if (moreExpandHost) moreExpandHost.innerHTML = "";
+      morePicksExpandedTicker = null;
+    }
+  }
+
+  async function loadBoard() {
+    const spotlight = document.getElementById("spotlight-grid");
+    const grid = document.getElementById("picks-grid");
+    const moreWrap = document.getElementById("more-picks-wrap");
+    const morePanel = document.getElementById("more-picks-panel");
+    const moreList = document.getElementById("more-picks-list");
+    const moreToggle = document.getElementById("more-picks-toggle");
+    const staleSection = document.getElementById("stale-section");
+    const staleGrid = document.getElementById("stale-grid");
+    const pennySection = document.getElementById("penny-section");
+    const pennySpotlight = document.getElementById("penny-spotlight");
+    const pennyGrid = document.getElementById("penny-grid");
+    const label = document.getElementById("picks-label");
+    label.textContent =
+      currentMode === "short"
+        ? "Today's picks · short-term"
+        : "Today's picks · stable, long-term";
+
+    spotlight.innerHTML = "";
+    grid.innerHTML = `<div class="empty-note">Loading picks…</div>`;
+    moreWrap.hidden = true;
+    if (morePanel) morePanel.hidden = true;
+    moreList.innerHTML = "";
+    document.getElementById("more-expand").innerHTML = "";
+    morePicksRows = [];
+    morePicksExpandedTicker = null;
+    staleSection.hidden = true;
+    staleGrid.innerHTML = "";
+    if (pennySection) {
+      pennySection.hidden = true;
+      if (pennySpotlight) pennySpotlight.innerHTML = "";
+      if (pennyGrid) pennyGrid.innerHTML = "";
+    }
+
+    try {
+      const res = await fetch(`/api/board?mode=${encodeURIComponent(currentMode)}`);
+      const data = await res.json();
+      const sections = data?.sections || null;
+
+      // Backward-safe: if an old flat array is ever returned, refuse ungated render.
+      if (!sections || typeof sections !== "object") {
+        grid.innerHTML = `<div class="empty-note">Board format unavailable — refresh the page.</div>`;
+        return;
+      }
+
+      if (currentMode === "long") {
+        const longSec = sections.long || { items: [], spotlight: [], rest: [], stale: [] };
+        renderCategoryBlock({
+          spotlightEl: spotlight,
+          gridEl: grid,
+          moreWrap,
+          moreToggle,
+          moreList,
+          moreExpandHost: document.getElementById("more-expand"),
+          sectionPayload: {
+            spotlight: longSec.spotlight || [],
+            rest: longSec.rest || (longSec.items || []).slice(3),
+          },
+          emptyNote:
+            "No long-term-ready picks yet. Names need established real market history (IPO age or ~6+ months of price data), a major exchange, and price of $5+.",
+        });
+
+        const stale = longSec.stale || [];
+        if (stale.length) {
+          staleSection.hidden = false;
+          staleGrid.innerHTML = stale
+            .map((row) => buildCardHtml(row.report, row.status))
+            .join("");
+        }
+        // Penny/volatile never render on the Long-term tab.
+      } else {
+        const shortSec = sections.short || { items: [], spotlight: [], rest: [], stale: [] };
+        const pennySec = sections.penny || { items: [], spotlight: [], rest: [], stale: [] };
+
+        renderCategoryBlock({
+          spotlightEl: spotlight,
+          gridEl: grid,
+          moreWrap,
+          moreToggle,
+          moreList,
+          moreExpandHost: document.getElementById("more-expand"),
+          sectionPayload: {
+            spotlight: shortSec.spotlight || [],
+            rest: shortSec.rest || (shortSec.items || []).slice(3),
+          },
+          emptyNote: "No general short-term picks right now.",
+        });
+
+        if (pennySection) {
+          const pennyFresh = [
+            ...(pennySec.spotlight || []),
+            ...(pennySec.rest || []),
+          ];
+          if (pennyFresh.length) {
+            pennySection.hidden = false;
+            if (pennySpotlight) {
+              pennySpotlight.innerHTML = (pennySec.spotlight || [])
+                .map((row) =>
+                  buildCardHtml(row.report, row.status, {
+                    spotlight: true,
+                    showStabilityWarnings: true,
+                  })
+                )
+                .join("");
+            }
+            const pennyMid = (pennySec.rest || []).slice(0, 9);
+            if (pennyGrid) {
+              pennyGrid.innerHTML = pennyMid.length
+                ? pennyMid
+                    .map((row) =>
+                      buildCardHtml(row.report, row.status, {
+                        showStabilityWarnings: true,
+                      })
+                    )
+                    .join("")
+                : "";
+            }
+          }
+        }
+
+        // Stale gated to short + penny only (never long-section stale on short tab).
+        const stale = [...(shortSec.stale || []), ...(pennySec.stale || [])].sort(
+          (a, b) => sectionRankOf(b) - sectionRankOf(a)
+        );
+        if (stale.length) {
+          staleSection.hidden = false;
+          staleGrid.innerHTML = stale
+            .map((row) =>
+              buildCardHtml(row.report, row.status, {
+                showStabilityWarnings: row.boardSection === "penny",
+              })
+            )
+            .join("");
+        }
+      }
+
+      setUpdatedNow();
+    } catch (err) {
+      console.error(err);
+      grid.innerHTML = `<div class="empty-note">Could not load board picks.</div>`;
+    }
+  }
+
+  async function loadRecent() {
+    const list = document.getElementById("recent-list");
+    list.innerHTML = `<div class="row-item"><span class="r-name">Loading…</span></div>`;
+    try {
+      const res = await fetch(
+        `/api/recent?mode=${encodeURIComponent(currentMode)}`
+      );
+      const rows = await res.json();
+      if (!Array.isArray(rows) || !rows.length) {
+        list.innerHTML = `<div class="row-item"><span class="r-name">No recent lookups in this category yet.</span></div>`;
+        return;
+      }
+      list.innerHTML = rows
+        .map((row) =>
+          compactRowHtml(row.report || { ticker: row.ticker, name: row.ticker }, {
+            whenIso: row.lastUpdated,
+          })
+        )
+        .join("");
+    } catch (err) {
+      console.error(err);
+      list.innerHTML = `<div class="row-item"><span class="r-name">Could not load recent lookups.</span></div>`;
+    }
+  }
+
+  async function runSearch(ticker, passwordOverride) {
+    const section = document.getElementById("search-section");
+    const grid = document.getElementById("search-grid");
+    section.style.display = "block";
+    grid.innerHTML = `<div class="empty-note">Looking up ${escapeHtml(ticker)}…</div>`;
+
+    const storedPw = sessionStorage.getItem("ledger_search_pw") || "";
+    const password = passwordOverride != null ? passwordOverride : storedPw;
+
+    try {
+      const params = new URLSearchParams({
+        ticker,
+        mode: currentMode,
+      });
+      if (password) params.set("password", password);
+
+      const res = await fetch(`/api/search?${params.toString()}`);
+      const data = await res.json();
+
+      if (data.error === "locked") {
+        grid.innerHTML = `
+          <div class="search-msg warn">
+            This one needs a fresh lookup — enter password to continue
+            <div class="pw-row">
+              <input id="search-pw" type="password" placeholder="Password" autocomplete="current-password" />
+              <button type="button" id="search-pw-go">Continue</button>
+            </div>
+          </div>`;
+        const input = document.getElementById("search-pw");
+        const go = document.getElementById("search-pw-go");
+        const submit = () => {
+          const pw = input.value;
+          if (!pw) return;
+          sessionStorage.setItem("ledger_search_pw", pw);
+          runSearch(ticker, pw);
+        };
+        go.addEventListener("click", submit);
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") submit();
+        });
+        input.focus();
+        return;
+      }
+
+      if (data.error === "rate_limit") {
+        const used = data.used != null ? data.used : "?";
+        const limit = data.limit != null ? data.limit : 25;
+        grid.innerHTML = `<div class="search-msg err">We've hit today's data limit (${escapeHtml(used)}/${escapeHtml(limit)} used) — resets around 1 AM.</div>`;
+        return;
+      }
+
+      if (data.error === "invalid_ticker") {
+        grid.innerHTML = `<div class="search-msg err">We couldn't find that ticker. Check the symbol and try again.</div>`;
+        return;
+      }
+
+      if (!res.ok || data.error) {
+        grid.innerHTML = `<div class="search-msg err">${escapeHtml(
+          typeof data.error === "string" ? data.error : "Search failed."
+        )}</div>`;
+        return;
+      }
+
+      grid.innerHTML = buildCardHtml(data, null);
+      setUpdatedNow();
+      loadRecent();
+    } catch (err) {
+      console.error(err);
+      grid.innerHTML = `<div class="search-msg err">Search failed.</div>`;
+    }
+  }
+
+  async function starTicker(ticker, button) {
+    try {
+      const res = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker }),
+      });
+      if (!res.ok) throw new Error("watchlist failed");
+      starred.add(ticker);
+      button.classList.add("active");
+      button.textContent = "★";
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  document.querySelectorAll(".mode-toggle button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".mode-toggle button").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentMode = btn.dataset.mode === "short" ? "short" : "long";
+      loadBoard();
+      loadRecent();
+    });
+  });
+
+  document.getElementById("search-input").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const ticker = e.target.value.trim().toUpperCase();
+    if (!ticker) return;
+    runSearch(ticker);
+  });
+
+  document.addEventListener("click", (e) => {
+    const moreToggle = e.target.closest("#more-picks-toggle");
+    if (moreToggle) {
+      e.preventDefault();
+      const panel = document.getElementById("more-picks-panel");
+      const open = panel.hidden;
+      panel.hidden = !open;
+      const n = morePicksRows.length;
+      moreToggle.textContent = open
+        ? `Hide ${n} more pick${n === 1 ? "" : "s"}`
+        : `Show ${n} more pick${n === 1 ? "" : "s"}`;
+      if (!open) {
+        morePicksExpandedTicker = null;
+        renderMoreExpand();
+      }
+      return;
+    }
+
+    const expandRow = e.target.closest("[data-expand-ticker]");
+    if (expandRow) {
+      e.preventDefault();
+      const ticker = expandRow.getAttribute("data-expand-ticker");
+      morePicksExpandedTicker =
+        morePicksExpandedTicker === ticker ? null : ticker;
+      renderMoreExpand();
+      return;
+    }
+
+    const glossBtn = e.target.closest(".gloss-main");
+    if (glossBtn) {
+      e.preventDefault();
+      const gloss = glossBtn.closest(".gloss");
+      if (!gloss) return;
+      const open = gloss.classList.toggle("open");
+      glossBtn.setAttribute("aria-expanded", open ? "true" : "false");
+      return;
+    }
+
+    const deeperBtn = e.target.closest("[data-deeper-look]");
+    if (deeperBtn) {
+      e.preventDefault();
+      const ticker = deeperBtn.getAttribute("data-deeper-look");
+      if (!ticker) return;
+      (async () => {
+        deeperBtn.disabled = true;
+        const prev = deeperBtn.textContent;
+        deeperBtn.textContent = "Asking Claude…";
+        try {
+          const res = await fetch(
+            `/api/stock/${encodeURIComponent(ticker)}/deeper-look`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ mode: currentMode }),
+            }
+          );
+          const data = await res.json();
+          if (data.aiPaused || data.code === "ai_paused") {
+            const panel = document.querySelector(
+              `.deeper-panel[data-deeper="${CSS.escape(ticker)}"]`
+            );
+            if (panel) {
+              panel.hidden = false;
+              panel.innerHTML = `<div class="dl-via">AI analysis paused</div>
+                <div class="dl-body">${escapeHtml(
+                  data.message || "Stored results are still shown; nothing new is being generated."
+                )}</div>`;
+            }
+            return;
+          }
+          if (!res.ok) {
+            alert(
+              data.error ||
+                "Deeper look failed. Check ANTHROPIC_API_KEY if Claude isn't configured."
+            );
+            return;
+          }
+          const panel = document.querySelector(
+            `.deeper-panel[data-deeper="${CSS.escape(ticker)}"]`
+          );
+          if (panel && data.analysis) {
+            panel.hidden = false;
+            panel.innerHTML = `<div class="dl-via">via Claude · Deeper look</div>
+              <div class="dl-body">${escapeHtml(data.analysis.summary || "")}</div>
+              ${
+                data.analysis.deepDive
+                  ? `<div class="dl-body" style="margin-top:8px;">${escapeHtml(
+                      data.analysis.deepDive
+                    )}</div>`
+                  : ""
+              }`;
+          }
+          deeperBtn.textContent = "Refresh deeper look (Claude)";
+        } catch (err) {
+          console.error(err);
+          alert("Deeper look failed.");
+        } finally {
+          deeperBtn.disabled = false;
+          if (deeperBtn.textContent === "Asking Claude…") {
+            deeperBtn.textContent = prev;
+          }
+        }
+      })();
+      return;
+    }
+
+    const btn = e.target.closest("[data-star]");
+    if (!btn) return;
+    starTicker(btn.dataset.star, btn);
+  });
+
+  loadStatus().then(() => loadBoard());
+  loadRecent();
+</script>
+</body>
+</html>

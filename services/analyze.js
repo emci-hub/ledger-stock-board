@@ -225,6 +225,9 @@ async function analyzeStock(
     const newsAgreement = payload.newsAgreement;
 
     let parsed = await generateAnalysis(payload, { provider });
+    // Paused stand-in is not a real analysis — return it as-is so callers can
+    // skip persisting it over a stored result.
+    if (parsed?.aiPaused) return parsed;
     parsed = applyNewsAgreementGuard(parsed, newsAgreement);
 
     if (!parsed?.quip) {

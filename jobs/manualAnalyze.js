@@ -28,6 +28,7 @@ const {
 const {
   getCachedSummary,
 } = require("../services/cache");
+const { isAiPaused, AI_PAUSED_MESSAGE } = require("../lib/aiEnabled");
 
 /** Concurrent Gemini/report builds per wave. */
 const ANALYZE_WAVE_SIZE = Math.max(
@@ -39,6 +40,14 @@ const ANALYZE_WAVE_SIZE = Math.max(
 );
 
 async function getAnalyzeAvailability() {
+  if (isAiPaused()) {
+    return {
+      available: 0,
+      aiPaused: true,
+      status: "paused",
+      message: AI_PAUSED_MESSAGE,
+    };
+  }
   const budget = await computePromotionBudget();
   const lock = getAdminActionLock();
   return {
@@ -100,6 +109,16 @@ async function resolveAnalyzeTargets(options = {}) {
  * Build full reports for tickers using batched fetches + Gemini waves.
  */
 async function analyzeTickers(tickers, options = {}) {
+  if (isAiPaused()) {
+    return {
+      ok: false,
+      aiPaused: true,
+      status: "paused",
+      message: AI_PAUSED_MESSAGE,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+    };
+  }
   const startedAt = new Date().toISOString();
   const list = [
     ...new Set(

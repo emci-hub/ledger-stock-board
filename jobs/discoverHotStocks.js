@@ -32,6 +32,7 @@ const {
   generateDiscoveryWriteUp,
   saveDiscoveryBlurb,
 } = require("../services/discoveryWriteUp");
+const { isAiEnabled } = require("../lib/aiEnabled");
 const {
   listLiveBoardPicks,
   listArchivedBoardPicks,
@@ -688,7 +689,7 @@ async function promoteEligibleCandidates(options = {}) {
     }
 
     let discoveryBlurb = null;
-    if (warmReports && withWriteUps) {
+    if (warmReports && withWriteUps && isAiEnabled()) {
       try {
         discoveryBlurb = await generateDiscoveryWriteUp({
           ticker,

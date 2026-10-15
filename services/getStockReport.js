@@ -38,6 +38,13 @@ const { getPick } = require("../lib/boardPicks");
 const { LONG_SECTION_RANK_PLACEHOLDER } = require("../lib/rankingStability");
 const { sourceShortCode, formatSourceList } = require("../lib/dataSources");
 const { resolveProviderId } = require("../lib/aiProvider");
+const {
+  isAiEnabled,
+  logPausedOnce,
+  aiPausedReason,
+  AI_PAUSED_SUMMARY,
+  AI_PAUSED_DEEP_DIVE,
+} = require("../lib/aiEnabled");
 const { deriveDataCaveats } = require("../lib/dataCaveats");
 const { computeNewsAgreement } = require("../lib/newsAgreement");
 const {
@@ -369,16 +376,23 @@ function buildReport(ticker, mode, rawData, analysis, lastUpdated = null, pick =
       newsMarketaux: rawData?.fundamentals?.newsMarketaux || null,
       newsFinnhub: rawData?.fundamentals?.newsFinnhub || null,
     },
+    aiPaused: !isAiEnabled(),
     analysis: {
       lean: take?.lean || "neutral",
       risk: riskLevel,
       riskTag: riskTag(riskLevel),
       tags: mergedTags.slice(0, 5),
+      // Paused with nothing stored yet reads as a quiet note, not an error.
       summary:
-        take?.summary || "Analysis wasn't available right now.",
+        take?.summary ||
+        (isAiEnabled()
+          ? "Analysis wasn't available right now."
+          : AI_PAUSED_SUMMARY),
       deepDive:
         take?.deepDive ||
-        "A longer AI deep dive wasn't available for this name yet.",
+        (isAiEnabled()
+          ? "A longer AI deep dive wasn't available for this name yet."
+          : AI_PAUSED_DEEP_DIVE),
     },
   };
 
@@ -682,6 +696,13 @@ async function loadSharedStockDataInner(symbol, options = {}) {
           outcomes.skippedNoQuota.push(entry);
         }
       }
+    } else if (!isAiEnabled()) {
+      // AI paused: keep whatever analysis is already stored (possibly none) and
+      // never overwrite it with a placeholder. buildReport labels the gap.
+      logPausedOnce("getStockReport.analysis");
+      console.log(
+        `[getStockReport] analysis skipped for ${symbol} — ${aiPausedReason()}`
+      );
     } else {
       console.log(
         `[getStockReport] summary ${analysis ? "refresh" : "miss"} for ${symbol} — calling Gemini once (dual+quip)`
@@ -692,15 +713,21 @@ async function loadSharedStockDataInner(symbol, options = {}) {
       } catch {
         boardPick = null;
       }
-      analysis = await analyzeStock(
+      const fresh = await analyzeStock(
         symbol,
         rawData.quote,
         rawData.fundamentals,
         rawData.peers || [],
         { pick: boardPick }
       );
-      await saveSummaryToCache(symbol, null, analysis);
-      noteFieldRefreshed("analysis");
+      // A paused stand-in must never be written over a stored analysis.
+      if (fresh?.aiPaused) {
+        logPausedOnce("getStockReport.analysisResult");
+      } else {
+        analysis = fresh;
+        await saveSummaryToCache(symbol, null, analysis);
+        noteFieldRefreshed("analysis");
+      }
     }
   } else {
     console.log(`[getStockReport] summary cache hit for ${symbol}`);

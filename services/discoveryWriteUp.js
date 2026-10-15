@@ -4,6 +4,7 @@
 
 const { generateJson } = require("../lib/aiProvider");
 const { dbRun } = require("../db/schema");
+const { isAiPaused, logPausedOnce } = require("../lib/aiEnabled");
 
 async function generateDiscoveryWriteUp({
   ticker,
@@ -13,6 +14,10 @@ async function generateDiscoveryWriteUp({
   mover = null,
 } = {}) {
   const symbol = String(ticker).toUpperCase();
+  if (isAiPaused()) {
+    logPausedOnce("discoveryWriteUp");
+    return `${symbol} is a new addition from today's market movers — AI write-ups are paused, so open the card for the stored data.`;
+  }
   const prompt = `A family stock board just added ${symbol}${name ? ` (${name})` : ""} from today's market movers.
 
 Write a short plain-English blurb (2–3 sentences, max ~55 words) explaining:

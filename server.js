@@ -85,11 +85,29 @@ const {
 } = require("./services/deeperLook");
 const { resolveProviderId, listProviders } = require("./lib/aiProvider");
 const {
+  isAiEnabled,
+  isAiPaused,
+  logPausedOnce,
+  aiPausedBody,
+  aiPausedReason,
+  AI_PAUSED_CODE,
+  AI_PAUSED_LABEL,
+  AI_PAUSED_MESSAGE,
+} = require("./lib/aiEnabled");
+const {
   ensureApiCallLogTable,
   getRecentApiCalls,
   getLastCallByProvider,
 } = require("./services/apiCallLog");
 const { listJobStatuses, recordJobRun } = require("./services/jobRuns");
+const {
+  PaperSnapshotError,
+  ensurePaperRunTables,
+  savePaperSnapshot,
+  getLatestPaperSnapshot,
+  listPaperSnapshots,
+  seedPaperRunIfEmpty,
+} = require("./services/paperRun");
 const {
   getBoardSectionHealth,
   validateBoardSectionIntegrity,
@@ -157,7 +175,10 @@ function rejectDevUnauthorized(res) {
 }
 
 app.use(cors());
-app.use(express.json());
+// 2mb matches the paper-run snapshot ceiling in services/paperRun.js — a full
+// 10-day Practice Run document (curves, trades, picks, scorecards) outgrows the
+// 100kb express default.
+app.use(express.json({ limit: "2mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 function parseJsonSafe(text) {
@@ -278,12 +299,83 @@ async function buildStatusPayload() {
     // Cached only — never spend Gemini on status polls
     marketMood: await loadMood(),
     didYouKnow: await getTodaysTidbit().catch(() => null),
+    aiEnabled: isAiEnabled(),
+    aiPaused: isAiPaused(),
+    aiPausedLabel: isAiPaused() ? AI_PAUSED_LABEL : null,
+    aiPausedMessage: isAiPaused() ? AI_PAUSED_MESSAGE : null,
     resetsAt: nextMidnightPacificIso(),
   };
 }
 
 app.get("/healthz", (req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });
+});
+
+/* ---------------------------------------------------------------------------
+ * Practice Run (paper trading) — see services/paperRun.js.
+ * GET  /api/paper          public read of the latest synced snapshot
+ * GET  /api/paper/history  public read of snapshot metadata (no documents)
+ * POST /api/paper/sync     authenticated push from the machine that runs the
+ *                          paper accounts (bearer PAPER_SYNC_TOKEN)
+ * ------------------------------------------------------------------------- */
+
+/** Timing-safe bearer check. Unset PAPER_SYNC_TOKEN = the endpoint is closed. */
+function paperSyncAuth(req) {
+  const expected = process.env.PAPER_SYNC_TOKEN || "";
+  if (!expected) return { ok: false, status: 503, error: "PAPER_SYNC_TOKEN is not configured." };
+
+  const header = String(req.headers.authorization || "");
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  const provided = match ? match[1].trim() : "";
+  if (!provided) return { ok: false, status: 401, error: "Missing bearer token." };
+
+  // Hash both sides first so timingSafeEqual always compares equal lengths and
+  // the token length itself doesn't leak.
+  const a = crypto.createHash("sha256").update(provided).digest();
+  const b = crypto.createHash("sha256").update(expected).digest();
+  if (!crypto.timingSafeEqual(a, b)) {
+    return { ok: false, status: 401, error: "Invalid bearer token." };
+  }
+  return { ok: true };
+}
+
+app.post("/api/paper/sync", async (req, res) => {
+  const auth = paperSyncAuth(req);
+  if (!auth.ok) {
+    return res.status(auth.status).json({ ok: false, error: auth.error });
+  }
+  try {
+    const result = await savePaperSnapshot(req.body, { source: "sync" });
+    return res.status(201).json(result);
+  } catch (err) {
+    if (err instanceof PaperSnapshotError) {
+      return res.status(400).json({ ok: false, error: err.message, fields: err.errors });
+    }
+    console.error("[POST /api/paper/sync]", err.message);
+    return res.status(500).json({ ok: false, error: "Failed to store the snapshot." });
+  }
+});
+
+app.get("/api/paper", async (req, res) => {
+  try {
+    const snapshot = await getLatestPaperSnapshot();
+    if (!snapshot) {
+      return res.status(404).json({ error: "No paper run snapshot has been synced yet." });
+    }
+    return res.json(snapshot);
+  } catch (err) {
+    console.error("[GET /api/paper]", err.message);
+    return res.status(500).json({ error: "Failed to load the paper run snapshot." });
+  }
+});
+
+app.get("/api/paper/history", async (req, res) => {
+  try {
+    return res.json({ snapshots: await listPaperSnapshots(req.query.limit) });
+  } catch (err) {
+    console.error("[GET /api/paper/history]", err.message);
+    return res.status(500).json({ error: "Failed to load the paper run history." });
+  }
 });
 
 app.get("/api/usage", async (req, res) => {
@@ -536,9 +628,16 @@ app.post("/api/stock/:ticker/deeper-look", async (req, res) => {
       return res.status(400).json({ error: "Ticker is required." });
     }
     const mode = normalizeMode(req.body?.mode || req.query.mode);
+    if (isAiPaused()) {
+      logPausedOnce("POST /api/stock/:ticker/deeper-look");
+      return res.status(503).json(aiPausedBody({ ticker }));
+    }
     const result = await requestDeeperLook(ticker, { mode });
     return res.json(result);
   } catch (err) {
+    if (err.code === AI_PAUSED_CODE || err.aiPaused) {
+      return res.status(503).json(aiPausedBody({ ticker: req.params.ticker }));
+    }
     console.error("[POST deeper-look]", err.message);
     if (err.code === "disabled") {
       return res.status(403).json({ error: err.message, code: err.code });
@@ -561,12 +660,18 @@ app.post("/api/stock/:ticker/deeper-look", async (req, res) => {
 
 app.get("/api/stock/:ticker/deeper-look", async (req, res) => {
   try {
-    if (!(await isDeeperLookEnabled())) {
-      return res.status(404).json({ error: "Deeper Look is disabled." });
-    }
     const ticker = String(req.params.ticker || "")
       .trim()
       .toUpperCase();
+    // Stored Deeper Looks stay readable while AI is paused; new ones cannot be requested.
+    if (isAiPaused()) {
+      const stored = await getDeeperLook(ticker);
+      if (stored) return res.json({ ...stored, aiPaused: true });
+      return res.status(200).json(aiPausedBody({ ticker }));
+    }
+    if (!(await isDeeperLookEnabled())) {
+      return res.status(404).json({ error: "Deeper Look is disabled." });
+    }
     const deeper = await getDeeperLook(ticker);
     if (!deeper) return res.status(404).json({ error: "No deeper look yet." });
     return res.json(deeper);
@@ -608,6 +713,13 @@ app.get("/api/archive", async (req, res) => {
 
 app.get("/api/analyze/availability", async (req, res) => {
   try {
+    if (isAiPaused()) {
+      return res.json({
+        ...aiPausedBody(),
+        available: 0,
+        message: AI_PAUSED_MESSAGE,
+      });
+    }
     return res.json(await getAnalyzeAvailability());
   } catch (err) {
     console.error("[GET /api/analyze/availability]", err.message);
@@ -623,6 +735,10 @@ app.get("/api/analyze/availability", async (req, res) => {
 app.post("/api/analyze", async (req, res) => {
   if (!searchPasswordOk(req.body?.password || req.headers["x-search-password"])) {
     return res.status(401).json({ error: "locked" });
+  }
+  if (isAiPaused()) {
+    logPausedOnce("POST /api/analyze");
+    return res.status(503).json(aiPausedBody());
   }
   try {
     const lock = getAdminActionLock();
@@ -744,6 +860,11 @@ app.post("/api/admin/discovery", async (req, res) => {
   }
 });
 
+/** Family stock board. Lives at /board — / is the Practice Run dashboard. */
+app.get("/board", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "board.html"));
+});
+
 app.get("/archive", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "archive.html"));
 });
@@ -793,6 +914,8 @@ async function buildDevStatusPayload() {
 
   return {
     generatedAt: new Date().toISOString(),
+    aiEnabled: isAiEnabled(),
+    aiPaused: isAiPaused(),
     lastBoardRefresh: await getSetting("lastBoardRefresh"),
     boardRefreshStatus: await getSetting("lastBoardRefreshStatus"),
     lastSmartRefresh: await getSetting("lastSmartRefresh"),
@@ -925,6 +1048,9 @@ app.get("/api/dev/status", async (req, res) => {
  */
 async function handleTriggerRefreshBoard(req, res) {
   if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  if (isAiPaused()) {
+    return res.status(503).json(aiPausedBody());
+  }
   try {
     const rawTickers = Array.isArray(req.body?.tickers) && req.body.tickers.length
       ? req.body.tickers
@@ -1093,6 +1219,9 @@ app.post("/api/dev/deeper-look-enabled", async (req, res) => {
     return res.json(result);
   } catch (err) {
     console.error("[POST /api/dev/deeper-look-enabled]", err.message);
+    if (err.code === AI_PAUSED_CODE) {
+      return res.status(503).json(aiPausedBody());
+    }
     if (err.code === "not_configured") {
       return res.status(400).json({ error: err.message, code: err.code });
     }
@@ -1231,12 +1360,37 @@ async function start() {
   } catch (err) {
     console.warn("[startup] api_call_log table:", err.message);
   }
+  try {
+    await ensurePaperRunTables();
+    const seed = await seedPaperRunIfEmpty();
+    console.log(
+      seed.seeded
+        ? `[startup] paper run seeded from data/paper-run-seed.json (day ${seed.day}, ${seed.accounts} accounts)`
+        : `[startup] paper run seed skipped (${seed.reason})`
+    );
+  } catch (err) {
+    console.warn("[startup] paper run table:", err.message);
+  }
 
   app.listen(PORT, () => {
     console.log(`Ledger server listening on http://localhost:${PORT}`);
+    console.log(
+      isAiEnabled()
+        ? "[aiEnabled] AI_ENABLED=1 — Gemini/Claude calls are on"
+        : `[aiEnabled] AI paused (${aiPausedReason()}) — no Gemini/Anthropic calls; paper sync still works`
+    );
 
     cron.schedule("0 7 * * *", () => {
       (async () => {
+        if (isAiPaused()) {
+          logPausedOnce("cron.07:00");
+          console.log(`[cron 07:00] skipped — ${aiPausedReason()}`);
+          await recordJobRun("daily_board_refresh", {
+            ok: true,
+            summary: `skipped — ${AI_PAUSED_LABEL}`,
+          }).catch(() => {});
+          return;
+        }
         // Discover first (board membership), then forced refresh fills/analyzes
         // the live set — same order as the intended Discover → Sort → Fetch pipeline.
         let discovery = null;
@@ -1312,6 +1466,15 @@ async function start() {
     // Lightweight 1pm retry — only morning failures, not a second full pass.
     cron.schedule("0 13 * * *", () => {
       (async () => {
+        if (isAiPaused()) {
+          logPausedOnce("cron.13:00");
+          console.log(`[cron 13:00] skipped — ${aiPausedReason()}`);
+          await recordJobRun("news_catchup_1pm", {
+            ok: true,
+            summary: `skipped — ${AI_PAUSED_LABEL}`,
+          }).catch(() => {});
+          return;
+        }
         const result = await retryMorningFailures();
         console.log(
           "[cron retryMorningFailures]",
@@ -1389,6 +1552,16 @@ async function start() {
     // One-shot heal after shared-fetch merge: drop fallback ai_reports, mark flat
     // prices stale (keep quotes), restore any wiped quotes from legacy cache, then refresh.
     (async () => {
+      // While AI is paused, do not spend Gemini (or Anthropic) on boot repair.
+      // Stored reports stay as they are; paper sync is unaffected.
+      if (isAiPaused()) {
+        logPausedOnce("startup.aiRepair");
+        console.log(
+          `[startup] AI paused (${aiPausedReason()}) — skipping refreshBoard heal and missing-analysis repair`
+        );
+        return;
+      }
+
       const healKey = "sharedCacheHeal_v2";
       const already = await getSetting(healKey);
       if (already) {

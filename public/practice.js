@@ -183,13 +183,18 @@
     });
     let min = Math.min.apply(null, values);
     let max = Math.max.apply(null, values);
-    if (max - min < 0.0001) {
-      min -= Math.max(1, Math.abs(min) * 0.002);
-      max += Math.max(1, Math.abs(max) * 0.002);
-    } else {
-      const pad = (max - min) * 0.18;
-      min -= pad;
-      max += pad;
+    const pad = (max - min) * 0.18;
+    min -= pad;
+    max += pad;
+
+    // Floor the vertical span at 2% of the starting balance so a 0.1% day
+    // can't be drawn as a cliff — all four charts stay honest side by side.
+    const baseline = Math.abs(isNum(opts.baseline) ? opts.baseline : rows[0].value) || 1;
+    const minSpan = baseline * 0.02;
+    if (max - min < minSpan) {
+      const mid = (max + min) / 2;
+      min = mid - minSpan / 2;
+      max = mid + minSpan / 2;
     }
 
     const xAt = (i) => (rows.length === 1 ? padL + innerW / 2 : padL + (innerW * i) / (rows.length - 1));
@@ -492,7 +497,10 @@
 
   function chartCard(account) {
     const bench = account.benchmark || {};
-    const svg = equityChartSvg(account.equityCurve, { title: `${account.name} equity curve` });
+    const svg = equityChartSvg(account.equityCurve, {
+      title: `${account.name} equity curve`,
+      baseline: isNum(account.startValue) ? account.startValue : null,
+    });
     const marks = (account.equityCurve || []).filter((p) => isNum(p.value)).length;
     return `<article class="chart-card">
       <div class="chart-head">
@@ -529,13 +537,18 @@
         const standing = projectionStanding(account);
         const base =
           isNum(p.baseLow) && isNum(p.baseHigh) ? `${pct(p.baseLow, 1)} to ${pct(p.baseHigh, 1)}` : "—";
+        // data-label drives the stacked card layout the CSS switches to on phones.
         return `<tr>
           <td class="tick">${escapeHtml(account.name)}</td>
-          <td class="num neg-text">${escapeHtml(pct(p.bear, 1))}</td>
-          <td class="num">${escapeHtml(base)}</td>
-          <td class="num pos-text">${escapeHtml(pct(p.bull, 1))}</td>
-          <td class="num ${toneText(account.returnPct)}"><b>${escapeHtml(pct(account.returnPct))}</b></td>
-          <td><span class="tag ${standing.cls}">${escapeHtml(standing.label)}</span></td>
+          <td class="num neg-text" data-label="Bear">${escapeHtml(pct(p.bear, 1))}</td>
+          <td class="num" data-label="Base">${escapeHtml(base)}</td>
+          <td class="num pos-text" data-label="Bull">${escapeHtml(pct(p.bull, 1))}</td>
+          <td class="num ${toneText(account.returnPct)}" data-label="Actual"><b>${escapeHtml(
+            pct(account.returnPct)
+          )}</b></td>
+          <td data-label="Where it sits"><span class="tag ${standing.cls}">${escapeHtml(
+            standing.label
+          )}</span></td>
         </tr>`;
       })
       .join("");
@@ -581,7 +594,7 @@
       .join("");
 
     return `<div class="panel-block">
-      <p class="block-label">Open positions <span class="hint">prices the snapshot doesn't carry show as "unavailable"</span></p>
+      <p class="block-label">Open positions <span class="hint">prices the snapshot doesn't carry show as "unavailable"<span class="scroll-hint"> · swipe the table sideways</span></span></p>
       <div class="table-scroll"><table class="data-table">
         <thead><tr>
           <th scope="col">Ticker</th><th scope="col" class="num">Shares</th><th scope="col" class="num">Avg cost</th>
@@ -599,8 +612,13 @@
       return `<div class="panel-block"><p class="block-label">Trade log</p><div class="empty-note">No trades recorded for this account yet.</div></div>`;
     }
     const body = rows
-      .slice()
-      .reverse()
+      .map((trade, idx) => ({ trade, idx }))
+      .sort((a, b) => {
+        const key = (row) => `${row.trade.date || ""} ${row.trade.time || ""}`;
+        const cmp = key(b).localeCompare(key(a));
+        return cmp !== 0 ? cmp : b.idx - a.idx;
+      })
+      .map(({ trade: t }) => t)
       .map(
         (t) => `<tr>
           <td class="num">${escapeHtml(t.date || "")}${t.time ? `<br><span style="color:var(--muted-dim)">${escapeHtml(t.time)}</span>` : ""}</td>
@@ -620,7 +638,7 @@
     return `<div class="panel-block">
       <p class="block-label">Trade log <span class="hint">${rows.length} fill${
         rows.length === 1 ? "" : "s"
-      }, newest first</span></p>
+      }, newest first<span class="scroll-hint"> · swipe the table sideways</span></span></p>
       <div class="table-scroll"><table class="data-table">
         <thead><tr>
           <th scope="col" class="num">When</th><th scope="col">Ticker</th><th scope="col">Side</th>
@@ -741,9 +759,7 @@
   function selectAccount(id) {
     activeAccountId = id;
     document.querySelectorAll("#account-tabs button").forEach((button) => {
-      const selected = button.dataset.account === id;
-      button.setAttribute("aria-selected", selected ? "true" : "false");
-      button.tabIndex = selected ? 0 : -1;
+      button.setAttribute("aria-selected", button.dataset.account === id ? "true" : "false");
     });
     document.querySelectorAll("#account-panels .panel").forEach((panel) => {
       panel.hidden = panel.id !== `panel-${id}`;

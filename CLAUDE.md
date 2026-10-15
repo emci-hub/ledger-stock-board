@@ -12,6 +12,65 @@ Read this first, every session. This is the Code-side twin of the "Stock Big" Cl
 - Data sources: Twelve Data (price/indicators) · Alpha Vantage (analyst target + fallback news, 25/day) · Finnhub (peers/earnings) · Marketaux (primary news) · Gemini (synthesis, model via GEMINI_MODEL env) · Claude (manual "Deeper Look" button only, never automated)
 - Repo: emci-hub/ledger-stock-board (public)
 
+## Screens and routes
+- `/` — **Practice Run** dashboard (`public/index.html` + `public/practice.css` + `public/practice.js`). The paper-trading scoreboard. Read-only; it renders whatever `GET /api/paper` returns and nothing else.
+- `/board` — the family stock board (`public/board.html`, formerly `public/index.html`). All of its APIs, `/archive`, `/dev-status`, search and watchlist are unchanged.
+- `/healthz` — unchanged, still what UptimeRobot pings.
+- Top nav on both pages switches between the two.
+
+## Practice Run (paper trading) — `/` and `/api/paper*`
+A fixed two-week paper test (Oct 15–29, 2026, pretend money, **never real trades**) across four accounts: `us-day`, `us-swing` (US$1,000 each, benchmark VOO) and `ca-day`, `ca-swing` (C$1,000 each, benchmark XIU.TO). The data is produced on a separate machine and pushed here — this app never computes, estimates or AI-fills a paper number. Anything the snapshot doesn't carry renders as "unavailable" (rule 1 applies to this screen too).
+
+**Endpoints**
+| Route | Auth | What it does |
+|---|---|---|
+| `GET /api/paper` | public | Latest snapshot, plus a `meta` block (`snapshotId`, `receivedAt`, `source`, `docHash`). 404 before the first sync. |
+| `GET /api/paper/history?limit=30` | public | Snapshot metadata only, newest first — no documents. |
+| `POST /api/paper/sync` | `Authorization: Bearer $PAPER_SYNC_TOKEN` | Stores one snapshot as the new latest. Older rows stay as the history (rolling 500). |
+
+`POST /api/paper/sync` answers **401** without a valid token (compared timing-safely after hashing both sides), **503** when `PAPER_SYNC_TOKEN` is unset — an unset env var closes the endpoint, it never opens it — **400** with a `fields` array when the document shape is wrong, and **201** with `{ok, receivedAt, updatedAt, day, accounts, docHash, unchanged}` on success.
+
+**Document shape** (`services/paperRun.js` validates it; unknown extra keys are stored as-is)
+```
+{
+  updatedAt: ISO string (defaults to now),  day: number,  totalDays: number (default 10),
+  run: { name, startDate, endDate, note },
+  accounts: [{
+    id, name, label, currency: "USD" | "CAD",          // id, currency and value are required
+    startValue, value, returnPct, cash, valueNote,
+    benchmark:  { ticker, name, value, returnPct },     // ticker required
+    projection: { bear, baseLow, baseHigh, bull, note },// percentages
+    equityCurve: [{ date: "YYYY-MM-DD", value, benchmark }],
+    positions:  [{ ticker, shares, avgPrice, costBasis, lastPrice, marketValue, stop, target, openedAt, note }],
+    trades:     [{ date, time, ticker, side: "BUY"|"SELL", shares, price, value, reason, confidence }],
+    picks:      [{ date, action: "BUY"|"SELL"|"HOLD"|"FLAT", ticker, headline, entry, stop, target,
+                   levels: [{ ticker, stop, target }], size, confidence, reason,
+                   pros: [], cons: [], whyProsWin, plan }],
+    scorecards: [{ date, derived: bool, basis,
+                   grades: { analysis, execution, risk, review, result },  // "B" or { grade, note }
+                   weakest, fix }],
+    lessons:    [{ date, errorType: "ANALYSIS"|"EXECUTION"|"RISK"|"REVIEW"|"none", what, fix, status }],
+    strategy:   { summary, benchmark, framing, rules: [], reviewMetrics }
+  }]
+}
+```
+Missing numbers must be `null`, never a placeholder — the dashboard prints "unavailable" for `null` and that is the correct outcome. A snapshot over 2 MB is rejected.
+
+**Push it** (runs on the machine that owns the paper accounts)
+```bash
+curl -sS -X POST https://stocks.emgens.com/api/paper/sync \
+  -H "Authorization: Bearer $PAPER_SYNC_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary @data/paper-sync-example.json
+```
+
+**Seed / examples**
+- `data/paper-run-seed.json` — the Oct 15, 2026 snapshot. Loaded automatically on boot when `paper_run_snapshots` is empty, so `/` is never blank on a fresh deploy. A real sync always supersedes it.
+- `data/paper-sync-example.json` — a smaller single-account document to copy from.
+- `node scripts/seedPaperRun.js [--force]` — load the seed on demand.
+
+Oct 15 scorecards in the seed are marked `derived: true` and the page labels them "derived from rubric": they were computed from each account's own published A–F rubric, not hand-entered. Replace them with recorded cards on the next sync.
+
 ## Rules that don't change
 1. Real data or a clear "unavailable" label — never an AI-guessed number presented as real.
 2. Plain-English first; jargon behind tap-to-reveal, one shared glossary file.

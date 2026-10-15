@@ -180,10 +180,11 @@ section{margin-top:34px;}
 
 .pick-card{
   background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
-  padding:15px;display:flex;flex-direction:column;gap:11px;
+  padding:15px;display:flex;flex-direction:column;gap:11px;align-self:start;
 }
-.pick-top{display:flex;align-items:flex-start;gap:10px;justify-content:space-between;flex-wrap:wrap;}
-.pick-id{min-width:0;}
+.pick-top{display:flex;align-items:flex-start;gap:10px;justify-content:space-between;}
+.pick-id{min-width:0;flex:1 1 auto;}
+.pick-top .pill{flex:none;}
 .pick-acct{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:0.07em;text-transform:uppercase;color:var(--muted-dim);}
 .pick-ticker{font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:19px;color:var(--ink-bright);line-height:1.25;word-break:break-word;}
 .pick-headline{font-size:11.5px;color:var(--muted-dim);margin-top:2px;}
@@ -273,6 +274,34 @@ section{margin-top:34px;}
 
 .proj-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:12px;}
 .proj-table{min-width:580px;}
+/* On a phone the projections table becomes one card per account so the actual
+   return is never hidden behind a sideways scroll. */
+@media (max-width:680px){
+  .proj-table-wrap{border:none;border-radius:0;overflow:visible;}
+  .proj-table{min-width:0;}
+  .proj-table thead{display:none;}
+  .proj-table tbody tr{
+    display:block;background:var(--surface);border:1px solid var(--line);
+    border-radius:12px;padding:8px 13px 10px;margin-bottom:10px;
+  }
+  .proj-table tbody tr:nth-child(even) td{background:none;}
+  .proj-table td{
+    display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+    border:none;padding:4px 0;text-align:right;
+  }
+  .proj-table td::before{
+    content:attr(data-label);color:var(--muted-dim);font-family:'IBM Plex Mono',monospace;
+    font-size:9.5px;letter-spacing:0.07em;text-transform:uppercase;
+  }
+  .proj-table td.tick{
+    font-size:15px;padding:2px 0 7px;margin-bottom:4px;
+    border-bottom:1px solid var(--line-soft);display:block;text-align:left;
+  }
+}
+
+.scroll-hint{display:none;}
+@media (max-width:680px){ .scroll-hint{display:inline;} }
+
 .proj-notes{display:grid;gap:8px;margin-top:12px;}
 .proj-note{font-size:11.5px;color:var(--muted-dim);background:var(--surface);border:1px solid var(--line-soft);border-radius:10px;padding:9px 12px;}
 .proj-note b{color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:0.05em;}
@@ -370,5 +399,15 @@ footer{
 
 @media (max-width:420px){
   .grade-row{grid-template-columns:repeat(3,1fr);}
-  .levels{grid-template-columns:1fr 1fr;}
 }
+
+/* Tone colours have to beat the table / definition-list defaults above. */
+.data-table td.pos-text,
+.sc-row dd.pos-text,
+.sc-row dd.pos-text b{color:var(--green);}
+.data-table td.neg-text,
+.sc-row dd.neg-text,
+.sc-row dd.neg-text b{color:var(--rust);}
+.data-table td.flat-text,
+.sc-row dd.flat-text,
+.sc-row dd.flat-text b{color:var(--muted);}

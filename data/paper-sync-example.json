@@ -1,0 +1,104 @@
+{
+  "updatedAt": "2026-10-16T20:45:00.000Z",
+  "day": 2,
+  "totalDays": 10,
+  "run": {
+    "name": "Practice Run",
+    "startDate": "2026-10-15",
+    "endDate": "2026-10-29",
+    "note": "Paper only — pretend money, no real trades."
+  },
+  "accounts": [
+    {
+      "id": "us-day",
+      "name": "US-DAY",
+      "label": "US day trading",
+      "currency": "USD",
+      "startValue": 1000,
+      "value": 1004.12,
+      "returnPct": 0.41,
+      "cash": 1004.12,
+      "valueNote": "Flat into the close — no open position.",
+      "benchmark": { "ticker": "VOO", "name": "Vanguard S&P 500 ETF", "value": 1005.1, "returnPct": 0.51 },
+      "projection": {
+        "bear": -5,
+        "baseLow": -1.5,
+        "baseHigh": 1.5,
+        "bull": 5,
+        "note": "≈ −3R to +3R over 10 trading days."
+      },
+      "equityCurve": [
+        { "date": "2026-10-14", "value": 1000, "benchmark": 1000 },
+        { "date": "2026-10-15", "value": 1008.04, "benchmark": 1002.46 },
+        { "date": "2026-10-16", "value": 1004.12, "benchmark": 1005.1 }
+      ],
+      "positions": [],
+      "trades": [
+        {
+          "date": "2026-10-16",
+          "time": "13:55 MT",
+          "ticker": "UNH",
+          "side": "SELL",
+          "shares": 1.7065,
+          "price": 408.3,
+          "value": 696.76,
+          "reason": "Time exit at 13:55 MT per the ORB rules",
+          "confidence": "n/a"
+        }
+      ],
+      "picks": [
+        {
+          "date": "2026-10-16",
+          "action": "FLAT",
+          "ticker": "No qualifier",
+          "headline": "Nothing in play met the rules",
+          "entry": null,
+          "stop": null,
+          "target": null,
+          "size": null,
+          "confidence": "n/a",
+          "reason": "No name cleared first-bar rvol ≥ 2 with a green candle and a gap ≥ +0.5%.",
+          "pros": ["No forced trade", "No slippage or risk spent"],
+          "cons": ["No chance of a winner today"],
+          "whyProsWin": "A FLAT day is the rule working, not the rule failing.",
+          "plan": "Re-rank at 07:40 MT tomorrow off bar 1."
+        }
+      ],
+      "scorecards": [
+        {
+          "date": "2026-10-16",
+          "derived": false,
+          "basis": "Hand-entered from the 2:41 PM MT card.",
+          "grades": {
+            "analysis": { "grade": "A", "note": "Ranked the whole universe before the window closed." },
+            "execution": { "grade": "A", "note": "Time exit taken at 13:55 MT exactly." },
+            "risk": { "grade": "A", "note": "1% risk, no adds, no margin." },
+            "review": { "grade": "B", "note": "R logged; expectancy still thin." },
+            "result": "B"
+          },
+          "weakest": "Review",
+          "fix": "Log the realised slippage against the 0.1% assumption each day."
+        }
+      ],
+      "lessons": [
+        {
+          "date": "2026-10-16",
+          "errorType": "none",
+          "what": "Rules were followed and the time exit was taken on schedule.",
+          "fix": "No change today.",
+          "status": "active"
+        }
+      ],
+      "strategy": {
+        "summary": "US$1,000, US-listed only, USD. One stock a day or flat; flat by the close.",
+        "benchmark": "VOO",
+        "framing": "5-minute opening range breakout on stocks in play, long only, 1% risk per trade.",
+        "rules": [
+          "Pick one: highest first-bar rvol (≥2), green first candle, gap ≥ +0.5%. Otherwise FLAT.",
+          "Stop at the opening range low; flat at 13:55 MT."
+        ],
+        "reviewMetrics": "R-multiple, cumulative R, win rate, rule breaks, slippage vs assumption."
+      }
+    }
+  ]
+}

@@ -405,35 +405,43 @@
     const head = opts.compact ? compactHead(account, snapshot) : hero(account, snapshot);
     const bench = P.benchmarkLabel(account);
     return `${head}
-      <section class="section" aria-labelledby="${prefix}-score">
-        <div class="section-label" id="${prefix}-score">Scorecard</div>
-        ${scorecardSection(account)}
-      </section>
-      <section class="section" aria-labelledby="${prefix}-picks">
-        <div class="section-label" id="${prefix}-picks">Today's picks</div>
-        <p class="section-intro">This account only.</p>
-        ${picksSection(account)}
-      </section>
-      <section class="section" aria-labelledby="${prefix}-trades">
-        <div class="section-label" id="${prefix}-trades">Trades</div>
-        <p class="section-intro">Open positions, then this account’s trade log.</p>
-        ${positionsSection(account, snapshot)}
-        ${tradesSection(account)}
-      </section>
-      <section class="section" aria-labelledby="${prefix}-analysis">
-        <div class="section-label" id="${prefix}-analysis">Analysis</div>
-        <p class="section-intro">This account’s equity vs ${P.escapeHtml(
-          bench
-        )}, its own projection vs actual, then its self-fix log and rules.</p>
-        <p class="history-label">Equity vs ${P.escapeHtml(bench)}</p>
-        ${chartSection(account)}
-        <p class="history-label">Projection vs actual</p>
-        ${projectionSection(account)}
-        <p class="history-label">Self-fix log</p>
-        ${lessonsSection(account)}
-        <p class="history-label">Strategy rules</p>
-        ${strategySection(account)}
-      </section>`;
+      <div class="detail-grid">
+        <div class="detail-col detail-col-left">
+          <section class="section" aria-labelledby="${prefix}-score">
+            <div class="section-label" id="${prefix}-score">Scorecard</div>
+            ${scorecardSection(account)}
+          </section>
+          <section class="section" aria-labelledby="${prefix}-picks">
+            <div class="section-label" id="${prefix}-picks">Today's picks</div>
+            <p class="section-intro">This account only.</p>
+            ${picksSection(account)}
+          </section>
+        </div>
+        <div class="detail-col detail-col-mid">
+          <section class="section" aria-labelledby="${prefix}-trades">
+            <div class="section-label" id="${prefix}-trades">Trades</div>
+            <p class="section-intro">Open positions, then this account’s trade log.</p>
+            ${positionsSection(account, snapshot)}
+            ${tradesSection(account)}
+          </section>
+        </div>
+        <div class="detail-col detail-col-right">
+          <section class="section" aria-labelledby="${prefix}-analysis">
+            <div class="section-label" id="${prefix}-analysis">Analysis</div>
+            <p class="section-intro">This account’s equity vs ${P.escapeHtml(
+              bench
+            )}, its own projection vs actual, then its self-fix log and rules.</p>
+            <p class="history-label">Equity vs ${P.escapeHtml(bench)}</p>
+            ${chartSection(account)}
+            <p class="history-label">Projection vs actual</p>
+            ${projectionSection(account)}
+            <p class="history-label">Self-fix log</p>
+            ${lessonsSection(account)}
+            <p class="history-label">Strategy rules</p>
+            ${strategySection(account)}
+          </section>
+        </div>
+      </div>`;
   }
 
   P.projectionStanding = projectionStanding;

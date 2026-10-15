@@ -91,6 +91,14 @@ const {
 } = require("./services/apiCallLog");
 const { listJobStatuses, recordJobRun } = require("./services/jobRuns");
 const {
+  PaperSnapshotError,
+  ensurePaperRunTables,
+  savePaperSnapshot,
+  getLatestPaperSnapshot,
+  listPaperSnapshots,
+  seedPaperRunIfEmpty,
+} = require("./services/paperRun");
+const {
   getBoardSectionHealth,
   validateBoardSectionIntegrity,
   reclassifyLiveBoard,
@@ -157,7 +165,10 @@ function rejectDevUnauthorized(res) {
 }
 
 app.use(cors());
-app.use(express.json());
+// 2mb matches the paper-run snapshot ceiling in services/paperRun.js — a full
+// 10-day Practice Run document (curves, trades, picks, scorecards) outgrows the
+// 100kb express default.
+app.use(express.json({ limit: "2mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 function parseJsonSafe(text) {
@@ -284,6 +295,73 @@ async function buildStatusPayload() {
 
 app.get("/healthz", (req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });
+});
+
+/* ---------------------------------------------------------------------------
+ * Practice Run (paper trading) — see services/paperRun.js.
+ * GET  /api/paper          public read of the latest synced snapshot
+ * GET  /api/paper/history  public read of snapshot metadata (no documents)
+ * POST /api/paper/sync     authenticated push from the machine that runs the
+ *                          paper accounts (bearer PAPER_SYNC_TOKEN)
+ * ------------------------------------------------------------------------- */
+
+/** Timing-safe bearer check. Unset PAPER_SYNC_TOKEN = the endpoint is closed. */
+function paperSyncAuth(req) {
+  const expected = process.env.PAPER_SYNC_TOKEN || "";
+  if (!expected) return { ok: false, status: 503, error: "PAPER_SYNC_TOKEN is not configured." };
+
+  const header = String(req.headers.authorization || "");
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  const provided = match ? match[1].trim() : "";
+  if (!provided) return { ok: false, status: 401, error: "Missing bearer token." };
+
+  // Hash both sides first so timingSafeEqual always compares equal lengths and
+  // the token length itself doesn't leak.
+  const a = crypto.createHash("sha256").update(provided).digest();
+  const b = crypto.createHash("sha256").update(expected).digest();
+  if (!crypto.timingSafeEqual(a, b)) {
+    return { ok: false, status: 401, error: "Invalid bearer token." };
+  }
+  return { ok: true };
+}
+
+app.post("/api/paper/sync", async (req, res) => {
+  const auth = paperSyncAuth(req);
+  if (!auth.ok) {
+    return res.status(auth.status).json({ ok: false, error: auth.error });
+  }
+  try {
+    const result = await savePaperSnapshot(req.body, { source: "sync" });
+    return res.status(201).json(result);
+  } catch (err) {
+    if (err instanceof PaperSnapshotError) {
+      return res.status(400).json({ ok: false, error: err.message, fields: err.errors });
+    }
+    console.error("[POST /api/paper/sync]", err.message);
+    return res.status(500).json({ ok: false, error: "Failed to store the snapshot." });
+  }
+});
+
+app.get("/api/paper", async (req, res) => {
+  try {
+    const snapshot = await getLatestPaperSnapshot();
+    if (!snapshot) {
+      return res.status(404).json({ error: "No paper run snapshot has been synced yet." });
+    }
+    return res.json(snapshot);
+  } catch (err) {
+    console.error("[GET /api/paper]", err.message);
+    return res.status(500).json({ error: "Failed to load the paper run snapshot." });
+  }
+});
+
+app.get("/api/paper/history", async (req, res) => {
+  try {
+    return res.json({ snapshots: await listPaperSnapshots(req.query.limit) });
+  } catch (err) {
+    console.error("[GET /api/paper/history]", err.message);
+    return res.status(500).json({ error: "Failed to load the paper run history." });
+  }
 });
 
 app.get("/api/usage", async (req, res) => {
@@ -742,6 +820,11 @@ app.post("/api/admin/discovery", async (req, res) => {
       detail: err.message,
     });
   }
+});
+
+/** Family stock board. Lives at /board — / is the Practice Run dashboard. */
+app.get("/board", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "board.html"));
 });
 
 app.get("/archive", (req, res) => {
@@ -1230,6 +1313,17 @@ async function start() {
     await ensureApiCallLogTable();
   } catch (err) {
     console.warn("[startup] api_call_log table:", err.message);
+  }
+  try {
+    await ensurePaperRunTables();
+    const seed = await seedPaperRunIfEmpty();
+    console.log(
+      seed.seeded
+        ? `[startup] paper run seeded from data/paper-run-seed.json (day ${seed.day}, ${seed.accounts} accounts)`
+        : `[startup] paper run seed skipped (${seed.reason})`
+    );
+  } catch (err) {
+    console.warn("[startup] paper run table:", err.message);
   }
 
   app.listen(PORT, () => {

@@ -284,6 +284,21 @@
   }
   .dyk strong{color:var(--gold);font-weight:600;font-size:11px;
     font-family:'IBM Plex Mono',monospace;display:block;margin-bottom:4px;}
+  .ai-paused-banner{
+    font-size:12.5px;line-height:1.45;color:var(--muted);
+    margin:0 0 16px;padding:9px 12px;
+    border:1px solid var(--line);border-radius:10px;
+    background:var(--surface);
+  }
+  .ai-paused-banner b{
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:0.05em;
+    text-transform:uppercase;color:var(--muted-dim);font-weight:600;
+    display:block;margin-bottom:2px;
+  }
+  .ai-paused-note{
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--muted-dim);
+    margin:6px 0 0;
+  }
   .discovery-blurb{
     font-size:12px;line-height:1.45;color:var(--muted);
     margin:0 0 10px;padding:8px 10px;
@@ -498,6 +513,7 @@
   <p class="sub">A quiet daily read on stocks worth knowing about — plus anything you want to look up yourself.</p>
 
   <div id="did-you-know" class="dyk" hidden></div>
+  <div id="ai-paused-banner" class="ai-paused-banner" hidden></div>
 
   <div class="controls">
     <div class="mode-toggle">
@@ -1152,6 +1168,7 @@
       ${stabilityWarns}
       <div class="tags">${tagHtml}</div>
       <div class="summary">${escapeHtml(report.analysis?.summary || "")}${viaRow}</div>
+      ${report.aiPaused ? `<div class="ai-paused-note">AI analysis paused</div>` : ""}
       ${summaryCaveats}
       ${deeperBtn}
       ${deeperPanel}
@@ -1227,6 +1244,7 @@
     const legendEl = document.getElementById("sources-legend");
     const moodEl = document.getElementById("mood-line");
     const dykEl = document.getElementById("did-you-know");
+    const pausedEl = document.getElementById("ai-paused-banner");
     try {
       const res = await fetch("/api/status");
       const s = await res.json();
@@ -1237,6 +1255,21 @@
         s.newSearchesAvailableToday != null ? s.newSearchesAvailableToday : "—";
 
       deeperLookEnabled = Boolean(s.deeperLookEnabled);
+
+      if (pausedEl) {
+        if (s.aiPaused) {
+          pausedEl.hidden = false;
+          pausedEl.innerHTML = `<b>${escapeHtml(
+            s.aiPausedLabel || "AI analysis paused"
+          )}</b>${escapeHtml(
+            s.aiPausedMessage ||
+              "Stored results are still shown; nothing new is being generated."
+          )}`;
+        } else {
+          pausedEl.hidden = true;
+          pausedEl.innerHTML = "";
+        }
+      }
 
       if (moodEl) {
         if (s.marketMood?.text) {
@@ -1768,6 +1801,19 @@
             }
           );
           const data = await res.json();
+          if (data.aiPaused || data.code === "ai_paused") {
+            const panel = document.querySelector(
+              `.deeper-panel[data-deeper="${CSS.escape(ticker)}"]`
+            );
+            if (panel) {
+              panel.hidden = false;
+              panel.innerHTML = `<div class="dl-via">AI analysis paused</div>
+                <div class="dl-body">${escapeHtml(
+                  data.message || "Stored results are still shown; nothing new is being generated."
+                )}</div>`;
+            }
+            return;
+          }
           if (!res.ok) {
             alert(
               data.error ||

@@ -85,6 +85,16 @@ const {
 } = require("./services/deeperLook");
 const { resolveProviderId, listProviders } = require("./lib/aiProvider");
 const {
+  isAiEnabled,
+  isAiPaused,
+  logPausedOnce,
+  aiPausedBody,
+  aiPausedReason,
+  AI_PAUSED_CODE,
+  AI_PAUSED_LABEL,
+  AI_PAUSED_MESSAGE,
+} = require("./lib/aiEnabled");
+const {
   ensureApiCallLogTable,
   getRecentApiCalls,
   getLastCallByProvider,
@@ -289,6 +299,10 @@ async function buildStatusPayload() {
     // Cached only — never spend Gemini on status polls
     marketMood: await loadMood(),
     didYouKnow: await getTodaysTidbit().catch(() => null),
+    aiEnabled: isAiEnabled(),
+    aiPaused: isAiPaused(),
+    aiPausedLabel: isAiPaused() ? AI_PAUSED_LABEL : null,
+    aiPausedMessage: isAiPaused() ? AI_PAUSED_MESSAGE : null,
     resetsAt: nextMidnightPacificIso(),
   };
 }
@@ -614,9 +628,16 @@ app.post("/api/stock/:ticker/deeper-look", async (req, res) => {
       return res.status(400).json({ error: "Ticker is required." });
     }
     const mode = normalizeMode(req.body?.mode || req.query.mode);
+    if (isAiPaused()) {
+      logPausedOnce("POST /api/stock/:ticker/deeper-look");
+      return res.status(503).json(aiPausedBody({ ticker }));
+    }
     const result = await requestDeeperLook(ticker, { mode });
     return res.json(result);
   } catch (err) {
+    if (err.code === AI_PAUSED_CODE || err.aiPaused) {
+      return res.status(503).json(aiPausedBody({ ticker: req.params.ticker }));
+    }
     console.error("[POST deeper-look]", err.message);
     if (err.code === "disabled") {
       return res.status(403).json({ error: err.message, code: err.code });
@@ -639,12 +660,18 @@ app.post("/api/stock/:ticker/deeper-look", async (req, res) => {
 
 app.get("/api/stock/:ticker/deeper-look", async (req, res) => {
   try {
-    if (!(await isDeeperLookEnabled())) {
-      return res.status(404).json({ error: "Deeper Look is disabled." });
-    }
     const ticker = String(req.params.ticker || "")
       .trim()
       .toUpperCase();
+    // Stored Deeper Looks stay readable while AI is paused; new ones cannot be requested.
+    if (isAiPaused()) {
+      const stored = await getDeeperLook(ticker);
+      if (stored) return res.json({ ...stored, aiPaused: true });
+      return res.status(200).json(aiPausedBody({ ticker }));
+    }
+    if (!(await isDeeperLookEnabled())) {
+      return res.status(404).json({ error: "Deeper Look is disabled." });
+    }
     const deeper = await getDeeperLook(ticker);
     if (!deeper) return res.status(404).json({ error: "No deeper look yet." });
     return res.json(deeper);
@@ -686,6 +713,13 @@ app.get("/api/archive", async (req, res) => {
 
 app.get("/api/analyze/availability", async (req, res) => {
   try {
+    if (isAiPaused()) {
+      return res.json({
+        ...aiPausedBody(),
+        available: 0,
+        message: AI_PAUSED_MESSAGE,
+      });
+    }
     return res.json(await getAnalyzeAvailability());
   } catch (err) {
     console.error("[GET /api/analyze/availability]", err.message);
@@ -701,6 +735,10 @@ app.get("/api/analyze/availability", async (req, res) => {
 app.post("/api/analyze", async (req, res) => {
   if (!searchPasswordOk(req.body?.password || req.headers["x-search-password"])) {
     return res.status(401).json({ error: "locked" });
+  }
+  if (isAiPaused()) {
+    logPausedOnce("POST /api/analyze");
+    return res.status(503).json(aiPausedBody());
   }
   try {
     const lock = getAdminActionLock();
@@ -876,6 +914,8 @@ async function buildDevStatusPayload() {
 
   return {
     generatedAt: new Date().toISOString(),
+    aiEnabled: isAiEnabled(),
+    aiPaused: isAiPaused(),
     lastBoardRefresh: await getSetting("lastBoardRefresh"),
     boardRefreshStatus: await getSetting("lastBoardRefreshStatus"),
     lastSmartRefresh: await getSetting("lastSmartRefresh"),
@@ -1008,6 +1048,9 @@ app.get("/api/dev/status", async (req, res) => {
  */
 async function handleTriggerRefreshBoard(req, res) {
   if (!devAuthOk(req)) return rejectDevUnauthorized(res);
+  if (isAiPaused()) {
+    return res.status(503).json(aiPausedBody());
+  }
   try {
     const rawTickers = Array.isArray(req.body?.tickers) && req.body.tickers.length
       ? req.body.tickers
@@ -1176,6 +1219,9 @@ app.post("/api/dev/deeper-look-enabled", async (req, res) => {
     return res.json(result);
   } catch (err) {
     console.error("[POST /api/dev/deeper-look-enabled]", err.message);
+    if (err.code === AI_PAUSED_CODE) {
+      return res.status(503).json(aiPausedBody());
+    }
     if (err.code === "not_configured") {
       return res.status(400).json({ error: err.message, code: err.code });
     }
@@ -1328,9 +1374,23 @@ async function start() {
 
   app.listen(PORT, () => {
     console.log(`Ledger server listening on http://localhost:${PORT}`);
+    console.log(
+      isAiEnabled()
+        ? "[aiEnabled] AI_ENABLED=1 — Gemini/Claude calls are on"
+        : `[aiEnabled] AI paused (${aiPausedReason()}) — no Gemini/Anthropic calls; paper sync still works`
+    );
 
     cron.schedule("0 7 * * *", () => {
       (async () => {
+        if (isAiPaused()) {
+          logPausedOnce("cron.07:00");
+          console.log(`[cron 07:00] skipped — ${aiPausedReason()}`);
+          await recordJobRun("daily_board_refresh", {
+            ok: true,
+            summary: `skipped — ${AI_PAUSED_LABEL}`,
+          }).catch(() => {});
+          return;
+        }
         // Discover first (board membership), then forced refresh fills/analyzes
         // the live set — same order as the intended Discover → Sort → Fetch pipeline.
         let discovery = null;
@@ -1406,6 +1466,15 @@ async function start() {
     // Lightweight 1pm retry — only morning failures, not a second full pass.
     cron.schedule("0 13 * * *", () => {
       (async () => {
+        if (isAiPaused()) {
+          logPausedOnce("cron.13:00");
+          console.log(`[cron 13:00] skipped — ${aiPausedReason()}`);
+          await recordJobRun("news_catchup_1pm", {
+            ok: true,
+            summary: `skipped — ${AI_PAUSED_LABEL}`,
+          }).catch(() => {});
+          return;
+        }
         const result = await retryMorningFailures();
         console.log(
           "[cron retryMorningFailures]",
@@ -1483,6 +1552,16 @@ async function start() {
     // One-shot heal after shared-fetch merge: drop fallback ai_reports, mark flat
     // prices stale (keep quotes), restore any wiped quotes from legacy cache, then refresh.
     (async () => {
+      // While AI is paused, do not spend Gemini (or Anthropic) on boot repair.
+      // Stored reports stay as they are; paper sync is unaffected.
+      if (isAiPaused()) {
+        logPausedOnce("startup.aiRepair");
+        console.log(
+          `[startup] AI paused (${aiPausedReason()}) — skipping refreshBoard heal and missing-analysis repair`
+        );
+        return;
+      }
+
       const healKey = "sharedCacheHeal_v2";
       const already = await getSetting(healKey);
       if (already) {

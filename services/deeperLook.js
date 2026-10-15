@@ -18,6 +18,13 @@ const {
   getModel,
 } = require("../lib/claudeProvider");
 const { TAKE_FALLBACK } = require("../lib/aiShape");
+const {
+  isAiEnabled,
+  logPausedOnce,
+  aiPausedReason,
+  AI_PAUSED_CODE,
+  AI_PAUSED_MESSAGE,
+} = require("../lib/aiEnabled");
 
 const DEEPER_LOOK_SETTING = "deeperLookEnabled";
 const HEALTH_OK_SETTING = "deeperLookHealthOk";
@@ -124,6 +131,12 @@ async function recordClaudeSuccess() {
  * Run a tiny Anthropic probe and persist the result.
  */
 async function refreshClaudeHealth() {
+  // Paused: never probe Anthropic, and never overwrite the stored health with a
+  // failure the probe didn't actually observe.
+  if (!isAiEnabled()) {
+    logPausedOnce("deeperLook.refreshClaudeHealth");
+    return readHealth();
+  }
   if (!claudeConfigured()) {
     return writeHealth({
       ok: false,
@@ -144,6 +157,7 @@ async function refreshClaudeHealth() {
  * it when the configured model is already known-dead.
  */
 async function maybeRefreshStaleHealth() {
+  if (!isAiEnabled()) return readHealth();
   if (!claudeConfigured()) return readHealth();
   const health = await readHealth();
   const model = getModel();
@@ -162,6 +176,9 @@ async function maybeRefreshStaleHealth() {
  * permanent Claude health failure always hides the button (original design).
  */
 async function isDeeperLookEnabled() {
+  // Paused hides the button instead of letting a tap fail — the stored
+  // app_settings intent is left untouched so it returns as-is when AI resumes.
+  if (!isAiEnabled()) return false;
   if (!claudeConfigured()) return false;
 
   const health = await maybeRefreshStaleHealth();
@@ -186,8 +203,10 @@ async function getDeeperLookSetting() {
     claudeConfigured: claudeConfigured(),
     model: getModel(),
     health,
-    source:
-      health && health.ok === false && health.permanent
+    aiPaused: !isAiEnabled(),
+    source: !isAiEnabled()
+      ? "hidden_ai_paused"
+      : health && health.ok === false && health.permanent
         ? "hidden_unhealthy"
         : raw === "1" || raw === "true" || raw === "0" || raw === "false"
           ? "app_settings"
@@ -202,6 +221,13 @@ async function getDeeperLookSetting() {
  */
 async function setDeeperLookEnabled(enabled) {
   const on = Boolean(enabled);
+  if (on && !isAiEnabled()) {
+    const err = new Error(
+      `Cannot enable Deeper Look — ${AI_PAUSED_MESSAGE} Set AI_ENABLED=1 first.`
+    );
+    err.code = AI_PAUSED_CODE;
+    throw err;
+  }
   if (on && !claudeConfigured()) {
     const err = new Error(
       "Cannot enable Deeper Look — ANTHROPIC_API_KEY is not configured."
@@ -303,6 +329,15 @@ async function clearFailedDeeperLooks() {
  * Explicit user-triggered Claude analysis for one ticker.
  */
 async function requestDeeperLook(ticker, { mode = "long" } = {}) {
+  // Checked before anything else so a paused run can't spend Anthropic credits
+  // or record a health failure.
+  if (!isAiEnabled()) {
+    logPausedOnce("deeperLook.requestDeeperLook");
+    const err = new Error(AI_PAUSED_MESSAGE);
+    err.code = AI_PAUSED_CODE;
+    err.aiPaused = true;
+    throw err;
+  }
   if (!(await isDeeperLookEnabled())) {
     const err = new Error("Deeper Look is disabled.");
     err.code = "disabled";
@@ -341,12 +376,20 @@ async function requestDeeperLook(ticker, { mode = "long" } = {}) {
       entry.data.peers || []
     );
     analysis = await generateAnalysis(payload, { provider: "claude" });
+    if (analysis?.aiPaused) {
+      const err = new Error(AI_PAUSED_MESSAGE);
+      err.code = AI_PAUSED_CODE;
+      err.aiPaused = true;
+      throw err;
+    }
     analysis = applyNewsAgreementGuard(analysis, payload.newsAgreement);
     if (!analysis?.quip) {
       analysis.quip = parseQuip(await getFallbackJoke());
     }
     await recordClaudeSuccess();
   } catch (err) {
+    // A paused run is not a Claude failure — don't record health for it.
+    if (err?.aiPaused || err?.code === AI_PAUSED_CODE) throw err;
     await recordClaudeFailure(err);
     console.error(`[deeperLook] Claude failed for ${symbol}:`, err.message);
     const wrapped = new Error(

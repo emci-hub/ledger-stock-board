@@ -11,8 +11,20 @@ const {
 const { setSetting } = require("../services/usage");
 const { recordJobRun } = require("../services/jobRuns");
 const { prefetchBoardNewsAndPrices } = require("../services/boardBatchPrefetch");
+const { isAiPaused, logPausedOnce, AI_PAUSED_MESSAGE } = require("../lib/aiEnabled");
 
 async function retryMorningFailures(options = {}) {
+  if (isAiPaused()) {
+    logPausedOnce("retryMorningFailures");
+    return {
+      ok: true,
+      skipped: true,
+      reason: "ai_paused",
+      message: AI_PAUSED_MESSAGE,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+    };
+  }
   const startedAt = new Date().toISOString();
   const log = await loadMorningRefreshFailures();
   const failures = Array.isArray(log?.failures) ? log.failures : [];

@@ -10,6 +10,7 @@ Read this first, every session. This is the Code-side twin of the "Stock Big" Cl
 - Turso (hosted libSQL/SQLite via @libsql/client, async)
 - Hosting: Render free tier; UptimeRobot pings /healthz every 5 min
 - Data sources: Twelve Data (price/indicators) · Alpha Vantage (analyst target + fallback news, 25/day) · Finnhub (peers/earnings) · Marketaux (primary news) · Gemini (synthesis, model via GEMINI_MODEL env) · Claude (manual "Deeper Look" button only, never automated)
+- **AI kill switch:** Gemini/Claude are **off unless `AI_ENABLED=1`**. See "AI kill switch" below. Paper sync is unaffected.
 - Repo: emci-hub/ledger-stock-board (public)
 
 ## Screens and routes
@@ -70,6 +71,18 @@ curl -sS -X POST https://stocks.emgens.com/api/paper/sync \
 - `node scripts/seedPaperRun.js [--force]` — load the seed on demand.
 
 Oct 15 scorecards in the seed are marked `derived: true` and the page labels them "derived from rubric": they were computed from each account's own published A–F rubric, not hand-entered. Replace them with recorded cards on the next sync.
+
+## AI kill switch (`AI_ENABLED`)
+AI is **off by default**. Set `AI_ENABLED=1` (or `true` / `yes` / `on`) in the environment to turn Gemini and Claude back on. Anything else, including unset, pauses AI.
+
+While paused:
+- `lib/aiProvider.js` `generateAnalysis` / `generateJson` return a graceful paused result and **do not call any model API**. The Gemini and Claude providers have the same backstop, so Deeper Look cannot sneak a call through.
+- The 07:00 UTC discovery/refresh/mood/didYouKnow job and the 13:00 UTC morning-failure retry **do not run**. The boot-time `refreshBoard` heal and missing-analysis Gemini repair also skip.
+- On-demand AI endpoints answer with `{ ok: false, aiPaused: true, code: "ai_paused", message: "AI analysis is paused…" }` — `POST /api/analyze` and `POST /api/stock/:ticker/deeper-look` return **503**; `GET /api/analyze/availability` returns **200** with `available: 0`. Stored Deeper Looks remain readable.
+- The family board keeps showing stored prices/analyses and a quiet "AI analysis paused" note. It never shows an error for the pause itself.
+- **`POST /api/paper/sync` is not AI** and keeps working.
+
+To resume: set `AI_ENABLED=1` on Render and redeploy. Do not set it unless you mean to spend Gemini/Claude tokens again.
 
 ## Rules that don't change
 1. Real data or a clear "unavailable" label — never an AI-guessed number presented as real.

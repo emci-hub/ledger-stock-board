@@ -3,6 +3,7 @@
  */
 
 const { generateJson } = require("../lib/aiProvider");
+const { isAiPaused, logPausedOnce, AI_PAUSED_MESSAGE } = require("../lib/aiEnabled");
 const { getSetting, setSetting, getPacificDateString } = require("./usage");
 const { listLiveBoardPicks } = require("../lib/boardPicks");
 const { getStockCacheEntry, getCachedSummary } = require("./cache");
@@ -21,6 +22,19 @@ async function loadMood() {
 }
 
 async function refreshMarketMood() {
+  if (isAiPaused()) {
+    logPausedOnce("refreshMarketMood");
+    const cached = await loadMood();
+    return (
+      cached || {
+        text: AI_PAUSED_MESSAGE,
+        at: new Date().toISOString(),
+        date: getPacificDateString(),
+        count: 0,
+        aiPaused: true,
+      }
+    );
+  }
   const picks = await listLiveBoardPicks();
   const snapshots = [];
 

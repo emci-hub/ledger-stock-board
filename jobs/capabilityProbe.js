@@ -15,6 +15,7 @@ const {
 } = require("../services/dataFetch");
 const { incrementUsage, PROVIDERS, getSetting, setSetting } = require("../services/usage");
 const { hasSourceKey } = require("../lib/dataSources");
+const { isAiEnabled } = require("../lib/aiEnabled");
 
 const PROBE_TICKER = "AAPL";
 const SETTING_KEY = "lastCapabilityProbe";
@@ -130,6 +131,10 @@ function isGeminiRateLimit(err, body) {
 }
 
 async function probeGemini() {
+  // The probe is a real Gemini call — skip it entirely while AI is paused.
+  if (!isAiEnabled()) {
+    return { skipped: true, reason: "ai_paused" };
+  }
   if (!hasSourceKey("gemini")) {
     return { skipped: true, reason: "no_key" };
   }

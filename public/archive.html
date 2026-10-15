@@ -197,9 +197,13 @@
     availability = data || { available: 0 };
     const n = Number(availability.available) || 0;
     const el = document.getElementById("avail-label");
-    el.textContent = n === 1
-      ? "1 full analysis available today"
-      : `${n} full analyses available today`;
+    if (availability.aiPaused) {
+      el.textContent = availability.message || "AI analysis paused";
+    } else {
+      el.textContent = n === 1
+        ? "1 full analysis available today"
+        : `${n} full analyses available today`;
+    }
     el.classList.toggle("zero", n <= 0);
     const lock = availability.lock && availability.lock.inProgress;
     const disabled = busy || n <= 0 || lock;
@@ -322,6 +326,12 @@
         body: JSON.stringify({ ...body, password }),
       });
       const data = await res.json();
+      if (data.aiPaused || data.code === "ai_paused") {
+        msg.textContent = data.message || "AI analysis paused";
+        msg.className = "msg";
+        if (data.available != null) setAvailability(data);
+        return;
+      }
       if (res.status === 401) {
         msg.textContent = "Password incorrect — try again.";
         msg.className = "msg err";

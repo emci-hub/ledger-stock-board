@@ -136,19 +136,25 @@ function normalizeAccount(raw, idx, errors) {
   if (!id) errors.push(`${label}.id is required`);
   const currency = trimOrNull(raw.currency);
   if (!currency) errors.push(`${label}.currency is required`);
-  if (finiteOrNull(raw.value) == null) {
+  // A watchlist is a graded research list, not a paper balance. Missing value
+  // stays null (Number(null) is 0, so it cannot go through finiteOrNull).
+  const watchlist = raw.kind === "watchlist";
+  const value = watchlist && (raw.value == null || raw.value === "") ? null : finiteOrNull(raw.value);
+  if (value == null && !watchlist) {
     errors.push(`${label}.value must be a number`);
   }
+  const optionalMoney = (field) =>
+    watchlist && (raw[field] == null || raw[field] === "") ? null : finiteOrNull(raw[field]);
 
   return {
     ...raw,
     id: id || "",
     name: trimOrNull(raw.name) || id || "",
     currency: currency || "",
-    cash: finiteOrNull(raw.cash),
-    value: finiteOrNull(raw.value),
-    startValue: finiteOrNull(raw.startValue),
-    returnPct: finiteOrNull(raw.returnPct),
+    cash: optionalMoney("cash"),
+    value,
+    startValue: optionalMoney("startValue"),
+    returnPct: optionalMoney("returnPct"),
     benchmark: normalizeBenchmark(raw.benchmark, label, errors),
     projection: normalizeProjection(raw.projection, label, errors),
     equityCurve: normalizeEquityCurve(raw.equityCurve, label, errors),

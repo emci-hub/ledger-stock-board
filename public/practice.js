@@ -49,10 +49,22 @@
 
   function homeCard(account) {
     const paused = P.isAccountPaused(account);
-    const tone = paused ? "paused-card" : P.tone(account.returnPct);
+    const watchlist = P.isWatchlistAccount(account);
+    const tone = paused ? "paused-card" : watchlist ? "flat" : P.tone(account.returnPct);
     const label = P.displayLabel(account);
     const status = paused ? "paused" : "active";
     const id = P.escapeHtml(account.id);
+    const figures = watchlist
+      ? `<div>
+        <span class="hc-value wl-summary">${P.escapeHtml(P.watchlistSummary(account))}</span>
+      </div>
+      <div class="hc-bench">No paper balance</div>`
+      : `<div>
+        <span class="hc-value">${P.escapeHtml(P.money(account.value, account.currency))}</span>
+        <span class="hc-return ${P.toneText(account.returnPct)}">${P.escapeHtml(P.pct(account.returnPct))}</span>
+      </div>
+      <div class="hc-bench">${vsLine(account)}</div>
+      <div class="hc-spark">${P.sparklineSvg(account.equityCurve)}</div>`;
     return `<button type="button" class="home-card ${tone}" id="card-${id}"
         data-account="${id}" aria-controls="acct-panel">
       <div class="hc-top">
@@ -62,12 +74,7 @@
         </div>
         <span class="status-pill ${status}">${status}</span>
       </div>
-      <div>
-        <span class="hc-value">${P.escapeHtml(P.money(account.value, account.currency))}</span>
-        <span class="hc-return ${P.toneText(account.returnPct)}">${P.escapeHtml(P.pct(account.returnPct))}</span>
-      </div>
-      <div class="hc-bench">${vsLine(account)}</div>
-      <div class="hc-spark">${P.sparklineSvg(account.equityCurve)}</div>
+      ${figures}
     </button>`;
   }
 
@@ -113,6 +120,13 @@
       idPrefix: "home",
     });
     panel.dataset.account = activeId;
+
+    const intro = el("detail-intro");
+    if (intro) {
+      intro.textContent = P.isWatchlistAccount(account)
+        ? "One account at a time. Hot names today, then the graded long-term watchlist. Research only — no paper balance."
+        : "One account at a time. Scorecard, that account’s picks, its trades, then its chart, projection, lessons and rules.";
+    }
 
     if (pushHash !== false) {
       const next = `#${encodeURIComponent(activeId)}`;

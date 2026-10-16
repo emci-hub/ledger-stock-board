@@ -58,7 +58,7 @@
       ? `<div>
         <span class="hc-value wl-summary">${P.escapeHtml(P.watchlistSummary(account))}</span>
       </div>
-      <div class="hc-bench">No paper balance</div>`
+      <div class="hc-bench">${P.escapeHtml(P.watchlistBenchmarkLine(account))}</div>`
       : `<div>
         <span class="hc-value">${P.escapeHtml(P.money(account.value, account.currency))}</span>
         <span class="hc-return ${P.toneText(account.returnPct)}">${P.escapeHtml(P.pct(account.returnPct))}</span>

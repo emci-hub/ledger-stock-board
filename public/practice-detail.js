@@ -396,11 +396,97 @@
       </header>`;
   }
 
+  function watchlistHero(account, snapshot) {
+    const label = P.displayLabel(account);
+    return `${pausedBanner(account)}
+      <header class="acct-hero">
+        <p class="acct-kicker">${P.escapeHtml(account.id || "")}${
+          snapshot.day != null ? ` · day ${snapshot.day} of ${snapshot.totalDays || 10}` : ""
+        }</p>
+        <h1>${P.escapeHtml(P.displayName(account))}</h1>
+        ${label ? `<p class="hc-label">${P.escapeHtml(label)}</p>` : ""}
+        <div class="acct-value-row">
+          <span class="hc-value wl-summary">${P.escapeHtml(P.watchlistSummary(account))}</span>
+        </div>
+        <p class="section-intro">Research list — no paper balance on this account.</p>
+      </header>`;
+  }
+
+  function isCoreFlag(value) {
+    if (value === true || value === 1) return true;
+    if (value === false || value === 0 || value == null || value === "") return false;
+    const text = String(value).trim().toLowerCase();
+    return text === "true" || text === "yes";
+  }
+
+  function ratioPct(value) {
+    if (value == null || value === "") return "—";
+    if (value === "inf" || value === "Infinity" || value === Infinity) return "∞";
+    const num = Number(value);
+    if (!Number.isFinite(num)) return "—";
+    return `${(num * 100).toFixed(0)}%`;
+  }
+
+  /** Long-term watchlist view (account.kind === "watchlist"): hot today + graded list. Data only from the sync doc. */
+  function watchlistDetailHtml(account, snapshot, opts) {
+    const head = opts.compact ? compactHead(account, snapshot) : watchlistHero(account, snapshot);
+    const w = account.watchlist || {};
+    const rows = Array.isArray(w.items) ? w.items : [];
+    const hot = Array.isArray(account.hotToday) ? account.hotToday : [];
+    const esc = P.escapeHtml;
+    const hotHtml = hot.length
+      ? `<div class="wl-scroll"><table class="wl-table"><thead><tr><th>Ticker</th><th>Grade</th><th>Day %</th><th>Vol x</th><th>Why</th></tr></thead><tbody>${hot
+          .map((h) => {
+            const chg =
+              h.chg_pct == null || h.chg_pct === "" || !Number.isFinite(Number(h.chg_pct))
+                ? "—"
+                : Number(h.chg_pct).toFixed(2);
+            const chgClass =
+              chg === "—" ? "" : Number(h.chg_pct) < 0 ? "neg-text" : Number(h.chg_pct) > 0 ? "pos-text" : "";
+            return `<tr><td class="wl-tick">${esc(h.ticker)}</td><td class="wl-grade ${P.gradeClass(
+              h.grade
+            )}">${esc(h.grade || "—")}</td><td class="${chgClass}">${esc(chg)}</td><td>${
+              h.vol_x == null || h.vol_x === "" ? "—" : esc(String(h.vol_x))
+            }</td><td>${esc(h.why || "")}</td></tr>`;
+          })
+          .join("")}</tbody></table></div>`
+      : empty("Nothing hot today.");
+    const listHtml = rows.length
+      ? `<div class="wl-scroll"><table class="wl-table"><thead><tr><th>Grade</th><th>Ticker</th><th>ROIC</th><th>GM</th><th>Rev g</th><th>D/E</th><th>Disruption</th><th>Note</th></tr></thead><tbody>${rows
+          .map(
+            (r) =>
+              `<tr><td class="wl-grade ${P.gradeClass(r.grade)}">${esc(r.grade || "—")}</td><td class="wl-tick">${esc(
+                r.ticker
+              )}${isCoreFlag(r.core) ? " ★" : ""}</td><td>${ratioPct(r.ROIC)}</td><td>${ratioPct(
+                r.GM
+              )}</td><td>${ratioPct(r.rev_growth)}</td><td>${
+                r.DE == null || r.DE === "" ? "—" : esc(String(r.DE))
+              }</td><td>${esc(r.disruption || "—")}</td><td>${esc(r.note || "")}</td></tr>`
+          )
+          .join("")}</tbody></table></div>`
+      : empty("No watchlist on this snapshot.");
+    const hotIntro = w.hotAsOf ? `Prices as of ${w.hotAsOf}. ` : "";
+    const listIntro = `${w.rubric || ""}${w.asOf ? `${w.rubric ? " " : ""}As of ${w.asOf}.` : ""}`;
+    return `${head}
+      <div class="detail-grid">
+        <div class="detail-col detail-col-left">
+          <section class="section"><div class="section-label">Hot today</div>
+            <p class="section-intro">${esc(`${hotIntro}Research only — not advice.`)}</p>${hotHtml}</section>
+        </div>
+        <div class="detail-col detail-col-mid detail-col-watchlist">
+          <section class="section"><div class="section-label">Graded watchlist</div>
+            <p class="section-intro">${esc(listIntro)}</p>${listHtml}</section>
+        </div>
+      </div>`;
+  }
+
   /**
    * One account’s four sections, in order. Used on / (compact) and /account/:id (full hero).
+   * A watchlist account (kind "watchlist") renders the hot-today list and graded table instead.
    */
   function accountDetailHtml(account, snapshot, options) {
     const opts = options || {};
+    if (P.isWatchlistAccount(account)) return watchlistDetailHtml(account, snapshot, opts);
     const prefix = opts.idPrefix || account.id || "acct";
     const head = opts.compact ? compactHead(account, snapshot) : hero(account, snapshot);
     const bench = P.benchmarkLabel(account);

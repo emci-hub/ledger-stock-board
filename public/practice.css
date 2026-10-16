@@ -544,3 +544,25 @@ footer{
   /* iOS zooms focused fields under 16px */
   input, textarea, select{font-size:16px;}
 }
+
+/* long-term watchlist view */
+.hc-value.wl-summary{
+  display:block;
+  font-size:clamp(0.95rem, 0.88rem + 0.35vw, 1.1rem);
+  letter-spacing:-0.02em;
+  white-space:normal;
+}
+@media (min-width:768px){
+  .detail-col-watchlist{grid-column:span 2;}
+}
+.wl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;}
+.wl-table{width:100%;border-collapse:collapse;font-size:13px}
+.wl-table th,.wl-table td{padding:4px 6px;border-bottom:1px solid rgba(127,127,127,.25);text-align:left;vertical-align:top}
+.wl-table th{font-weight:600;color:var(--muted);font-size:11px;letter-spacing:0.04em;text-transform:uppercase;}
+.wl-table td{color:var(--ink);}
+.wl-tick{font-family:'IBM Plex Mono',monospace;font-weight:600;white-space:nowrap;}
+.wl-grade{font-family:'IBM Plex Mono',monospace;font-weight:600;}
+.wl-grade.g-a{color:var(--green);}
+.wl-grade.g-b{color:var(--green-soft);}
+.wl-grade.g-c{color:var(--gold);}
+.wl-grade.g-d,.wl-grade.g-f{color:var(--rust);}

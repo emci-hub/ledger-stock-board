@@ -15,6 +15,7 @@
 
   /** Known ids first; every other synced id is appended, never dropped. */
   const PREFERRED_ORDER = [
+    "lt-watch",
     "us-swing",
     "ca-swing",
     "glb-branch",
@@ -23,6 +24,42 @@
     "us-day",
     "ca-day",
   ];
+
+  /** A is the best letter on the long-term rubric; F is the worst. */
+  const WATCHLIST_GRADE_RANK = { A: 0, B: 1, C: 2, D: 3, F: 4 };
+
+  function isWatchlistAccount(account) {
+    return String(account?.kind || "").toLowerCase() === "watchlist";
+  }
+
+  function watchlistItems(account) {
+    const items = account?.watchlist?.items;
+    return Array.isArray(items) ? items : [];
+  }
+
+  function topWatchlistGrade(items) {
+    let best = null;
+    let bestRank = Infinity;
+    for (const item of items) {
+      const letter = String(item?.grade || "")
+        .trim()
+        .charAt(0)
+        .toUpperCase();
+      const rank = WATCHLIST_GRADE_RANK[letter];
+      if (rank == null || rank >= bestRank) continue;
+      bestRank = rank;
+      best = letter;
+    }
+    return best;
+  }
+
+  /** Scoreboard line for a watchlist account, e.g. "35 names · top grade A". */
+  function watchlistSummary(account) {
+    const items = watchlistItems(account);
+    const names = `${items.length} name${items.length === 1 ? "" : "s"}`;
+    const top = topWatchlistGrade(items);
+    return top ? `${names} · top grade ${top}` : names;
+  }
 
   function escapeHtml(value) {
     return String(value ?? "")
@@ -395,6 +432,8 @@
     sortAccountsForDisplay,
     isAccountPaused,
     isSwingAccount,
+    isWatchlistAccount,
+    watchlistSummary,
     money,
     plainNum,
     pct,

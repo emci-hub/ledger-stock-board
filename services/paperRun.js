@@ -85,18 +85,29 @@ function asObjectArray(value, label, errors) {
   return out;
 }
 
-function normalizeBenchmark(value, label, errors) {
+function missingNumber(value) {
+  return value == null || value === "";
+}
+
+/**
+ * A watchlist has no paper balance, so a missing benchmark level must stay
+ * null. finiteOrNull(null) is 0 because Number(null) is 0, which the card
+ * would print as "SPY 0 / 0%".
+ */
+function normalizeBenchmark(value, label, errors, { preserveMissing = false } = {}) {
   if (!isPlainObject(value)) {
     errors.push(`${label}.benchmark is required and must be an object`);
     return null;
   }
   const ticker = trimOrNull(value.ticker);
   if (!ticker) errors.push(`${label}.benchmark.ticker is required`);
+  const num = (field) =>
+    preserveMissing && missingNumber(value[field]) ? null : finiteOrNull(value[field]);
   return {
     ...value,
     ticker: ticker || "",
-    value: finiteOrNull(value.value),
-    returnPct: finiteOrNull(value.returnPct),
+    value: num("value"),
+    returnPct: num("returnPct"),
   };
 }
 
@@ -155,7 +166,7 @@ function normalizeAccount(raw, idx, errors) {
     value,
     startValue: optionalMoney("startValue"),
     returnPct: optionalMoney("returnPct"),
-    benchmark: normalizeBenchmark(raw.benchmark, label, errors),
+    benchmark: normalizeBenchmark(raw.benchmark, label, errors, { preserveMissing: watchlist }),
     projection: normalizeProjection(raw.projection, label, errors),
     equityCurve: normalizeEquityCurve(raw.equityCurve, label, errors),
     positions: asObjectArray(raw.positions, `${label}.positions`, errors),

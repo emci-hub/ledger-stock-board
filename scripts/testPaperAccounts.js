@@ -12,6 +12,7 @@ const {
   isAccountPaused,
   isWatchlistAccount,
   watchlistSummary,
+  watchlistBenchmarkLine,
 } = require("../lib/paperAccounts");
 const { normalizeSnapshot, PaperSnapshotError } = require("../services/paperRun");
 const seed = require("../data/paper-run-seed.json");
@@ -125,6 +126,52 @@ assert.equal(accepted.accounts[0].startValue, null);
 assert.equal(accepted.accounts[0].returnPct, null);
 assert.equal(accepted.accounts[0].watchlist.items[1].ROIC, "inf");
 assert.equal(accepted.accounts[0].benchmark.ticker, "VOO");
+assert.equal(accepted.accounts[0].benchmark.value, null, "omitted benchmark value stays null");
+assert.equal(accepted.accounts[0].benchmark.returnPct, null, "omitted benchmark return stays null");
+assert.equal(watchlistBenchmarkLine(accepted.accounts[0]), "VOO —");
+
+const spyBlank = normalizeSnapshot({
+  accounts: [
+    watchlistAccount({
+      benchmark: { ticker: "SPY", name: "SPDR S&P 500 ETF", value: null, returnPct: null },
+    }),
+  ],
+});
+assert.equal(spyBlank.accounts[0].benchmark.ticker, "SPY");
+assert.equal(spyBlank.accounts[0].benchmark.value, null);
+assert.equal(spyBlank.accounts[0].benchmark.returnPct, null);
+assert.equal(watchlistBenchmarkLine(spyBlank.accounts[0]), "SPY —");
+
+const spyQuoted = normalizeSnapshot({
+  accounts: [
+    watchlistAccount({
+      benchmark: { ticker: "SPY", value: 512.4, returnPct: 1.25 },
+    }),
+  ],
+});
+assert.equal(spyQuoted.accounts[0].benchmark.value, 512.4);
+assert.equal(spyQuoted.accounts[0].benchmark.returnPct, 1.25);
+assert.equal(watchlistBenchmarkLine(spyQuoted.accounts[0]), "SPY 512.4 / 1.25%");
+
+const spyZero = normalizeSnapshot({
+  accounts: [watchlistAccount({ benchmark: { ticker: "SPY", value: 0, returnPct: 0 } })],
+});
+assert.equal(spyZero.accounts[0].benchmark.value, 0, "a real zero is kept");
+assert.equal(spyZero.accounts[0].benchmark.returnPct, 0);
+assert.equal(watchlistBenchmarkLine(spyZero.accounts[0]), "SPY 0 / 0%");
+
+const normalNullBench = normalizeSnapshot({
+  accounts: [
+    {
+      id: "us-swing",
+      currency: "USD",
+      value: 1000,
+      benchmark: { ticker: "VOO", value: null, returnPct: null },
+    },
+  ],
+});
+assert.equal(normalNullBench.accounts[0].benchmark.value, 0);
+assert.equal(normalNullBench.accounts[0].benchmark.returnPct, 0);
 
 const omitted = watchlistAccount();
 delete omitted.value;
@@ -181,9 +228,12 @@ assert.deepStrictEqual(
 
 const seedNorm = normalizeSnapshot(seed);
 assert.equal(seedNorm.accounts.length, seed.accounts.length);
-assert.equal(seedNorm.accounts.find((a) => a.id === "us-swing").value, 996.35);
+const seededSwing = seedNorm.accounts.find((a) => a.id === "us-swing");
+assert.equal(seededSwing.value, 996.35);
+assert.equal(seededSwing.benchmark.value, 1003.75);
+assert.equal(seededSwing.benchmark.returnPct, 0.37);
 assert.equal(seedNorm.accounts.find((a) => a.id === "glb-branch").benchmark.ticker, "VOO");
 
 console.log(
-  "paperAccounts: ok — glb-branch kept, lt-watch sorts first, watchlist value may be null, nothing dropped"
+  "paperAccounts: ok — glb-branch kept, lt-watch sorts first, watchlist benchmark null stays null"
 );

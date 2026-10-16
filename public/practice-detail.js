@@ -381,7 +381,7 @@
       </header>`;
   }
 
-  function compactHead(account, snapshot) {
+  function compactHead(account, snapshot, extraHtml) {
     const label = P.displayLabel(account);
     return `${pausedBanner(account)}
       <header class="detail-head">
@@ -391,9 +391,14 @@
           }</p>
           <h2>${P.escapeHtml(P.displayName(account))}</h2>
           ${label ? `<p class="hc-label">${P.escapeHtml(label)}</p>` : ""}
+          ${extraHtml || ""}
         </div>
         <a class="page-link" href="${P.accountHref(account)}">Full page →</a>
       </header>`;
+  }
+
+  function watchlistBenchmarkHtml(account) {
+    return `<p class="hc-bench wl-bench">${P.escapeHtml(P.watchlistBenchmarkLine(account))}</p>`;
   }
 
   function watchlistHero(account, snapshot) {
@@ -408,6 +413,7 @@
         <div class="acct-value-row">
           <span class="hc-value wl-summary">${P.escapeHtml(P.watchlistSummary(account))}</span>
         </div>
+        ${watchlistBenchmarkHtml(account)}
         <p class="section-intro">Research list — no paper balance on this account.</p>
       </header>`;
   }
@@ -429,7 +435,9 @@
 
   /** Long-term watchlist view (account.kind === "watchlist"): hot today + graded list. Data only from the sync doc. */
   function watchlistDetailHtml(account, snapshot, opts) {
-    const head = opts.compact ? compactHead(account, snapshot) : watchlistHero(account, snapshot);
+    const head = opts.compact
+      ? compactHead(account, snapshot, watchlistBenchmarkHtml(account))
+      : watchlistHero(account, snapshot);
     const w = account.watchlist || {};
     const rows = Array.isArray(w.items) ? w.items : [];
     const hot = Array.isArray(account.hotToday) ? account.hotToday : [];

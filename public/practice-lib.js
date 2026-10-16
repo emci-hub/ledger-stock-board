@@ -61,6 +61,30 @@
     return top ? `${names} · top grade ${top}` : names;
   }
 
+  function finiteMark(value) {
+    return typeof value === "number" && Number.isFinite(value);
+  }
+
+  function formatMarkNumber(value) {
+    const rounded = Math.round(value * 100) / 100;
+    return String(rounded);
+  }
+
+  /**
+   * Benchmark line for a watchlist card. Missing value and return stay a dash,
+   * so a null SPY level renders as "SPY —" rather than "SPY 0 / 0%".
+   */
+  function watchlistBenchmarkLine(account) {
+    const bench = account?.benchmark || {};
+    const ticker = String(bench.ticker || "").trim();
+    const hasValue = finiteMark(bench.value);
+    const hasReturn = finiteMark(bench.returnPct);
+    if (!hasValue && !hasReturn) return ticker ? `${ticker} —` : "—";
+    const valueText = hasValue ? formatMarkNumber(bench.value) : "—";
+    const returnText = hasReturn ? `${formatMarkNumber(bench.returnPct)}%` : "—";
+    return `${ticker ? `${ticker} ` : ""}${valueText} / ${returnText}`;
+  }
+
   function escapeHtml(value) {
     return String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -434,6 +458,7 @@
     isSwingAccount,
     isWatchlistAccount,
     watchlistSummary,
+    watchlistBenchmarkLine,
     money,
     plainNum,
     pct,

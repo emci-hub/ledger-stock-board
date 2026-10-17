@@ -36,7 +36,7 @@
       id: "lab",
       title: "Strategy Lab",
       summary:
-        "Four pretend US$1,000 accounts, each following one fixed strategy, picking only from the watchlist. We see which beats simply holding.",
+        "Five pretend US$1,000 accounts, each following one fixed strategy, picking only from the watchlist. We see which beats simply holding.",
       href: "/lab",
       hrefLabel: "Open Strategy Lab",
       muted: false,
@@ -61,6 +61,12 @@
             "Same idea with stricter safety rules: smaller bets, set exits, a profit-taking rule.",
         },
         {
+          id: "ghost-macro",
+          name: "Ghost Dip + market weather",
+          blurb:
+            "Red-teamed Ghost Dip, but holds off buying while the sector is sliding, fear (VIX) is high, junk bonds are weak, or a CPI/Fed day is near.",
+        },
+        {
           id: "momentum",
           name: "Breakout momentum",
           blurb: "Buys strong stocks hitting new highs on big volume, sells when the trend breaks.",
@@ -71,7 +77,7 @@
       id: "lab-backtest",
       title: "Strategy Lab, 3-month backtest",
       summary:
-        "The same three strategies replayed from mid-July with US$1,000 each, buying only on days their rules fired, then continuing live from Oct 19. Shows what could have happened. The AI check is replaced by fixed rules in the replay.",
+        "The same four strategies replayed from mid-July with US$1,000 each, buying only on days their rules fired, then continuing live from Oct 19. Shows what could have happened. The AI check is replaced by fixed rules in the replay.",
       href: "/lab#backtest",
       hrefLabel: "See the replay",
       muted: false,
@@ -90,6 +96,14 @@
           name: "Ghost Dip, red-teamed (backtest)",
           blurb:
             "Same idea with stricter safety rules: smaller bets, set exits, a profit-taking rule. (replayed from Jul 16)",
+          badge: "Backtest",
+          started: "2026-07-16",
+        },
+        {
+          id: "bt-ghost-macro",
+          name: "Ghost Dip + market weather (backtest)",
+          blurb:
+            "Red-teamed Ghost Dip, but holds off buying while the sector is sliding, fear (VIX) is high, junk bonds are weak, or a CPI/Fed day is near. (replayed from Jul 16)",
           badge: "Backtest",
           started: "2026-07-16",
         },

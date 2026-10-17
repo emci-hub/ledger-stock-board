@@ -85,6 +85,14 @@ function backtestAccounts() {
     }),
     paperAccount({
       ...shared,
+      id: "bt-ghost-macro",
+      name: "BT-GHOST-MACRO",
+      value: 1055,
+      returnPct: 5.5,
+      cash: 280,
+    }),
+    paperAccount({
+      ...shared,
       id: "bt-momentum",
       name: "BT-MOMENTUM",
       value: 1110,
@@ -126,6 +134,12 @@ function buildSampleSnapshot() {
       label: "Gemini Ghost playbook as written",
       value: null,
       signals,
+    }),
+    paperAccount({
+      id: "ghost-macro",
+      name: "GHOST-MACRO",
+      label: "Ghost dip plus market weather",
+      value: null,
     }),
     paperAccount({
       id: "momentum",

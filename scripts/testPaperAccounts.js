@@ -85,6 +85,7 @@ assert.equal(displayName({ id: "ca-swing", name: "CA swing" }), "Canadian swing"
 assert.equal(displayName({ id: "baseline", name: "BASELINE" }), "Buy & hold A/B names, the bar to beat");
 assert.equal(displayName({ id: "ghost-orig" }), "Ghost Dip, Gemini version");
 assert.equal(displayName({ id: "us-ghost" }), "Ghost Dip, red-teamed");
+assert.equal(displayName({ id: "ghost-macro" }), "Ghost Dip + market weather");
 assert.equal(displayName({ id: "momentum" }), "Breakout momentum");
 assert.equal(displayName({ id: "lottery-ca" }), "Lottery (high-risk small bets)");
 assert.equal(isAccountPaused({ id: "ca-day", status: "paused" }), true);
@@ -103,6 +104,10 @@ assert.equal(
   "Same idea with stricter safety rules: smaller bets, set exits, a profit-taking rule."
 );
 assert.equal(
+  accountBlurb({ id: "ghost-macro" }),
+  "Red-teamed Ghost Dip, but holds off buying while the sector is sliding, fear (VIX) is high, junk bonds are weak, or a CPI/Fed day is near."
+);
+assert.equal(
   accountBlurb({ id: "momentum" }),
   "Buys strong stocks hitting new highs on big volume, sells when the trend breaks."
 );
@@ -112,10 +117,15 @@ assert.equal(
 );
 assert.equal(displayName({ id: "bt-ghost-orig" }), "Ghost Dip, Gemini (backtest)");
 assert.equal(displayName({ id: "bt-ghost-fixed" }), "Ghost Dip, red-teamed (backtest)");
+assert.equal(displayName({ id: "bt-ghost-macro" }), "Ghost Dip + market weather (backtest)");
 assert.equal(displayName({ id: "bt-momentum" }), "Breakout momentum (backtest)");
 assert.equal(
   accountBlurb({ id: "bt-ghost-orig" }),
   "Waits for a great company to drop hard, checks why with AI, buys once the chart turns up. (replayed from Jul 16)"
+);
+assert.equal(
+  accountBlurb({ id: "bt-ghost-macro" }),
+  "Red-teamed Ghost Dip, but holds off buying while the sector is sliding, fear (VIX) is high, junk bonds are weak, or a CPI/Fed day is near. (replayed from Jul 16)"
 );
 assert.equal(
   accountBlurb({ id: "bt-momentum" }),
@@ -129,6 +139,7 @@ const withBacktest = groupAccounts([
   { id: "bt-ghost-orig" },
   { id: "baseline" },
   { id: "bt-ghost-fixed" },
+  { id: "bt-ghost-macro" },
 ]);
 assert.deepStrictEqual(
   withBacktest.map((group) => group.id),
@@ -136,13 +147,13 @@ assert.deepStrictEqual(
 );
 assert.equal(
   withBacktest[1].summary,
-  "The same three strategies replayed from mid-July with US$1,000 each, buying only on days their rules fired, then continuing live from Oct 19. Shows what could have happened. The AI check is replaced by fixed rules in the replay."
+  "The same four strategies replayed from mid-July with US$1,000 each, buying only on days their rules fired, then continuing live from Oct 19. Shows what could have happened. The AI check is replaced by fixed rules in the replay."
 );
 assert.deepStrictEqual(
   withBacktest[1].accounts.map((account) => account.id),
-  ["bt-ghost-orig", "bt-ghost-fixed", "bt-momentum"]
+  ["bt-ghost-orig", "bt-ghost-fixed", "bt-ghost-macro", "bt-momentum"]
 );
-assert.equal(withBacktest[1].accounts.length + withBacktest[0].accounts.length + withBacktest[2].accounts.length, 6);
+assert.equal(withBacktest[1].accounts.length + withBacktest[0].accounts.length + withBacktest[2].accounts.length, 7);
 
 const grouped = groupAccounts([
   { id: "us-swing" },
@@ -153,6 +164,7 @@ const grouped = groupAccounts([
   { id: "mystery" },
   { id: "ghost-orig" },
   { id: "us-ghost" },
+  { id: "ghost-macro" },
 ]);
 assert.deepStrictEqual(
   grouped.map((group) => group.id),
@@ -160,17 +172,17 @@ assert.deepStrictEqual(
 );
 assert.equal(
   grouped[1].summary,
-  "Four pretend US$1,000 accounts, each following one fixed strategy, picking only from the watchlist. We see which beats simply holding."
+  "Five pretend US$1,000 accounts, each following one fixed strategy, picking only from the watchlist. We see which beats simply holding."
 );
 assert.deepStrictEqual(
   grouped[1].accounts.map((account) => account.id),
-  ["baseline", "ghost-orig", "us-ghost", "momentum"]
+  ["baseline", "ghost-orig", "us-ghost", "ghost-macro", "momentum"]
 );
 assert.equal(grouped[3].collapsed, true);
 assert.equal(grouped.length, 5);
 assert.equal(
   grouped.reduce((n, group) => n + group.accounts.length, 0),
-  8,
+  9,
   "grouping never drops an id"
 );
 

@@ -18,6 +18,8 @@ const {
   displayLabel,
   displayStatus,
   missingValueLabel,
+  groupAccounts,
+  accountBlurb,
 } = require("../lib/paperAccounts");
 const { normalizeSnapshot, PaperSnapshotError } = require("../services/paperRun");
 const seed = require("../data/paper-run-seed.json");
@@ -43,8 +45,8 @@ const mixed = [
 const sorted = sortAccountsForDisplay(mixed);
 assert.deepStrictEqual(
   sorted.map((a) => a.id),
-  ["glb-branch", "lottery-ca", "us-day", "zzz-future", "mystery", "us-swing"],
-  "known ids sort first; unknown ids follow; us-swing is last when present"
+  ["us-day", "glb-branch", "lottery-ca", "us-swing", "zzz-future", "mystery"],
+  "sections first, then unknown ids; us-swing stays inside older experiments"
 );
 assert.equal(sorted.length, mixed.length, "sort never drops ids");
 
@@ -65,11 +67,11 @@ const withWatch = sortAccountsForDisplay([
 ]);
 assert.deepStrictEqual(
   withWatch.map((a) => a.id),
-  ["lt-watch", "ca-swing", "zzz-future", "us-swing"],
-  "lt-watch sorts first; us-swing is last when present"
+  ["lt-watch", "ca-swing", "us-swing", "zzz-future"],
+  "watchlist, then older experiments, then unknown ids"
 );
 assert.equal(PREFERRED_ORDER[0], "lt-watch");
-assert.equal(PREFERRED_ORDER.includes("us-swing"), false);
+assert.equal(PREFERRED_ORDER[PREFERRED_ORDER.length - 1], "us-swing");
 assert.equal(SHELVED_LAST_ID, "us-swing");
 assert.equal(withWatch.length, 4, "watchlist sort never drops ids");
 
@@ -77,27 +79,77 @@ assert.equal(displayName({ id: "us-day", name: "US-DAY", label: "US day trading 
 assert.equal(displayLabel({ id: "us-day", name: "US-DAY", label: "US day trading (paused)" }), "");
 assert.equal(isAccountPaused({ id: "us-day", status: "paused", paused: true }), false);
 assert.equal(displayStatus({ id: "us-day", status: "paused" }), "active");
-assert.equal(displayName({ id: "us-swing", name: "US-SWING" }), "US Swing (shelved)");
+assert.equal(displayName({ id: "us-swing", name: "US-SWING" }), "US swing (shelved, tracking last positions)");
 assert.equal(displayStatus({ id: "us-swing", status: "active" }), "shelved");
-assert.equal(displayName({ id: "ca-swing", name: "CA swing" }), "CA swing");
+assert.equal(displayName({ id: "ca-swing", name: "CA swing" }), "Canadian swing");
+assert.equal(displayName({ id: "baseline", name: "BASELINE" }), "Buy & hold A/B names, the bar to beat");
+assert.equal(displayName({ id: "ghost-orig" }), "Ghost Dip, Gemini version");
+assert.equal(displayName({ id: "us-ghost" }), "Ghost Dip, red-teamed");
+assert.equal(displayName({ id: "momentum" }), "Breakout momentum");
+assert.equal(displayName({ id: "lottery-ca" }), "Lottery (high-risk small bets)");
 assert.equal(isAccountPaused({ id: "ca-day", status: "paused" }), true);
 assert.equal(missingValueLabel({ id: "ghost-orig", value: null }), "Starts at next sync");
-assert.equal(missingValueLabel({ id: "us-ghost" }), "Starts at next sync");
-assert.equal(missingValueLabel({ id: "momentum" }), "Starts at next sync");
-assert.equal(missingValueLabel({ id: "baseline" }), "Starts at next sync");
-assert.equal(missingValueLabel({ id: "us-day" }), "Starts at next sync");
-assert.equal(missingValueLabel({ id: "ca-swing", value: null }), "unavailable");
+assert.equal(missingValueLabel({ id: "ca-swing", value: null }), "Starts at next sync");
+assert.equal(
+  accountBlurb({ id: "baseline" }),
+  "Bought the top-graded stocks once and holds them. The bar to beat."
+);
+assert.equal(
+  accountBlurb({ id: "ghost-orig" }),
+  "Waits for a great company to drop hard, checks why with AI, buys once the chart turns up."
+);
+assert.equal(
+  accountBlurb({ id: "us-ghost" }),
+  "Same idea with stricter safety rules: smaller bets, set exits, a profit-taking rule."
+);
+assert.equal(
+  accountBlurb({ id: "momentum" }),
+  "Buys strong stocks hitting new highs on big volume, sells when the trend breaks."
+);
+assert.equal(
+  accountBlurb({ id: "us-day" }),
+  "Buy-and-hold quality companies in small steps, rules frozen while we test."
+);
+
+const grouped = groupAccounts([
+  { id: "us-swing" },
+  { id: "momentum" },
+  { id: "lt-watch" },
+  { id: "us-day" },
+  { id: "baseline" },
+  { id: "mystery" },
+  { id: "ghost-orig" },
+  { id: "us-ghost" },
+]);
+assert.deepStrictEqual(
+  grouped.map((group) => group.id),
+  ["watchlist", "lab", "long-term", "older", "other"]
+);
+assert.equal(
+  grouped[1].summary,
+  "Four pretend US$1,000 accounts, each following one fixed strategy, picking only from the watchlist. We see which beats simply holding."
+);
+assert.deepStrictEqual(
+  grouped[1].accounts.map((account) => account.id),
+  ["baseline", "ghost-orig", "us-ghost", "momentum"]
+);
+assert.equal(grouped[3].collapsed, true);
+assert.equal(grouped.length, 5);
+assert.equal(
+  grouped.reduce((n, group) => n + group.accounts.length, 0),
+  8,
+  "grouping never drops an id"
+);
 
 const practiceLib = fs.readFileSync(path.join(__dirname, "..", "public", "practice-lib.js"), "utf8");
-const orderBlock = practiceLib.slice(
-  practiceLib.indexOf("const PREFERRED_ORDER"),
-  practiceLib.indexOf("];", practiceLib.indexOf("const PREFERRED_ORDER")) + 2
-);
-assert.ok(orderBlock.indexOf('"lt-watch"') !== -1, "practice-lib preferred order includes lt-watch");
-assert.equal(orderBlock.indexOf('"us-swing"'), -1, "practice-lib preferred order does not pin us-swing");
-assert.ok(practiceLib.includes("US Long-Term v5"), "practice-lib labels us-day");
-assert.ok(practiceLib.includes("US Swing (shelved)"), "practice-lib labels us-swing");
-assert.ok(practiceLib.includes("Starts at next sync"), "practice-lib names the waiting lab value");
+const groupFile = fs.readFileSync(path.join(__dirname, "..", "public", "account-groups.js"), "utf8");
+assert.ok(practiceLib.includes("AccountGroups"), "practice-lib reads the shared group map");
+assert.ok(groupFile.includes("US Long-Term v5"), "group map labels us-day");
+assert.ok(groupFile.includes("US swing (shelved, tracking last positions)"), "group map labels us-swing");
+assert.ok(practiceLib.includes("Starts at next sync"), "practice-lib names the waiting value");
+const serverSrc = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+assert.ok(serverSrc.includes('app.get("/strategy-lab"'), "strategy-lab redirects toward /lab");
+assert.ok(serverSrc.includes('res.redirect(302, "/lab")'), "strategy-lab redirect target is /lab");
 
 const graded = Array.from({ length: 35 }, (_, i) => ({
   ticker: `T${i}`,
@@ -150,7 +202,7 @@ assert.equal(accepted.accounts[0].watchlist.items[1].ROIC, "inf");
 assert.equal(accepted.accounts[0].benchmark.ticker, "VOO");
 assert.equal(accepted.accounts[0].benchmark.value, null, "omitted benchmark value stays null");
 assert.equal(accepted.accounts[0].benchmark.returnPct, null, "omitted benchmark return stays null");
-assert.equal(watchlistBenchmarkLine(accepted.accounts[0]), "VOO —");
+assert.equal(watchlistBenchmarkLine(accepted.accounts[0]), "");
 
 const spyBlank = normalizeSnapshot({
   accounts: [
@@ -162,7 +214,7 @@ const spyBlank = normalizeSnapshot({
 assert.equal(spyBlank.accounts[0].benchmark.ticker, "SPY");
 assert.equal(spyBlank.accounts[0].benchmark.value, null);
 assert.equal(spyBlank.accounts[0].benchmark.returnPct, null);
-assert.equal(watchlistBenchmarkLine(spyBlank.accounts[0]), "SPY —");
+assert.equal(watchlistBenchmarkLine(spyBlank.accounts[0]), "");
 
 const spyQuoted = normalizeSnapshot({
   accounts: [
@@ -245,7 +297,7 @@ const seedSorted = sortAccountsForDisplay(seed.accounts);
 assert.equal(seedSorted.length, seed.accounts.length);
 assert.deepStrictEqual(
   seedSorted.map((a) => a.id),
-  ["ca-swing", "glb-branch", "lottery-us", "lottery-ca", "us-day", "ca-day", "us-swing"]
+  ["us-day", "ca-swing", "glb-branch", "lottery-us", "lottery-ca", "ca-day", "us-swing"]
 );
 
 const seedNorm = normalizeSnapshot(seed);

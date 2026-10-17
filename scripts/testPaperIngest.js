@@ -177,7 +177,7 @@ assert.equal(board.qqqReturn, 0);
 assert.equal(board.rows.length, 5);
 assert.deepStrictEqual(
   board.rows.map((row) => row.id),
-  ["ghost-orig", "us-ghost", "momentum", "baseline", "us-day"]
+  ["baseline", "ghost-orig", "us-ghost", "momentum", "us-day"]
 );
 const usDay = board.rows.find((row) => row.id === "us-day");
 assert.equal(usDay.role, "US Long-Term v5");

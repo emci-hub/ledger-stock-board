@@ -336,42 +336,52 @@
     </div>`;
   }
 
+  function shownMoney(value, currency, decimals) {
+    if (!P.isNum(value)) return "—";
+    return P.money(value, currency, decimals);
+  }
+
   function hero(account, snapshot) {
     const paused = P.isAccountPaused(account);
-    const label = P.displayLabel(account);
+    const blurb = P.accountBlurb(account);
     const delta = P.benchmarkDelta(account);
     const bench = P.benchmarkLabel(account);
     const vs = P.isNum(delta)
       ? `<span class="${P.toneText(delta)}">${delta > 0 ? "+" : ""}${delta.toFixed(2)} pts vs ${P.escapeHtml(
           bench
         )}</span>`
-      : `<span class="flat-text">vs ${P.escapeHtml(bench)} unavailable</span>`;
+      : "";
+    const ret = P.isNum(account.returnPct)
+      ? `<span class="hc-return ${P.toneText(account.returnPct)}">${P.escapeHtml(P.pct(account.returnPct))}</span>`
+      : "";
     return `${pausedBanner(account)}
       <header class="acct-hero">
         <p class="acct-kicker">${P.escapeHtml(account.id || "")}${
           snapshot.day != null ? ` · day ${snapshot.day} of ${snapshot.totalDays || 10}` : ""
         }</p>
         <h1>${P.escapeHtml(P.displayName(account))}</h1>
-        ${label ? `<p class="hc-label">${P.escapeHtml(label)}</p>` : ""}
+        ${blurb ? `<p class="hc-blurb">${P.escapeHtml(blurb)}</p>` : ""}
         <div class="acct-value-row">
           <span class="hc-value">${P.escapeHtml(P.accountValueText(account))}</span>
-          <span class="hc-return ${P.toneText(account.returnPct)}">${P.escapeHtml(
-            P.pct(account.returnPct)
-          )}</span>
+          ${ret}
         </div>
         <dl class="acct-stats">
           <div class="acct-stat">
             <dt>Started</dt>
-            <dd>${P.escapeHtml(P.money(account.startValue, account.currency, 0))}</dd>
+            <dd>${P.escapeHtml(shownMoney(account.startValue, account.currency, 0))}</dd>
           </div>
           <div class="acct-stat">
             <dt>Cash</dt>
-            <dd>${P.escapeHtml(P.money(account.cash, account.currency))}</dd>
+            <dd>${P.escapeHtml(shownMoney(account.cash, account.currency))}</dd>
           </div>
-          <div class="acct-stat">
+          ${
+            vs
+              ? `<div class="acct-stat">
             <dt>vs ${P.escapeHtml(bench)}</dt>
             <dd>${vs}</dd>
-          </div>
+          </div>`
+              : ""
+          }
           <div class="acct-stat">
             <dt>Status</dt>
             <dd>${P.escapeHtml(P.displayStatus(account).replace(/^./, (c) => c.toUpperCase()))}</dd>
@@ -386,7 +396,7 @@
   }
 
   function compactHead(account, snapshot, extraHtml) {
-    const label = P.displayLabel(account);
+    const blurb = P.accountBlurb(account);
     return `${pausedBanner(account)}
       <header class="detail-head">
         <div>
@@ -394,7 +404,7 @@
             snapshot.day != null ? ` · day ${snapshot.day} of ${snapshot.totalDays || 10}` : ""
           }</p>
           <h2>${P.escapeHtml(P.displayName(account))}</h2>
-          ${label ? `<p class="hc-label">${P.escapeHtml(label)}</p>` : ""}
+          ${blurb ? `<p class="hc-blurb">${P.escapeHtml(blurb)}</p>` : ""}
           ${extraHtml || ""}
         </div>
         <a class="page-link" href="${P.accountHref(account)}">Full page →</a>
@@ -402,18 +412,20 @@
   }
 
   function watchlistBenchmarkHtml(account) {
-    return `<p class="hc-bench wl-bench">${P.escapeHtml(P.watchlistBenchmarkLine(account))}</p>`;
+    const line = P.watchlistBenchmarkLine(account);
+    if (!line) return "";
+    return `<p class="hc-bench wl-bench">${P.escapeHtml(line)}</p>`;
   }
 
   function watchlistHero(account, snapshot) {
-    const label = P.displayLabel(account);
+    const blurb = P.accountBlurb(account);
     return `${pausedBanner(account)}
       <header class="acct-hero">
         <p class="acct-kicker">${P.escapeHtml(account.id || "")}${
           snapshot.day != null ? ` · day ${snapshot.day} of ${snapshot.totalDays || 10}` : ""
         }</p>
         <h1>${P.escapeHtml(P.displayName(account))}</h1>
-        ${label ? `<p class="hc-label">${P.escapeHtml(label)}</p>` : ""}
+        ${blurb ? `<p class="hc-blurb">${P.escapeHtml(blurb)}</p>` : ""}
         <div class="acct-value-row">
           <span class="hc-value wl-summary">${P.escapeHtml(P.watchlistSummary(account))}</span>
         </div>

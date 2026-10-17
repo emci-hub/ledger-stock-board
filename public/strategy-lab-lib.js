@@ -11,10 +11,10 @@
   else root.StrategyLab = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   const LAB_SPECS = [
-    { role: "Ghost original", ids: ["ghost-orig"] },
-    { role: "Ghost fixed", ids: ["us-ghost", "ghost-fixed"] },
-    { role: "Momentum", ids: ["momentum"] },
-    { role: "Baseline", ids: ["baseline"] },
+    { role: "Buy & hold A/B names, the bar to beat", ids: ["baseline"] },
+    { role: "Ghost Dip, Gemini version", ids: ["ghost-orig"] },
+    { role: "Ghost Dip, red-teamed", ids: ["us-ghost", "ghost-fixed"] },
+    { role: "Breakout momentum", ids: ["momentum"] },
     { role: "US Long-Term v5", ids: ["us-day"] },
   ];
   const TRADE_GOAL = 20;

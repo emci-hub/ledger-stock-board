@@ -30,7 +30,7 @@
         <span class="run-range" id="run-range"></span>
       </div>
     </div>
-    <p class="sub" id="run-note">Every synced account on one page. Open an account for its scorecard, picks, trades, and notes.</p>
+    <p class="sub" id="run-note">Paper accounts, grouped. Open one for its scorecard, picks, trades, and notes.</p>
   </header>
 
   <p class="advice" role="note"><strong>Advice only, not buy orders.</strong> Pretend money. Nothing here is a brokerage account.</p>
@@ -38,16 +38,21 @@
   <p class="state-msg" id="state-msg" role="status">Loading the latest snapshot…</p>
 
   <main id="dash" hidden>
+    <aside class="read-box" aria-label="How to read this site">
+      <h2>How to read this site</h2>
+      <ul>
+        <li>The watchlist is research. A grade is a checklist, not a buy order.</li>
+        <li>Strategy Lab is four pretend US$1,000 accounts. Each follows one fixed strategy and buys only from the watchlist.</li>
+        <li>Older experiments are earlier tests. They stay on the page so nothing is hidden, and they are not the main comparison.</li>
+      </ul>
+    </aside>
     <section id="bench-section" hidden>
       <div class="section-label">Benchmarks</div>
+      <p class="group-summary">SPY and QQQ are funds we compare against. The baseline is simply holding the top-graded names.</p>
       <div class="bench-strip" id="bench-strip"></div>
     </section>
-    <p class="count-line" id="pointers"></p>
-    <section>
-      <div class="section-label">Accounts</div>
-      <div class="card-grid" id="cards"></div>
-      <p class="home-foot" id="home-foot"></p>
-    </section>
+    <div id="groups"></div>
+    <p class="home-foot" id="home-foot"></p>
   </main>
 
   <footer>
@@ -61,6 +66,7 @@
   </footer>
 
 </div>
+<script src="/account-groups.js"></script>
 <script src="/practice-lib.js"></script>
 <script src="/strategy-lab-lib.js"></script>
 <script src="/overview.js"></script>

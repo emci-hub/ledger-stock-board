@@ -9,19 +9,19 @@
   const GRADES = ["A", "B", "C", "D", "F"];
 
   const COLS = [
-    { key: "grade", label: "Grade", tip: null, kind: "grade" },
-    { key: "ticker", label: "Name", tip: null, kind: "text" },
-    { key: "score", label: "Score", tip: null, kind: "num" },
-    { key: "roic3", label: "3-yr ROIC", tip: "roic3", kind: "pct", alts: ["ROIC"] },
-    { key: "gm3", label: "Gross margin", tip: "gm3", kind: "pct", alts: ["GM"] },
-    { key: "om3", label: "Op margin", tip: "om3", kind: "pct" },
-    { key: "rev_g", label: "Rev growth", tip: "rev_g", kind: "pct", alts: ["rev_growth"] },
-    { key: "netdebt_ebitda", label: "Net debt/EBITDA", tip: "netdebt_ebitda", kind: "num", alts: ["DE"] },
-    { key: "val_vs_hist", label: "Val vs history", tip: "val_vs_hist", kind: "num" },
-    { key: "disruption", label: "Disruption", tip: "disruption", kind: "text" },
-    { key: "capex_dip", label: "Capex dip", tip: "capex_dip", kind: "bool" },
-    { key: "core", label: "Core", tip: "grace", kind: "bool" },
-    { key: "fails", label: "Fail flags", tip: "grace", kind: "fails" },
+    { key: "grade", label: "Grade", plain: "Letter from the checklist. A is strongest, F fails.", tip: null, kind: "grade" },
+    { key: "ticker", label: "Name", plain: "The stock ticker.", tip: null, kind: "text" },
+    { key: "score", label: "Score", plain: "One number rolled up from the checks to the right.", tip: null, kind: "num" },
+    { key: "roic3", label: "3-yr ROIC", plain: "Profit earned on the money the company has invested, over three years.", tip: "roic3", kind: "pct", alts: ["ROIC"] },
+    { key: "gm3", label: "Gross margin", plain: "What's left from sales after the cost of making the product.", tip: "gm3", kind: "pct", alts: ["GM"] },
+    { key: "om3", label: "Op margin", plain: "What's left after the cost of running the business.", tip: "om3", kind: "pct" },
+    { key: "rev_g", label: "Rev growth", plain: "How much sales grew compared with a year ago.", tip: "rev_g", kind: "pct", alts: ["rev_growth"] },
+    { key: "netdebt_ebitda", label: "Net debt/EBITDA", plain: "How heavy the debt is next to yearly earnings. Lower is lighter.", tip: "netdebt_ebitda", kind: "num", alts: ["DE"] },
+    { key: "val_vs_hist", label: "Val vs history", plain: "Whether today's price is high or low versus this company's own past.", tip: "val_vs_hist", kind: "num" },
+    { key: "disruption", label: "Disruption", plain: "Whether a new technology could knock the business down.", tip: "disruption", kind: "text" },
+    { key: "capex_dip", label: "Capex dip", plain: "Whether a price drop lines up with a big spending plan.", tip: "capex_dip", kind: "bool" },
+    { key: "core", label: "Core", plain: "Yes if this name is one of the main holdings.", tip: "grace", kind: "bool" },
+    { key: "fails", label: "Fail flags", plain: "Checklist items this name did not pass.", tip: "grace", kind: "fails" },
   ];
 
   let stocks = [];
@@ -141,11 +141,14 @@
     const head = COLS.map((col) => {
       const sorted = col.key === sortKey;
       const tip = col.tip && explain[col.tip] ? explain[col.tip] : "";
+      const plain = col.plain ? `<span class="col-plain">${P.escapeHtml(col.plain)}</span>` : "";
       return `<th scope="col"><button type="button" class="th-btn" data-sort="${P.escapeHtml(col.key)}" data-tip="${P.escapeHtml(
         tip
-      )}" aria-sort="${sorted ? (sortDir < 0 ? "descending" : "ascending") : "none"}">${P.escapeHtml(col.label)}${
+      )}" aria-sort="${sorted ? (sortDir < 0 ? "descending" : "ascending") : "none"}" title="${P.escapeHtml(
+        col.plain || tip || col.label
+      )}">${P.escapeHtml(col.label)}${
         sorted ? (sortDir < 0 ? " ↓" : " ↑") : ""
-      }</button></th>`;
+      }</button>${plain}</th>`;
     }).join("");
     const body = rows
       .map((row) => `<tr>${COLS.map((col) => cell(row, col)).join("")}</tr>`)

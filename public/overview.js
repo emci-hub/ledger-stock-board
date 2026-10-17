@@ -17,10 +17,11 @@
   }
 
   function vsLine(account) {
-    if (P.isWatchlistAccount(account)) return P.watchlistBenchmarkLine(account);
+    const benchLine = P.watchlistBenchmarkLine(account);
+    if (P.isWatchlistAccount(account)) return benchLine;
     const bench = P.benchmarkLabel(account);
     const delta = P.benchmarkDelta(account);
-    if (!P.isNum(delta)) return `vs ${bench} unavailable`;
+    if (!P.isNum(delta)) return "";
     const abs = Math.abs(delta).toFixed(2);
     const word = delta > 0.0001 ? "ahead of" : delta < -0.0001 ? "behind" : "even with";
     return `${word} ${bench} by ${abs} pts`;
@@ -28,45 +29,52 @@
 
   function card(account) {
     const watchlist = P.isWatchlistAccount(account);
-    const label = P.displayLabel(account);
+    const blurb = P.accountBlurb(account);
     const status = P.displayStatus(account);
+    const vs = vsLine(account);
+    const ret = P.isNum(account.returnPct)
+      ? `<span class="hc-return ${P.toneText(account.returnPct)}">${P.escapeHtml(P.pct(account.returnPct))}</span>`
+      : "";
     const figures = watchlist
-      ? `<div class="hc-value">${P.escapeHtml(P.watchlistSummary(account))}</div>
-         <div class="hc-bench">${P.escapeHtml(P.watchlistBenchmarkLine(account))}</div>`
+      ? `<div class="hc-value">${P.escapeHtml(P.watchlistSummary(account))}</div>`
       : `<div>
            <span class="hc-value">${P.escapeHtml(P.accountValueText(account))}</span>
-           <span class="hc-return ${P.toneText(account.returnPct)}">${P.escapeHtml(P.pct(account.returnPct))}</span>
+           ${ret}
          </div>
-         <div class="hc-bench">${P.escapeHtml(vsLine(account))}</div>
+         ${vs ? `<div class="hc-bench">${P.escapeHtml(vs)}</div>` : ""}
          <div class="hc-spark">${P.sparklineSvg(account.equityCurve)}</div>`;
-    return `<a class="home-card" href="${P.accountHref(account)}">
+    return `<a class="home-card" href="${P.escapeHtml(P.cardHref(account))}">
       <div class="hc-top">
         <div>
           <div class="hc-name">${P.escapeHtml(P.displayName(account))}</div>
-          ${label ? `<div class="hc-label">${P.escapeHtml(label)}</div>` : ""}
-          <div class="hc-label">${P.escapeHtml(account.id || "")}</div>
+          ${blurb ? `<p class="hc-blurb">${P.escapeHtml(blurb)}</p>` : ""}
+          <div class="hc-id">${P.escapeHtml(account.id || "")}</div>
         </div>
-        <span class="status-pill">${status}</span>
+        ${watchlist ? "" : `<span class="status-pill">${P.escapeHtml(status)}</span>`}
       </div>
       ${figures}
     </a>`;
   }
 
   function moneyPct(value) {
-    if (!Lab.isNum(value)) return "unavailable";
+    if (!Lab.isNum(value)) return "";
     const sign = value > 0 ? "+" : "";
     return `${sign}${value.toFixed(2)}%`;
   }
 
-  function benchCard(title, start, now, ret) {
-    const level =
-      Lab.isNum(start) || Lab.isNum(now)
-        ? `${Lab.isNum(start) ? start.toLocaleString("en-CA") : "—"} → ${Lab.isNum(now) ? now.toLocaleString("en-CA") : "—"}`
-        : "Levels unavailable";
+  function benchCard(title, help, start, now, ret) {
+    const hasLevel = Lab.isNum(start) || Lab.isNum(now);
+    const level = hasLevel
+      ? `${Lab.isNum(start) ? start.toLocaleString("en-CA") : "—"} → ${Lab.isNum(now) ? now.toLocaleString("en-CA") : "—"}`
+      : "";
+    const retText = moneyPct(ret);
+    const waiting = !hasLevel && !retText;
     return `<article class="bench-card">
       <h2>${P.escapeHtml(title)}</h2>
-      <p>${P.escapeHtml(level)}</p>
-      <p class="${P.toneText(ret)}">${P.escapeHtml(moneyPct(ret))} since the lab start</p>
+      <p class="hc-blurb">${P.escapeHtml(help)}</p>
+      ${level ? `<p>${P.escapeHtml(level)}</p>` : ""}
+      ${retText ? `<p class="${P.toneText(ret)}">${P.escapeHtml(retText)} since the lab start</p>` : ""}
+      ${waiting ? `<p>Starts at next sync</p>` : ""}
     </article>`;
   }
 
@@ -95,28 +103,22 @@
     if (doc.lab) {
       bench.hidden = false;
       el("bench-strip").innerHTML = [
-        benchCard("SPY", board.spyStart, board.spyNow, board.spyReturn),
-        benchCard("QQQ", board.qqqStart, board.qqqNow, board.qqqReturn),
-        `<article class="bench-card"><h2>Baseline</h2><p>${P.escapeHtml(
-          board.baselineReturn == null ? "Return unavailable" : moneyPct(board.baselineReturn)
-        )}</p><p><a class="page-link" href="/lab">Open Strategy Lab</a></p></article>`,
+        benchCard("SPY", "The S&P 500 fund. A stand-in for the broad US market.", board.spyStart, board.spyNow, board.spyReturn),
+        benchCard("QQQ", "The Nasdaq-100 fund. More technology companies than SPY.", board.qqqStart, board.qqqNow, board.qqqReturn),
+        benchCard(
+          "Baseline",
+          "Buy the top-graded names and hold. The bar the other lab accounts have to beat.",
+          null,
+          null,
+          board.baselineReturn
+        ),
       ].join("");
     } else {
       bench.hidden = true;
     }
 
-    const names = doc.watchlist && Array.isArray(doc.watchlist.stocks) ? doc.watchlist.stocks.length : null;
-    const hot = doc.hot_today && Array.isArray(doc.hot_today.hot) ? doc.hot_today.hot.length : null;
-    const bits = [];
-    if (names != null) bits.push(`<a class="page-link" href="/watchlist">${names} watchlist names</a>`);
-    if (hot != null) bits.push(`<a class="page-link" href="/watchlist">${hot} hot today</a>`);
-    bits.push(`<a class="page-link" href="/lab">Strategy Lab</a>`);
-    el("pointers").innerHTML = bits.join(" · ");
-
-    el("cards").innerHTML = accounts.map(card).join("");
-    el("home-foot").textContent = `${accounts.length} account${accounts.length === 1 ? "" : "s"}: ${accounts
-      .map((a) => a.id)
-      .join(", ")}.`;
+    el("groups").innerHTML = P.groupSectionsHtml(accounts, card);
+    el("home-foot").textContent = `${accounts.length} account${accounts.length === 1 ? "" : "s"}, grouped below. Every synced id is shown.`;
     el("state-msg").hidden = true;
     el("dash").hidden = false;
   }

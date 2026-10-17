@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<title>Watchlist — Ledger</title>
+<meta name="description" content="Frozen AI and tech watchlist. Advice only, not buy orders.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/practice.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="site-nav" aria-label="Ledger">
+    <a href="/">Overview</a>
+    <a href="/watchlist" aria-current="page">Watchlist</a>
+    <a href="/lab">Strategy Lab</a>
+    <a href="/accounts">Accounts</a>
+  </nav>
+
+  <header class="page-head">
+    <p class="kicker" id="asof">Watchlist</p>
+    <h1>Watchlist</h1>
+    <p class="sub" id="method">The frozen AI and tech list. Grade, score, and every input that went into the grade.</p>
+  </header>
+
+  <p class="advice" role="note"><strong>Advice only, not buy orders.</strong> Grades are research. They are not instructions to buy or sell.</p>
+
+  <p class="state-msg" id="state-msg" role="status">Loading the watchlist…</p>
+
+  <main id="dash" hidden>
+    <section>
+      <div class="section-label">Hot today</div>
+      <p class="section-intro" id="hot-meta"></p>
+      <div id="hot-body"></div>
+    </section>
+
+    <details id="tape" hidden>
+      <summary id="tape-summary">Day tape for every watched name</summary>
+      <div id="tape-body"></div>
+    </details>
+
+    <section>
+      <div class="section-label">Graded names</div>
+      <div class="toolbar">
+        <div class="grade-filters" id="filters" role="group" aria-label="Filter by grade"></div>
+      </div>
+      <p class="count-line" id="wl-count"></p>
+      <p class="tip-live" id="tip-live" role="status">Tap a column heading to read what that input means.</p>
+      <div class="table-scroll">
+        <table class="wl-table" id="wl-table"></table>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Paper trading only — pretend money, no real trades.</span>
+    <span class="foot-links">
+      <a href="/lab">Strategy Lab</a>
+      <a href="/accounts">Accounts</a>
+      <a href="/board">Family board</a>
+    </span>
+  </footer>
+</div>
+<script src="/practice-lib.js"></script>
+<script src="/watchlist.js"></script>
+</body>
+</html>

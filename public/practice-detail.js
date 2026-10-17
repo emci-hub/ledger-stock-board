@@ -143,7 +143,7 @@
     const rows = account.positions || [];
     const swing = P.isSwingAccount(account);
     if (!rows.length) {
-      const note = account.valueNote ? ` ${account.valueNote}` : "";
+      const note = P.displayValueNote(account) ? ` ${P.displayValueNote(account)}` : "";
       return empty(`No open positions.${note}`);
     }
     return rows
@@ -309,8 +309,12 @@
     if (!s) return empty("No strategy summary on this snapshot.");
     const rules = Array.isArray(s.rules) ? s.rules.filter(Boolean) : [];
     const bench = s.benchmark || P.benchmarkLabel(account);
+    const summary =
+      String(account.id || "") === "us-day" && /paused/i.test(String(s.summary || ""))
+        ? ""
+        : s.summary || "";
     return `<article class="block strategy">
-      ${s.summary ? `<p>${P.escapeHtml(s.summary)}</p>` : ""}
+      ${summary ? `<p>${P.escapeHtml(summary)}</p>` : ""}
       ${s.framing ? `<p class="framing">${P.escapeHtml(s.framing)}</p>` : ""}
       ${bench ? `<p class="framing">Measured against ${P.escapeHtml(bench)}.</p>` : ""}
       ${rules.length ? `<ul>${rules.map((r) => `<li>${P.escapeHtml(r)}</li>`).join("")}</ul>` : ""}
@@ -327,7 +331,7 @@
     return `<div class="paused-banner" role="status">
       <b>Paused</b>
       <p>${P.escapeHtml(
-        account.valueNote || "This account is paused. Marks stay on the board; no new picks or trades."
+        P.displayValueNote(account) || "This account is paused. Marks stay on the board; no new picks or trades."
       )}</p>
     </div>`;
   }
@@ -350,7 +354,7 @@
         <h1>${P.escapeHtml(P.displayName(account))}</h1>
         ${label ? `<p class="hc-label">${P.escapeHtml(label)}</p>` : ""}
         <div class="acct-value-row">
-          <span class="hc-value">${P.escapeHtml(P.money(account.value, account.currency))}</span>
+          <span class="hc-value">${P.escapeHtml(P.accountValueText(account))}</span>
           <span class="hc-return ${P.toneText(account.returnPct)}">${P.escapeHtml(
             P.pct(account.returnPct)
           )}</span>
@@ -370,12 +374,12 @@
           </div>
           <div class="acct-stat">
             <dt>Status</dt>
-            <dd>${paused ? "Paused" : "Active"}</dd>
+            <dd>${P.escapeHtml(P.displayStatus(account).replace(/^./, (c) => c.toUpperCase()))}</dd>
           </div>
         </dl>
         ${
-          account.valueNote && !paused
-            ? `<p class="section-intro" style="margin-top:16px">${P.escapeHtml(account.valueNote)}</p>`
+          P.displayValueNote(account) && !paused
+            ? `<p class="section-intro" style="margin-top:16px">${P.escapeHtml(P.displayValueNote(account))}</p>`
             : ""
         }
       </header>`;
@@ -433,6 +437,43 @@
     return `${(num * 100).toFixed(0)}%`;
   }
 
+  function firstField(row, keys) {
+    for (const key of keys) {
+      if (row && row[key] != null && row[key] !== "") return row[key];
+    }
+    return null;
+  }
+
+  function takenLabel(value) {
+    if (value === true) return "yes";
+    if (value === false) return "no";
+    return "—";
+  }
+
+  function signalsSection(account) {
+    if (!Object.prototype.hasOwnProperty.call(account, "signals")) return "";
+    const rows = Array.isArray(account.signals) ? account.signals : [];
+    const esc = P.escapeHtml;
+    const table = rows.length
+      ? `<div class="table-scroll"><table class="data-table">
+          <thead><tr><th>Date</th><th>Ticker</th><th>Trigger</th><th>Taken</th><th>Reason</th></tr></thead>
+          <tbody>${rows
+            .map(
+              (row) => `<tr>
+                <td>${esc(P.formatDay(row.date))}</td>
+                <td class="tick">${esc(row.ticker || "—")}</td>
+                <td>${esc(row.trigger || "—")}</td>
+                <td>${esc(takenLabel(row.taken))}</td>
+                <td class="reason">${esc(row.why || row.reason || "—")}</td>
+              </tr>`
+            )
+            .join("")}</tbody></table></div>`
+      : empty("No signals in this snapshot.");
+    return `<section class="section"><div class="section-label">Signal log</div>
+      <p class="section-intro">Every trigger this account recorded, including the ones not taken.</p>
+      ${table}</section>`;
+  }
+
   /** Long-term watchlist view (account.kind === "watchlist"): hot today + graded list. Data only from the sync doc. */
   function watchlistDetailHtml(account, snapshot, opts) {
     const head = opts.compact
@@ -465,16 +506,20 @@
             (r) =>
               `<tr><td class="wl-grade ${P.gradeClass(r.grade)}">${esc(r.grade || "—")}</td><td class="wl-tick">${esc(
                 r.ticker
-              )}${isCoreFlag(r.core) ? " ★" : ""}</td><td>${ratioPct(r.ROIC)}</td><td>${ratioPct(
-                r.GM
-              )}</td><td>${ratioPct(r.rev_growth)}</td><td>${
-                r.DE == null || r.DE === "" ? "—" : esc(String(r.DE))
-              }</td><td>${esc(r.disruption || "—")}</td><td>${esc(r.note || "")}</td></tr>`
+              )}${isCoreFlag(r.core) ? " ★" : ""}</td><td>${ratioPct(firstField(r, ["ROIC", "roic3"]))}</td><td>${ratioPct(
+                firstField(r, ["GM", "gm3"])
+              )}</td><td>${ratioPct(firstField(r, ["rev_growth", "rev_g"]))}</td><td>${
+                firstField(r, ["DE", "netdebt_ebitda"]) == null
+                  ? "—"
+                  : esc(String(firstField(r, ["DE", "netdebt_ebitda"])))
+              }</td><td>${esc(r.disruption || "—")}</td><td>${esc(
+                r.note || (Array.isArray(r.fails) && r.fails.length ? r.fails.join(", ") : "") || r.disruption_why || ""
+              )}</td></tr>`
           )
           .join("")}</tbody></table></div>`
       : empty("No watchlist on this snapshot.");
     const hotIntro = w.hotAsOf ? `Prices as of ${w.hotAsOf}. ` : "";
-    const listIntro = `${w.rubric || ""}${w.asOf ? `${w.rubric ? " " : ""}As of ${w.asOf}.` : ""}`;
+    const listIntro = `${w.rubric || ""}${w.asOf ? `${w.rubric ? " " : ""}As of ${w.asOf}.` : ""} The full table, with every grade input, is on the Watchlist page.`;
     return `${head}
       <div class="detail-grid">
         <div class="detail-col detail-col-left">
@@ -483,7 +528,9 @@
         </div>
         <div class="detail-col detail-col-mid detail-col-watchlist">
           <section class="section"><div class="section-label">Graded watchlist</div>
-            <p class="section-intro">${esc(listIntro)}</p>${listHtml}</section>
+            <p class="section-intro">${esc(listIntro)}</p>
+            <p class="section-intro"><a class="page-link" href="/watchlist">Open the full watchlist</a></p>
+            ${listHtml}</section>
         </div>
       </div>`;
   }
@@ -517,6 +564,7 @@
             <p class="section-intro">Open positions, then this account’s trade log.</p>
             ${positionsSection(account, snapshot)}
             ${tradesSection(account)}
+            ${signalsSection(account)}
           </section>
         </div>
         <div class="detail-col detail-col-right">

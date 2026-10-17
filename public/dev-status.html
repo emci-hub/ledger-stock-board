@@ -5,22 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ledger — Dev status</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<meta name="color-scheme" content="light">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#10141a; --panel:#171d26; --line:#2a3442; --ink:#e8edf4; --muted:#8b97a8;
-    --ok:#3dba84; --bad:#e07060; --warn:#d4a24c; --accent:#5b8def;
+    --bg:#f4f5f7; --panel:#ffffff; --line:#e4e7eb; --ink:#1a1d21; --muted:#5c6570;
+    --ok:#0b7a43; --bad:#b42318; --warn:#5c6570; --accent:#1a1d21;
   }
   *{box-sizing:border-box;}
   body{
     margin:0; background:var(--bg); color:var(--ink);
-    font-family:'Source Sans 3',sans-serif;
-    background-image:
-      radial-gradient(ellipse at top left, rgba(91,141,239,0.08), transparent 45%),
-      linear-gradient(180deg, #0c1016 0%, #10141a 40%);
+    font-family:"DM Sans", sans-serif;
     min-height:100vh;
+    line-height:1.5;
   }
-  .wrap{max-width:1080px;margin:0 auto;padding:28px 18px 80px;}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 24px 80px;}
+  .site-nav{display:flex;flex-wrap:wrap;gap:4px 8px;margin:0 0 28px;padding:0 0 8px;border-bottom:1px solid var(--line);}
+  .site-nav a{color:var(--muted);text-decoration:none;font-weight:600;font-size:15px;min-height:44px;padding:0 12px;display:inline-flex;align-items:center;}
+  .site-nav a:hover{color:var(--ink);}
   h1{font-size:26px;margin:0 0 4px;font-weight:700;letter-spacing:-0.02em;}
   .sub{color:var(--muted);font-size:14px;margin:0 0 22px;}
   .nav a{color:var(--muted);font-size:13px;}
@@ -32,29 +34,29 @@
   table{width:100%;border-collapse:collapse;font-size:13px;}
   th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top;}
   th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;}
-  .mono{font-family:'IBM Plex Mono',monospace;font-size:12px;}
+  .mono{font-family:"DM Sans", sans-serif;font-size:12px;}
   .ok{color:var(--ok);} .bad{color:var(--bad);} .warn{color:var(--warn);}
   .hidden{display:none !important;}
   #login-panel label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;}
   #login-panel input{
     width:min(320px,100%); padding:10px 12px; border-radius:8px; border:1px solid var(--line);
-    background:#0e1319; color:var(--ink); font-size:15px;
+    background:#fff; color:var(--ink); font-size:16px;
   }
   button{
     margin-top:12px; padding:10px 14px; border-radius:8px; border:1px solid var(--line);
-    background:#1e2836; color:var(--ink); font-weight:600; cursor:pointer; font-size:14px;
+    background:#fff; color:var(--ink); font-weight:600; cursor:pointer; font-size:15px;
   }
   button:hover{border-color:var(--accent);}
   button:disabled{opacity:0.55;cursor:wait;}
-  button.danger{border-color:rgba(224,112,96,0.5); color:#f2c2ba;}
+  button.danger{border-color:#e4b4ae; color:#b42318;}
   button.danger:hover{border-color:var(--bad);}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
-  .pill{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);}
+  .pill{font-family:"DM Sans", sans-serif;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);}
   .pill.on{color:var(--ok);border-color:rgba(61,186,132,0.4);}
   .pill.off{color:var(--warn);}
   #force-result{
-    margin-top:12px; white-space:pre-wrap; font-family:'IBM Plex Mono',monospace;
-    font-size:12px; background:#0e1319; border:1px solid var(--line); border-radius:8px;
+    margin-top:12px; white-space:pre-wrap; font-family:"DM Sans", sans-serif;
+    font-size:13px; background:#fff; border:1px solid var(--line); border-radius:8px;
     padding:12px; max-height:320px; overflow:auto;
   }
   .err{color:var(--bad);font-size:13px;margin-top:8px;}
@@ -63,6 +65,12 @@
 </head>
 <body>
 <div class="wrap">
+  <nav class="site-nav" aria-label="Ledger">
+    <a href="/">Overview</a>
+    <a href="/watchlist">Watchlist</a>
+    <a href="/lab">Strategy Lab</a>
+    <a href="/accounts">Accounts</a>
+  </nav>
   <div class="toolbar">
     <div>
       <h1>Dev status</h1>
@@ -114,13 +122,13 @@
         Both actions show a <strong>pre-flight cost preview</strong> first (no API spend).
         Only “Confirm &amp; run” executes for real.
       </p>
-      <p class="safeguard-note" style="margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#0e1319;color:var(--muted);font-size:12px;line-height:1.5;">
+      <p class="safeguard-note" style="margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--muted);font-size:12px;line-height:1.5;">
         <strong style="color:var(--ink);">Safeguards:</strong>
         Discovery respects FMP’s reserve and never touches Alpha Vantage.
         Smart Refresh respects each source’s reserve and only refreshes genuinely stale fields.
         Both share one in-progress lock so they cannot run at the same time.
       </p>
-      <p class="safeguard-note" style="margin:0 0 12px;padding:10px 12px;border:1px dashed var(--line);border-radius:8px;background:#0e1319;color:var(--muted);font-size:12px;line-height:1.5;">
+      <p class="safeguard-note" style="margin:0 0 12px;padding:10px 12px;border:1px dashed var(--line);border-radius:8px;background:#fff;color:var(--muted);font-size:12px;line-height:1.5;">
         <strong style="color:var(--ink);">Recommended order:</strong>
         Run Discovery first to update the board, then Smart Refresh to fill gaps
         and promote any remaining eligible candidates with leftover quota.
@@ -130,7 +138,7 @@
         <button type="button" class="danger" id="force-btn">Smart refresh…</button>
         <button type="button" class="danger" id="discovery-btn">Discover new stocks</button>
       </div>
-      <div id="preview-panel" class="hidden" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:#0e1319;">
+      <div id="preview-panel" class="hidden" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:#fff;">
         <h2 style="margin:0 0 8px;" id="preview-title">Preview</h2>
         <div id="preview-body" style="font-size:13px;line-height:1.5;color:var(--muted);"></div>
         <div class="row" style="margin-top:12px;">
@@ -334,9 +342,9 @@
             </div>`;
         };
         catSummaryEl.innerHTML =
-          sectionBlock("Long-term", "long", "#7fd99a") +
-          sectionBlock("Short-term", "short", "#f2c14e") +
-          sectionBlock("Penny", "penny", "#e08a8a") +
+          sectionBlock("Long-term", "long", "#1a1d21") +
+          sectionBlock("Short-term", "short", "#5c6570") +
+          sectionBlock("Penny", "penny", "#7b848e") +
           sectionBlock("Unclassified (needs backfill)", "unclassified", "var(--muted)");
       }
     }

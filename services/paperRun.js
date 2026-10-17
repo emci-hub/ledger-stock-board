@@ -136,6 +136,222 @@ function normalizeEquityCurve(value, label, errors) {
   }));
 }
 
+/**
+ * A missing money field stays null. Number(null) is 0, so an explicit null
+ * must not be run through finiteOrNull or the dashboard prints $0.
+ * An omitted field is also null. Callers decide whether omission is an error.
+ */
+function softMoney(raw, field) {
+  if (!Object.prototype.hasOwnProperty.call(raw, field)) return null;
+  if (raw[field] == null || raw[field] === "") return null;
+  return finiteOrNull(raw[field]);
+}
+
+function optionalNumber(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return null;
+    if (text === "inf" || text === "Infinity" || text === "+inf") return "inf";
+    const num = Number(text);
+    return Number.isFinite(num) ? num : text;
+  }
+  return null;
+}
+
+function optionalBool(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return null;
+  }
+  const text = String(value).trim().toLowerCase();
+  if (["true", "yes", "y", "1"].includes(text)) return true;
+  if (["false", "no", "n", "0"].includes(text)) return false;
+  return null;
+}
+
+function normalizeTaken(value) {
+  return optionalBool(value);
+}
+
+function normalizeDisruption(value) {
+  const text = trimOrNull(value);
+  if (!text) return null;
+  const key = text.toLowerCase();
+  if (key === "green" || key === "yellow" || key === "red") return key.toUpperCase();
+  if (key === "unchecked") return "unchecked";
+  return text;
+}
+
+function normalizeFails(value, label, errors) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) {
+    errors.push(`${label}.fails must be an array`);
+    return [];
+  }
+  return value.map((item) => trimOrNull(item)).filter(Boolean);
+}
+
+function normalizeSignals(value, label, errors) {
+  const rows = asObjectArray(value, `${label}.signals`, errors);
+  return rows.map((row, idx) => {
+    const ticker = trimOrNull(row.ticker);
+    if (!ticker) errors.push(`${label}.signals[${idx}].ticker is required`);
+    return {
+      ...row,
+      date: trimOrNull(row.date),
+      ticker: ticker || "",
+      trigger: trimOrNull(row.trigger),
+      taken: normalizeTaken(row.taken),
+      why: trimOrNull(row.why) || trimOrNull(row.reason),
+    };
+  });
+}
+
+const STOCK_NUMBER_FIELDS = [
+  "mcap_B",
+  "roic3",
+  "gm3",
+  "om3",
+  "rev_g",
+  "netdebt_ebitda",
+  "ps_now",
+  "ps_hist_med",
+  "off_high",
+  "price",
+  "score",
+  "val_vs_hist",
+];
+
+function normalizeStock(raw, idx, errors) {
+  const label = `watchlist.stocks[${idx}]`;
+  const ticker = trimOrNull(raw.ticker);
+  if (!ticker) errors.push(`${label}.ticker is required`);
+  const stock = {
+    ...raw,
+    ticker: ticker || "",
+    name: trimOrNull(raw.name),
+    grade: trimOrNull(raw.grade),
+    disruption_why: trimOrNull(raw.disruption_why),
+  };
+  for (const field of STOCK_NUMBER_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(raw, field)) {
+      stock[field] = optionalNumber(raw[field]);
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, "capex_dip")) stock.capex_dip = optionalBool(raw.capex_dip);
+  if (Object.prototype.hasOwnProperty.call(raw, "core")) stock.core = optionalBool(raw.core);
+  if (Object.prototype.hasOwnProperty.call(raw, "cyclical")) stock.cyclical = optionalBool(raw.cyclical);
+  if (Object.prototype.hasOwnProperty.call(raw, "invest_rising")) {
+    stock.invest_rising = optionalBool(raw.invest_rising);
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, "disruption")) {
+    stock.disruption = normalizeDisruption(raw.disruption);
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, "fails")) {
+    stock.fails = normalizeFails(raw.fails, label, errors);
+  }
+  return stock;
+}
+
+function normalizeExplain(value, errors) {
+  if (value == null) return {};
+  if (!isPlainObject(value)) {
+    errors.push("watchlist.explain must be an object");
+    return {};
+  }
+  const out = {};
+  for (const [key, item] of Object.entries(value)) {
+    const text = trimOrNull(item);
+    if (text) out[key] = text;
+  }
+  return out;
+}
+
+/** Optional top-level graded watchlist (watchlist_v2 shape). Absent = unchanged. */
+function normalizeWatchlist(value, errors) {
+  if (!isPlainObject(value)) {
+    errors.push("watchlist must be an object");
+    return null;
+  }
+  const stocks = asObjectArray(value.stocks == null ? [] : value.stocks, "watchlist.stocks", errors).map(
+    (raw, idx) => normalizeStock(raw, idx, errors)
+  );
+  return {
+    ...value,
+    asof: trimOrNull(value.asof),
+    method: trimOrNull(value.method),
+    explain: normalizeExplain(value.explain, errors),
+    stocks,
+  };
+}
+
+const HOT_NUMBER_FIELDS = ["close", "chg_pct", "vol_x", "dd18m_pct"];
+const HOT_BOOL_FIELDS = ["above200", "comeback", "leader_dip", "fund_check", "hot"];
+
+function normalizeHotRow(raw) {
+  const row = { ...raw, ticker: trimOrNull(raw.ticker), grade: trimOrNull(raw.grade), why: trimOrNull(raw.why) };
+  for (const field of HOT_NUMBER_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(raw, field)) row[field] = optionalNumber(raw[field]);
+  }
+  for (const field of HOT_BOOL_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(raw, field)) row[field] = optionalBool(raw[field]);
+  }
+  return row;
+}
+
+function normalizeHotList(value, label, errors) {
+  return asObjectArray(value, label, errors).map((raw, idx) => {
+    const row = normalizeHotRow(raw);
+    if (!row.ticker) errors.push(`${label}[${idx}].ticker is required`);
+    return row;
+  });
+}
+
+/** Optional top-level hot-today tape. Absent = unchanged. */
+function normalizeHotToday(value, errors) {
+  if (!isPlainObject(value)) {
+    errors.push("hot_today must be an object");
+    return null;
+  }
+  const hot = normalizeHotList(value.hot == null ? [] : value.hot, "hot_today.hot", errors);
+  const out = {
+    ...value,
+    asof: trimOrNull(value.asof),
+    generated: trimOrNull(value.generated),
+    note: trimOrNull(value.note),
+    hot,
+  };
+  if (value.all != null) out.all = normalizeHotList(value.all, "hot_today.all", errors);
+  return out;
+}
+
+const LAB_PRICE_FIELDS = ["SPY", "QQQ", "SPY_now", "QQQ_now"];
+
+/** Optional lab benchmarks (start and latest SPY/QQQ). Absent = unchanged. */
+function normalizeLab(value, errors) {
+  if (!isPlainObject(value)) {
+    errors.push("lab must be an object");
+    return null;
+  }
+  const lab = { ...value, start: trimOrNull(value.start), asof: trimOrNull(value.asof) };
+  for (const field of LAB_PRICE_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(value, field)) continue;
+    if (value[field] == null || value[field] === "") {
+      lab[field] = null;
+      continue;
+    }
+    const num = finiteOrNull(value[field]);
+    if (num == null) errors.push(`lab.${field} must be a number`);
+    lab[field] = num;
+  }
+  return lab;
+}
+
 function normalizeAccount(raw, idx, errors) {
   const label = `accounts[${idx}]`;
   if (!isPlainObject(raw)) {
@@ -147,25 +363,30 @@ function normalizeAccount(raw, idx, errors) {
   if (!id) errors.push(`${label}.id is required`);
   const currency = trimOrNull(raw.currency);
   if (!currency) errors.push(`${label}.currency is required`);
-  // A watchlist is a graded research list, not a paper balance. Missing value
-  // stays null (Number(null) is 0, so it cannot go through finiteOrNull).
+  // A watchlist is a graded research list, not a paper balance. An omitted
+  // value is an error on a paper account. An explicit null stays null on
+  // every account (Number(null) is 0, which would print as a real zero).
   const watchlist = raw.kind === "watchlist";
-  const value = watchlist && (raw.value == null || raw.value === "") ? null : finiteOrNull(raw.value);
-  if (value == null && !watchlist) {
-    errors.push(`${label}.value must be a number`);
+  const valueProvided = Object.prototype.hasOwnProperty.call(raw, "value");
+  let value = null;
+  if (!valueProvided || raw.value === "") {
+    if (!watchlist) errors.push(`${label}.value must be a number`);
+  } else if (raw.value == null) {
+    value = null;
+  } else {
+    value = finiteOrNull(raw.value);
+    if (value == null && !watchlist) errors.push(`${label}.value must be a number`);
   }
-  const optionalMoney = (field) =>
-    watchlist && (raw[field] == null || raw[field] === "") ? null : finiteOrNull(raw[field]);
 
-  return {
+  const account = {
     ...raw,
     id: id || "",
     name: trimOrNull(raw.name) || id || "",
     currency: currency || "",
-    cash: optionalMoney("cash"),
+    cash: softMoney(raw, "cash"),
     value,
-    startValue: optionalMoney("startValue"),
-    returnPct: optionalMoney("returnPct"),
+    startValue: softMoney(raw, "startValue"),
+    returnPct: softMoney(raw, "returnPct"),
     benchmark: normalizeBenchmark(raw.benchmark, label, errors, { preserveMissing: watchlist }),
     projection: normalizeProjection(raw.projection, label, errors),
     equityCurve: normalizeEquityCurve(raw.equityCurve, label, errors),
@@ -176,6 +397,10 @@ function normalizeAccount(raw, idx, errors) {
     lessons: asObjectArray(raw.lessons, `${label}.lessons`, errors),
     strategy: isPlainObject(raw.strategy) ? raw.strategy : null,
   };
+  if (Object.prototype.hasOwnProperty.call(raw, "signals")) {
+    account.signals = normalizeSignals(raw.signals, label, errors);
+  }
+  return account;
 }
 
 /**
@@ -211,6 +436,15 @@ function normalizeSnapshot(doc) {
   if (doc.day != null && day == null) errors.push("day must be a number");
   const totalDays = finiteOrNull(doc.totalDays);
 
+  // Optional blocks. Missing keys are left off the stored document so an
+  // older payload keeps the same shape. A present-but-wrong shape is a 400.
+  let watchlist;
+  let hotToday;
+  let lab;
+  if (doc.watchlist != null) watchlist = normalizeWatchlist(doc.watchlist, errors);
+  if (doc.hot_today != null) hotToday = normalizeHotToday(doc.hot_today, errors);
+  if (doc.lab != null) lab = normalizeLab(doc.lab, errors);
+
   if (errors.length) throw new PaperSnapshotError(errors);
 
   const normalized = {
@@ -220,6 +454,12 @@ function normalizeSnapshot(doc) {
     totalDays: totalDays == null ? DEFAULT_TOTAL_DAYS : Math.round(totalDays),
     accounts,
   };
+  if (doc.watchlist == null) delete normalized.watchlist;
+  else normalized.watchlist = watchlist;
+  if (doc.hot_today == null) delete normalized.hot_today;
+  else normalized.hot_today = hotToday;
+  if (doc.lab == null) delete normalized.lab;
+  else normalized.lab = lab;
 
   const json = JSON.stringify(normalized);
   if (Buffer.byteLength(json, "utf8") > MAX_DOC_BYTES) {

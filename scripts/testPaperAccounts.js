@@ -8,11 +8,16 @@ const fs = require("fs");
 const path = require("path");
 const {
   PREFERRED_ORDER,
+  SHELVED_LAST_ID,
   sortAccountsForDisplay,
   isAccountPaused,
   isWatchlistAccount,
   watchlistSummary,
   watchlistBenchmarkLine,
+  displayName,
+  displayLabel,
+  displayStatus,
+  missingValueLabel,
 } = require("../lib/paperAccounts");
 const { normalizeSnapshot, PaperSnapshotError } = require("../services/paperRun");
 const seed = require("../data/paper-run-seed.json");
@@ -38,8 +43,8 @@ const mixed = [
 const sorted = sortAccountsForDisplay(mixed);
 assert.deepStrictEqual(
   sorted.map((a) => a.id),
-  ["us-swing", "glb-branch", "lottery-ca", "us-day", "zzz-future", "mystery"],
-  "known ids sort first; unknown ids are appended in original order"
+  ["glb-branch", "lottery-ca", "us-day", "zzz-future", "mystery", "us-swing"],
+  "known ids sort first; unknown ids follow; us-swing is last when present"
 );
 assert.equal(sorted.length, mixed.length, "sort never drops ids");
 
@@ -60,11 +65,28 @@ const withWatch = sortAccountsForDisplay([
 ]);
 assert.deepStrictEqual(
   withWatch.map((a) => a.id),
-  ["lt-watch", "us-swing", "ca-swing", "zzz-future"],
-  "lt-watch sorts first, in the slot ahead of us-swing; unknown ids stay appended"
+  ["lt-watch", "ca-swing", "zzz-future", "us-swing"],
+  "lt-watch sorts first; us-swing is last when present"
 );
 assert.equal(PREFERRED_ORDER[0], "lt-watch");
+assert.equal(PREFERRED_ORDER.includes("us-swing"), false);
+assert.equal(SHELVED_LAST_ID, "us-swing");
 assert.equal(withWatch.length, 4, "watchlist sort never drops ids");
+
+assert.equal(displayName({ id: "us-day", name: "US-DAY", label: "US day trading (paused)" }), "US Long-Term v5");
+assert.equal(displayLabel({ id: "us-day", name: "US-DAY", label: "US day trading (paused)" }), "");
+assert.equal(isAccountPaused({ id: "us-day", status: "paused", paused: true }), false);
+assert.equal(displayStatus({ id: "us-day", status: "paused" }), "active");
+assert.equal(displayName({ id: "us-swing", name: "US-SWING" }), "US Swing (shelved)");
+assert.equal(displayStatus({ id: "us-swing", status: "active" }), "shelved");
+assert.equal(displayName({ id: "ca-swing", name: "CA swing" }), "CA swing");
+assert.equal(isAccountPaused({ id: "ca-day", status: "paused" }), true);
+assert.equal(missingValueLabel({ id: "ghost-orig", value: null }), "Starts at next sync");
+assert.equal(missingValueLabel({ id: "us-ghost" }), "Starts at next sync");
+assert.equal(missingValueLabel({ id: "momentum" }), "Starts at next sync");
+assert.equal(missingValueLabel({ id: "baseline" }), "Starts at next sync");
+assert.equal(missingValueLabel({ id: "us-day" }), "Starts at next sync");
+assert.equal(missingValueLabel({ id: "ca-swing", value: null }), "unavailable");
 
 const practiceLib = fs.readFileSync(path.join(__dirname, "..", "public", "practice-lib.js"), "utf8");
 const orderBlock = practiceLib.slice(
@@ -72,10 +94,10 @@ const orderBlock = practiceLib.slice(
   practiceLib.indexOf("];", practiceLib.indexOf("const PREFERRED_ORDER")) + 2
 );
 assert.ok(orderBlock.indexOf('"lt-watch"') !== -1, "practice-lib preferred order includes lt-watch");
-assert.ok(
-  orderBlock.indexOf('"lt-watch"') < orderBlock.indexOf('"us-swing"'),
-  "practice-lib lists lt-watch ahead of us-swing"
-);
+assert.equal(orderBlock.indexOf('"us-swing"'), -1, "practice-lib preferred order does not pin us-swing");
+assert.ok(practiceLib.includes("US Long-Term v5"), "practice-lib labels us-day");
+assert.ok(practiceLib.includes("US Swing (shelved)"), "practice-lib labels us-swing");
+assert.ok(practiceLib.includes("Starts at next sync"), "practice-lib names the waiting lab value");
 
 const graded = Array.from({ length: 35 }, (_, i) => ({
   ticker: `T${i}`,
@@ -223,7 +245,7 @@ const seedSorted = sortAccountsForDisplay(seed.accounts);
 assert.equal(seedSorted.length, seed.accounts.length);
 assert.deepStrictEqual(
   seedSorted.map((a) => a.id),
-  ["us-swing", "ca-swing", "glb-branch", "lottery-us", "lottery-ca", "us-day", "ca-day"]
+  ["ca-swing", "glb-branch", "lottery-us", "lottery-ca", "us-day", "ca-day", "us-swing"]
 );
 
 const seedNorm = normalizeSnapshot(seed);

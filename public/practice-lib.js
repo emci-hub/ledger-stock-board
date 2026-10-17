@@ -13,37 +13,9 @@
     ["result", "Result"],
   ];
 
-  /** Known ids first; every other synced id is appended, never dropped. */
-  const PREFERRED_ORDER = [
-    "lt-watch",
-    "ca-swing",
-    "glb-branch",
-    "lottery-us",
-    "lottery-ca",
-    "us-ghost",
-    "ghost-orig",
-    "momentum",
-    "baseline",
-    "us-day",
-    "ca-day",
-  ];
-
-  /** Shelved account. Still shown when the snapshot carries it, always last. */
-  const SHELVED_LAST_ID = "us-swing";
-
-  const DISPLAY_NAMES = {
-    "us-day": "US Long-Term v5",
-    "us-swing": "US Swing (shelved)",
-  };
-
-  const LAB_VALUE_IDS = new Set([
-    "ghost-orig",
-    "us-ghost",
-    "ghost-fixed",
-    "momentum",
-    "baseline",
-    "us-day",
-  ]);
+  function groupsApi() {
+    return root.AccountGroups || null;
+  }
 
   /** A is the best letter on the long-term rubric; F is the worst. */
   const WATCHLIST_GRADE_RANK = { A: 0, B: 1, C: 2, D: 3, F: 4 };
@@ -91,15 +63,15 @@
   }
 
   /**
-   * Benchmark line for a watchlist card. Missing value and return stay a dash,
-   * so a null SPY level renders as "SPY —" rather than "SPY 0 / 0%".
+   * Benchmark line for a watchlist card. A missing level is omitted so the
+   * card does not print "SPY —". A real zero still prints.
    */
   function watchlistBenchmarkLine(account) {
     const bench = account?.benchmark || {};
     const ticker = String(bench.ticker || "").trim();
     const hasValue = finiteMark(bench.value);
     const hasReturn = finiteMark(bench.returnPct);
-    if (!hasValue && !hasReturn) return ticker ? `${ticker} —` : "—";
+    if (!hasValue && !hasReturn) return "";
     const valueText = hasValue ? formatMarkNumber(bench.value) : "—";
     const returnText = hasReturn ? `${formatMarkNumber(bench.returnPct)}%` : "—";
     return `${ticker ? `${ticker} ` : ""}${valueText} / ${returnText}`;
@@ -119,57 +91,92 @@
   }
 
   function sortAccountsForDisplay(accounts) {
-    const list = Array.isArray(accounts) ? accounts.filter(Boolean) : [];
-    const rank = new Map(PREFERRED_ORDER.map((id, i) => [id, i]));
-    return list
-      .map((account, index) => ({ account, index }))
-      .sort((a, b) => {
-        const idA = String(a.account.id || "");
-        const idB = String(b.account.id || "");
-        const lastA = idA === SHELVED_LAST_ID;
-        const lastB = idB === SHELVED_LAST_ID;
-        if (lastA !== lastB) return lastA ? 1 : -1;
-        const rankA = rank.has(idA) ? rank.get(idA) : 1000 + a.index;
-        const rankB = rank.has(idB) ? rank.get(idB) : 1000 + b.index;
-        return rankA - rankB;
-      })
-      .map((row) => row.account);
+    const api = groupsApi();
+    if (api) return api.sortAccountsForDisplay(accounts);
+    return Array.isArray(accounts) ? accounts.filter(Boolean) : [];
   }
 
   function isAccountPaused(account) {
     if (!account) return false;
-    if (String(account.id || "") === "us-day") return false;
+    const profile = groupsApi() && groupsApi().profileFor(account.id);
+    if (profile && profile.neverPaused) return false;
     if (account.paused === true) return true;
     return String(account.status || "").toLowerCase() === "paused";
   }
 
   function displayName(account) {
-    const id = String(account?.id || "");
-    if (DISPLAY_NAMES[id]) return DISPLAY_NAMES[id];
+    const api = groupsApi();
+    if (api) return api.displayName(account);
     return account?.name || account?.id || "Account";
   }
 
   function displayLabel(account) {
-    const id = String(account?.id || "");
-    if (DISPLAY_NAMES[id]) return "";
+    if (groupsApi() && groupsApi().profileFor(account && account.id)) return "";
     if (account?.label && account.label !== account.name) return account.label;
     return "";
   }
 
   function displayStatus(account) {
-    if (String(account?.id || "") === SHELVED_LAST_ID) return "shelved";
+    const profile = groupsApi() && groupsApi().profileFor(account && account.id);
+    if (profile && profile.shelved) return "shelved";
     if (isAccountPaused(account)) return "paused";
     return "active";
   }
 
-  function missingValueLabel(account) {
-    if (LAB_VALUE_IDS.has(String(account?.id || ""))) return "Starts at next sync";
-    return "unavailable";
+  function accountBlurb(account) {
+    const api = groupsApi();
+    return api ? api.blurbFor(account && account.id) : "";
+  }
+
+  function cardHref(account) {
+    const profile = groupsApi() && groupsApi().profileFor(account && account.id);
+    if (profile && profile.href) return profile.href;
+    return accountHref(account);
+  }
+
+  function missingValueLabel() {
+    return "Starts at next sync";
   }
 
   function accountValueText(account) {
+    if (isWatchlistAccount(account)) return watchlistSummary(account);
     if (isNum(account?.value)) return money(account.value, account.currency);
-    return missingValueLabel(account);
+    return missingValueLabel();
+  }
+
+  function groupSectionsHtml(accounts, renderCard) {
+    const api = groupsApi();
+    const sections = api
+      ? api.groupAccounts(accounts)
+      : [{ id: "all", title: "Accounts", summary: "", accounts: accounts || [], collapsed: false }];
+    return sections
+      .map((group) => {
+        const cards = (group.accounts || []).map(renderCard).join("");
+        const link = group.href
+          ? `<a class="group-link" href="${escapeHtml(group.href)}">${escapeHtml(group.hrefLabel || "Open")}</a>`
+          : "";
+        const summaryTag = group.collapsed ? "span" : "p";
+        const summary = group.summary
+          ? `<${summaryTag} class="group-summary">${escapeHtml(group.summary)}</${summaryTag}>`
+          : "";
+        const grid = `<div class="card-grid">${cards}</div>`;
+        const title = escapeHtml(group.title || "Accounts");
+        if (group.collapsed) {
+          return `<details class="acct-group is-muted">
+            <summary>
+              <span class="group-head"><span class="group-title">${title}</span>${link}</span>
+              ${summary}
+            </summary>
+            ${grid}
+          </details>`;
+        }
+        return `<section class="acct-group">
+          <div class="group-head"><h2 class="group-title">${title}</h2>${link}</div>
+          ${summary}
+          ${grid}
+        </section>`;
+      })
+      .join("");
   }
 
   /** Drop a leftover pause sentence on the long-term account. */
@@ -502,7 +509,6 @@
 
   root.PracticeRun = {
     GRADE_CATEGORIES,
-    PREFERRED_ORDER,
     escapeHtml,
     isNum,
     sortAccountsForDisplay,
@@ -510,8 +516,11 @@
     displayName,
     displayLabel,
     displayStatus,
+    accountBlurb,
+    cardHref,
     missingValueLabel,
     accountValueText,
+    groupSectionsHtml,
     displayValueNote,
     isSwingAccount,
     isWatchlistAccount,

@@ -39,9 +39,7 @@
   function vsLine(account) {
     const bench = P.benchmarkLabel(account);
     const delta = P.benchmarkDelta(account);
-    if (!P.isNum(delta)) {
-      return `vs ${P.escapeHtml(bench)} <b class="flat-text">unavailable</b>`;
-    }
+    if (!P.isNum(delta)) return "";
     const abs = Math.abs(delta).toFixed(2);
     const word = delta > 0.0001 ? "ahead of" : delta < -0.0001 ? "behind" : "even with";
     return `${word} ${P.escapeHtml(bench)} by <b class="${P.toneText(delta)}">${abs} pts</b>`;
@@ -51,28 +49,42 @@
     const paused = P.isAccountPaused(account);
     const watchlist = P.isWatchlistAccount(account);
     const tone = paused ? "paused-card" : watchlist ? "flat" : P.tone(account.returnPct);
-    const label = P.displayLabel(account);
+    const blurb = P.accountBlurb(account);
     const status = P.displayStatus(account);
     const id = P.escapeHtml(account.id);
+    const ret = P.isNum(account.returnPct)
+      ? `<span class="hc-return ${P.toneText(account.returnPct)}">${P.escapeHtml(P.pct(account.returnPct))}</span>`
+      : "";
+    const vs = vsLine(account);
     const figures = watchlist
-      ? `<div>
-        <span class="hc-value wl-summary">${P.escapeHtml(P.watchlistSummary(account))}</span>
-      </div>
-      <div class="hc-bench">${P.escapeHtml(P.watchlistBenchmarkLine(account))}</div>`
+      ? `<div><span class="hc-value wl-summary">${P.escapeHtml(P.watchlistSummary(account))}</span></div>`
       : `<div>
         <span class="hc-value">${P.escapeHtml(P.accountValueText(account))}</span>
-        <span class="hc-return ${P.toneText(account.returnPct)}">${P.escapeHtml(P.pct(account.returnPct))}</span>
+        ${ret}
       </div>
-      <div class="hc-bench">${vsLine(account)}</div>
+      ${vs ? `<div class="hc-bench">${vs}</div>` : ""}
       <div class="hc-spark">${P.sparklineSvg(account.equityCurve)}</div>`;
+    if (watchlist) {
+      return `<a class="home-card ${tone}" id="card-${id}" href="/watchlist">
+        <div class="hc-top">
+          <div>
+            <div class="hc-name">${P.escapeHtml(P.displayName(account))}</div>
+            ${blurb ? `<p class="hc-blurb">${P.escapeHtml(blurb)}</p>` : ""}
+            <div class="hc-id">${id}</div>
+          </div>
+        </div>
+        ${figures}
+      </a>`;
+    }
     return `<button type="button" class="home-card ${tone}" id="card-${id}"
         data-account="${id}" aria-controls="acct-panel">
       <div class="hc-top">
         <div>
           <div class="hc-name">${P.escapeHtml(P.displayName(account))}</div>
-          ${label ? `<div class="hc-label">${P.escapeHtml(label)}</div>` : ""}
+          ${blurb ? `<p class="hc-blurb">${P.escapeHtml(blurb)}</p>` : ""}
+          <div class="hc-id">${id}</div>
         </div>
-        <span class="status-pill ${status}">${status}</span>
+        <span class="status-pill ${P.escapeHtml(status)}">${P.escapeHtml(status)}</span>
       </div>
       ${figures}
     </button>`;
@@ -101,8 +113,11 @@
     document.querySelectorAll(".home-card").forEach((card) => {
       const on = card.dataset.account === activeId;
       card.classList.toggle("is-selected", on);
-      card.setAttribute("aria-pressed", on ? "true" : "false");
+      if (card.tagName === "BUTTON") card.setAttribute("aria-pressed", on ? "true" : "false");
     });
+    const selected = document.getElementById(`card-${activeId}`);
+    const details = selected && selected.closest("details");
+    if (details) details.open = true;
     document.querySelectorAll(".acct-tab").forEach((tab) => {
       const on = tab.dataset.account === activeId;
       tab.setAttribute("aria-selected", on ? "true" : "false");
@@ -139,14 +154,13 @@
   }
 
   function renderShell() {
-    el("home-list").innerHTML = accounts.map(homeCard).join("");
+    el("home-list").innerHTML = P.groupSectionsHtml(accounts, homeCard);
     el("acct-tabs").innerHTML = accounts.map(tabButton).join("");
     const n = accounts.length;
-    const names = accounts.map((a) => P.displayName(a)).join(", ");
     el("home-foot").textContent =
       n === 0
         ? "The latest snapshot has no accounts in it."
-        : `${n} account${n === 1 ? "" : "s"} from the synced document: ${names}. Tap a card to open that account below.`;
+        : `${n} account${n === 1 ? "" : "s"}, in the same groups as the overview. Tap a card to open it below.`;
   }
 
   function wire() {

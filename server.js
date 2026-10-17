@@ -880,6 +880,10 @@ app.get("/lab", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "lab.html"));
 });
 
+app.get("/strategy-lab", (req, res) => {
+  res.redirect(302, "/lab");
+});
+
 /**
  * One page per paper account. The same HTML is served for every id — including
  * unknown ones — so the renderer can look the account up in GET /api/paper

@@ -30,6 +30,7 @@
   function card(account) {
     const watchlist = P.isWatchlistAccount(account);
     const blurb = P.accountBlurb(account);
+    const badge = P.accountBadge(account);
     const status = P.displayStatus(account);
     const vs = vsLine(account);
     const ret = P.isNum(account.returnPct)
@@ -50,7 +51,7 @@
           ${blurb ? `<p class="hc-blurb">${P.escapeHtml(blurb)}</p>` : ""}
           <div class="hc-id">${P.escapeHtml(account.id || "")}</div>
         </div>
-        ${watchlist ? "" : `<span class="status-pill">${P.escapeHtml(status)}</span>`}
+        ${watchlist ? "" : `<span class="status-pill">${P.escapeHtml(badge || status)}</span>`}
       </div>
       ${figures}
     </a>`;

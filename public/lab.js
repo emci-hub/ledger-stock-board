@@ -70,23 +70,49 @@
       <tbody>${body}</tbody></table></div>`;
   }
 
+  function historyLine(row) {
+    const series = window.PaperSeries ? window.PaperSeries.orderedMarks(row.equityCurve) : [];
+    if (!series.length) return "";
+    const longHistory = window.PaperSeries.spanDays(series) > 31;
+    const start = P.formatDay(series[0].date, longHistory);
+    const end = P.formatDay(series[series.length - 1].date, longHistory);
+    return series.length === 1
+      ? `Equity mark on ${start}.`
+      : `Equity from ${start} to ${end}, earliest on the left.`;
+  }
+
   function card(row) {
     const value = Lab.isNum(row.value) ? P.money(row.value, row.currency) : "Starts at next sync";
     const blurb = window.AccountGroups ? window.AccountGroups.blurbFor(row.id) : "";
     const status = row.id === "us-day" || !row.status || row.status === "active" ? "" : row.status;
     const trades = row.closedTrades == null ? "—" : P.escapeHtml(String(row.closedTrades));
+    const comparisons = row.backtest
+      ? stat(
+          "vs its benchmark",
+          "Percentage points ahead of this replay's own benchmark over the same July-to-now window. Not the live lab's short SPY gap.",
+          ptsOr(row.vsBenchmark)
+        )
+      : [
+          stat("vs SPY", "Percentage points ahead of the S&P 500 fund. Above zero means this account is ahead.", ptsOr(row.vsSpy)),
+          stat("vs QQQ", "Percentage points ahead of the Nasdaq-100 fund.", ptsOr(row.vsQqq)),
+          stat("vs baseline", "Percentage points ahead of simply holding the top-graded names.", ptsOr(row.vsBaseline)),
+        ].join("");
+    const history = historyLine(row);
     return `<article class="lab-card">
-      <h2>${P.escapeHtml(row.role)}</h2>
+      <h2>${P.escapeHtml(row.role)}${row.backtest ? ` <span class="status-pill">Backtest</span>` : ""}</h2>
       ${blurb ? `<p class="hc-blurb">${P.escapeHtml(blurb)}</p>` : ""}
       <p class="role-id">${P.escapeHtml(row.id)}${status ? " · " + P.escapeHtml(status) : ""}</p>
       <dl class="lab-stats">
         ${stat("Value", "Pretend money in the account right now.", P.escapeHtml(value))}
-        ${stat("Return since start", "Percent gained or lost since this account began.", pctOr(row.returnPct))}
-        ${stat("vs SPY", "Percentage points ahead of the S&P 500 fund. Above zero means this account is ahead.", ptsOr(row.vsSpy))}
-        ${stat("vs QQQ", "Percentage points ahead of the Nasdaq-100 fund.", ptsOr(row.vsQqq))}
-        ${stat("vs baseline", "Percentage points ahead of simply holding the top-graded names.", ptsOr(row.vsBaseline))}
+        ${stat(
+          "Return since start",
+          row.backtest ? "Percent gained or lost since the July 16 replay began." : "Percent gained or lost since this account began.",
+          pctOr(row.returnPct)
+        )}
+        ${comparisons}
         ${stat("Closed trades", "Finished sells. Judging waits for 20 of these, or 6 months, whichever is later.", trades)}
       </dl>
+      ${history ? `<p class="stat-help">${P.escapeHtml(history)}</p>` : ""}
       <p class="stat-help">Judging progress: ready only after both 6 months and 20 closed trades. The bar fills toward whichever mark is further along.</p>
       ${progressHtml(row.progress)}
       <details open>
@@ -136,6 +162,12 @@
         board.baselineReturn
       )}</article>`;
     el("rows").innerHTML = board.rows.map(card).join("");
+    const backtest = (board.backtestRows || []).map(card).join("");
+    const backtestSummary = window.AccountGroups
+      ? (window.AccountGroups.ACCOUNT_GROUPS.find((group) => group.id === "lab-backtest") || {}).summary
+      : "";
+    if (el("backtest-summary") && backtestSummary) el("backtest-summary").textContent = backtestSummary;
+    if (el("backtest-rows")) el("backtest-rows").innerHTML = backtest;
     el("state-msg").hidden = true;
     el("dash").hidden = false;
   }

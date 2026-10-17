@@ -68,6 +68,42 @@
       ],
     },
     {
+      id: "lab-backtest",
+      title: "Strategy Lab, 3-month backtest",
+      summary:
+        "The same three strategies replayed from mid-July with US$1,000 each, buying only on days their rules fired, then continuing live from Oct 19. Shows what could have happened. The AI check is replaced by fixed rules in the replay.",
+      href: "/lab#backtest",
+      hrefLabel: "See the replay",
+      muted: false,
+      collapsed: false,
+      members: [
+        {
+          id: "bt-ghost-orig",
+          name: "Ghost Dip, Gemini (backtest)",
+          blurb:
+            "Waits for a great company to drop hard, checks why with AI, buys once the chart turns up. (replayed from Jul 16)",
+          badge: "Backtest",
+          started: "2026-07-16",
+        },
+        {
+          id: "bt-ghost-fixed",
+          name: "Ghost Dip, red-teamed (backtest)",
+          blurb:
+            "Same idea with stricter safety rules: smaller bets, set exits, a profit-taking rule. (replayed from Jul 16)",
+          badge: "Backtest",
+          started: "2026-07-16",
+        },
+        {
+          id: "bt-momentum",
+          name: "Breakout momentum (backtest)",
+          blurb:
+            "Buys strong stocks hitting new highs on big volume, sells when the trend breaks. (replayed from Jul 16)",
+          badge: "Backtest",
+          started: "2026-07-16",
+        },
+      ],
+    },
+    {
       id: "long-term",
       title: "Long-term",
       summary:

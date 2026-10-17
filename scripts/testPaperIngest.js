@@ -8,6 +8,7 @@ const { normalizeSnapshot, PaperSnapshotError } = require("../services/paperRun"
 const seed = require("../data/paper-run-seed.json");
 const { buildSampleSnapshot } = require("./sampleSnapshot");
 const Lab = require("../public/strategy-lab-lib");
+const Series = require("../public/paper-series");
 
 const bare = normalizeSnapshot(seed);
 assert.equal(bare.accounts.length, seed.accounts.length);
@@ -194,6 +195,35 @@ assert.equal(baseRow.vsSpy, null);
 const ghostRow = board.rows.find((row) => row.id === "ghost-orig");
 assert.equal(ghostRow.signals.length, 2);
 assert.equal(ghostRow.value, null);
+assert.equal(ghostRow.vsSpy, null);
+assert.equal(board.backtestRows.length, 3);
+assert.deepStrictEqual(
+  board.backtestRows.map((row) => row.id),
+  ["bt-ghost-orig", "bt-ghost-fixed", "bt-momentum"]
+);
+const replay = board.backtestRows[0];
+assert.equal(replay.backtest, true);
+assert.equal(replay.role, "Ghost Dip, Gemini (backtest)");
+assert.equal(replay.returnPct, 8.4);
+assert.equal(replay.vsSpy, null, "a July replay is not scored against the live lab's short SPY window");
+assert.equal(replay.vsQqq, null);
+assert.equal(replay.vsBaseline, null);
+assert.equal(replay.vsBenchmark, 4.2);
+assert.equal(replay.closedTrades, 1);
+assert.equal(replay.progress.start, "2026-07-16");
+assert.ok(replay.progress.elapsedDays > 31, "the replay clock includes the months before October");
+const stored = doc.accounts.find((account) => account.id === "bt-ghost-orig");
+assert.equal(stored.trades.find((trade) => trade.ticker === "AVGO" && trade.side === "BUY").date, "2026-07-16");
+assert.equal(stored.equityCurve.find((point) => point.date === "2026-07-16").value, 1000);
+const ordered = Series.orderedMarks(stored.equityCurve);
+assert.deepStrictEqual(
+  ordered.map((point) => point.date),
+  ["2026-07-16", "2026-08-20", "2026-09-15", "2026-10-19"]
+);
+assert.ok(Series.spanDays(ordered) > 90);
+const newestFirst = Series.orderedTrades(stored.trades);
+assert.equal(newestFirst[0].date, "2026-10-19");
+assert.equal(newestFirst[newestFirst.length - 1].date, "2026-07-16");
 
 const missing = Lab.scoreboard({ accounts: [], lab: { start: "2026-10-16", asof: "2026-10-16", SPY: 1, SPY_now: 1, QQQ: 1, QQQ_now: 1 } });
 assert.equal(missing.rows.length, 5);

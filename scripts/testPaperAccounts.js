@@ -110,6 +110,39 @@ assert.equal(
   accountBlurb({ id: "us-day" }),
   "Buy-and-hold quality companies in small steps, rules frozen while we test."
 );
+assert.equal(displayName({ id: "bt-ghost-orig" }), "Ghost Dip, Gemini (backtest)");
+assert.equal(displayName({ id: "bt-ghost-fixed" }), "Ghost Dip, red-teamed (backtest)");
+assert.equal(displayName({ id: "bt-momentum" }), "Breakout momentum (backtest)");
+assert.equal(
+  accountBlurb({ id: "bt-ghost-orig" }),
+  "Waits for a great company to drop hard, checks why with AI, buys once the chart turns up. (replayed from Jul 16)"
+);
+assert.equal(
+  accountBlurb({ id: "bt-momentum" }),
+  "Buys strong stocks hitting new highs on big volume, sells when the trend breaks. (replayed from Jul 16)"
+);
+
+const withBacktest = groupAccounts([
+  { id: "momentum" },
+  { id: "bt-momentum" },
+  { id: "us-day" },
+  { id: "bt-ghost-orig" },
+  { id: "baseline" },
+  { id: "bt-ghost-fixed" },
+]);
+assert.deepStrictEqual(
+  withBacktest.map((group) => group.id),
+  ["lab", "lab-backtest", "long-term"]
+);
+assert.equal(
+  withBacktest[1].summary,
+  "The same three strategies replayed from mid-July with US$1,000 each, buying only on days their rules fired, then continuing live from Oct 19. Shows what could have happened. The AI check is replaced by fixed rules in the replay."
+);
+assert.deepStrictEqual(
+  withBacktest[1].accounts.map((account) => account.id),
+  ["bt-ghost-orig", "bt-ghost-fixed", "bt-momentum"]
+);
+assert.equal(withBacktest[1].accounts.length + withBacktest[0].accounts.length + withBacktest[2].accounts.length, 6);
 
 const grouped = groupAccounts([
   { id: "us-swing" },

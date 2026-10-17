@@ -16,7 +16,6 @@
   /** Known ids first; every other synced id is appended, never dropped. */
   const PREFERRED_ORDER = [
     "lt-watch",
-    "us-swing",
     "ca-swing",
     "glb-branch",
     "lottery-us",
@@ -28,6 +27,23 @@
     "us-day",
     "ca-day",
   ];
+
+  /** Shelved account. Still shown when the snapshot carries it, always last. */
+  const SHELVED_LAST_ID = "us-swing";
+
+  const DISPLAY_NAMES = {
+    "us-day": "US Long-Term v5",
+    "us-swing": "US Swing (shelved)",
+  };
+
+  const LAB_VALUE_IDS = new Set([
+    "ghost-orig",
+    "us-ghost",
+    "ghost-fixed",
+    "momentum",
+    "baseline",
+    "us-day",
+  ]);
 
   /** A is the best letter on the long-term rubric; F is the worst. */
   const WATCHLIST_GRADE_RANK = { A: 0, B: 1, C: 2, D: 3, F: 4 };
@@ -110,6 +126,9 @@
       .sort((a, b) => {
         const idA = String(a.account.id || "");
         const idB = String(b.account.id || "");
+        const lastA = idA === SHELVED_LAST_ID;
+        const lastB = idB === SHELVED_LAST_ID;
+        if (lastA !== lastB) return lastA ? 1 : -1;
         const rankA = rank.has(idA) ? rank.get(idA) : 1000 + a.index;
         const rankB = rank.has(idB) ? rank.get(idB) : 1000 + b.index;
         return rankA - rankB;
@@ -119,8 +138,46 @@
 
   function isAccountPaused(account) {
     if (!account) return false;
+    if (String(account.id || "") === "us-day") return false;
     if (account.paused === true) return true;
     return String(account.status || "").toLowerCase() === "paused";
+  }
+
+  function displayName(account) {
+    const id = String(account?.id || "");
+    if (DISPLAY_NAMES[id]) return DISPLAY_NAMES[id];
+    return account?.name || account?.id || "Account";
+  }
+
+  function displayLabel(account) {
+    const id = String(account?.id || "");
+    if (DISPLAY_NAMES[id]) return "";
+    if (account?.label && account.label !== account.name) return account.label;
+    return "";
+  }
+
+  function displayStatus(account) {
+    if (String(account?.id || "") === SHELVED_LAST_ID) return "shelved";
+    if (isAccountPaused(account)) return "paused";
+    return "active";
+  }
+
+  function missingValueLabel(account) {
+    if (LAB_VALUE_IDS.has(String(account?.id || ""))) return "Starts at next sync";
+    return "unavailable";
+  }
+
+  function accountValueText(account) {
+    if (isNum(account?.value)) return money(account.value, account.currency);
+    return missingValueLabel(account);
+  }
+
+  /** Drop a leftover pause sentence on the long-term account. */
+  function displayValueNote(account) {
+    const note = account?.valueNote;
+    if (note == null || note === "") return "";
+    if (String(account?.id || "") === "us-day" && /paused/i.test(String(note))) return "";
+    return String(note);
   }
 
   function isSwingAccount(account) {
@@ -267,15 +324,6 @@
     if (String(account.id) === "glb-branch" && ticker === "VOO") return "VOO / SPY";
     const extra = account.benchmark.reference || account.benchmark.also;
     return extra ? `${ticker} / ${extra}` : ticker;
-  }
-
-  function displayName(account) {
-    return account?.name || account?.id || "Account";
-  }
-
-  function displayLabel(account) {
-    if (account?.label && account.label !== account.name) return account.label;
-    return "";
   }
 
   function accountHref(account) {
@@ -459,6 +507,12 @@
     isNum,
     sortAccountsForDisplay,
     isAccountPaused,
+    displayName,
+    displayLabel,
+    displayStatus,
+    missingValueLabel,
+    accountValueText,
+    displayValueNote,
     isSwingAccount,
     isWatchlistAccount,
     watchlistSummary,
@@ -475,8 +529,6 @@
     gradeClass,
     benchmarkDelta,
     benchmarkLabel,
-    displayName,
-    displayLabel,
     accountHref,
     todaysPicks,
     sparklineSvg,

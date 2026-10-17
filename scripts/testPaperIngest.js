@@ -180,6 +180,7 @@ assert.deepStrictEqual(
   ["ghost-orig", "us-ghost", "momentum", "baseline", "us-day"]
 );
 const usDay = board.rows.find((row) => row.id === "us-day");
+assert.equal(usDay.role, "US Long-Term v5");
 assert.equal(usDay.returnPct, 0.77);
 assert.equal(usDay.vsSpy, 0.77);
 assert.equal(usDay.vsQqq, 0.77);

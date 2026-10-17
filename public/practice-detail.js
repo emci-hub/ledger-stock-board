@@ -143,7 +143,7 @@
     const rows = account.positions || [];
     const swing = P.isSwingAccount(account);
     if (!rows.length) {
-      const note = account.valueNote ? ` ${account.valueNote}` : "";
+      const note = P.displayValueNote(account) ? ` ${P.displayValueNote(account)}` : "";
       return empty(`No open positions.${note}`);
     }
     return rows
@@ -309,8 +309,12 @@
     if (!s) return empty("No strategy summary on this snapshot.");
     const rules = Array.isArray(s.rules) ? s.rules.filter(Boolean) : [];
     const bench = s.benchmark || P.benchmarkLabel(account);
+    const summary =
+      String(account.id || "") === "us-day" && /paused/i.test(String(s.summary || ""))
+        ? ""
+        : s.summary || "";
     return `<article class="block strategy">
-      ${s.summary ? `<p>${P.escapeHtml(s.summary)}</p>` : ""}
+      ${summary ? `<p>${P.escapeHtml(summary)}</p>` : ""}
       ${s.framing ? `<p class="framing">${P.escapeHtml(s.framing)}</p>` : ""}
       ${bench ? `<p class="framing">Measured against ${P.escapeHtml(bench)}.</p>` : ""}
       ${rules.length ? `<ul>${rules.map((r) => `<li>${P.escapeHtml(r)}</li>`).join("")}</ul>` : ""}
@@ -327,7 +331,7 @@
     return `<div class="paused-banner" role="status">
       <b>Paused</b>
       <p>${P.escapeHtml(
-        account.valueNote || "This account is paused. Marks stay on the board; no new picks or trades."
+        P.displayValueNote(account) || "This account is paused. Marks stay on the board; no new picks or trades."
       )}</p>
     </div>`;
   }
@@ -350,7 +354,7 @@
         <h1>${P.escapeHtml(P.displayName(account))}</h1>
         ${label ? `<p class="hc-label">${P.escapeHtml(label)}</p>` : ""}
         <div class="acct-value-row">
-          <span class="hc-value">${P.escapeHtml(P.money(account.value, account.currency))}</span>
+          <span class="hc-value">${P.escapeHtml(P.accountValueText(account))}</span>
           <span class="hc-return ${P.toneText(account.returnPct)}">${P.escapeHtml(
             P.pct(account.returnPct)
           )}</span>
@@ -370,12 +374,12 @@
           </div>
           <div class="acct-stat">
             <dt>Status</dt>
-            <dd>${paused ? "Paused" : "Active"}</dd>
+            <dd>${P.escapeHtml(P.displayStatus(account).replace(/^./, (c) => c.toUpperCase()))}</dd>
           </div>
         </dl>
         ${
-          account.valueNote && !paused
-            ? `<p class="section-intro" style="margin-top:16px">${P.escapeHtml(account.valueNote)}</p>`
+          P.displayValueNote(account) && !paused
+            ? `<p class="section-intro" style="margin-top:16px">${P.escapeHtml(P.displayValueNote(account))}</p>`
             : ""
         }
       </header>`;

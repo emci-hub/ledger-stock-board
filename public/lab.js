@@ -61,11 +61,13 @@
   }
 
   function card(row) {
-    const value = row.present ? P.money(row.value, row.currency) : "not in this snapshot";
+    const value = Lab.isNum(row.value) ? P.money(row.value, row.currency) : "Starts at next sync";
+    const label = row.id === "us-day" ? "" : row.label;
+    const status = row.id === "us-day" ? "" : row.status;
     return `<article class="lab-card">
       <h2>${P.escapeHtml(row.role)}</h2>
-      <p class="role-id">${P.escapeHtml(row.id)}${row.label ? " · " + P.escapeHtml(row.label) : ""}${
-        row.status ? " · " + P.escapeHtml(row.status) : ""
+      <p class="role-id">${P.escapeHtml(row.id)}${label ? " · " + P.escapeHtml(label) : ""}${
+        status ? " · " + P.escapeHtml(status) : ""
       }</p>
       <dl class="lab-stats">
         <div><dt>Value</dt><dd>${P.escapeHtml(value)}</dd></div>

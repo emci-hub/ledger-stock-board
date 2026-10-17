@@ -15,7 +15,7 @@
     { role: "Ghost fixed", ids: ["us-ghost", "ghost-fixed"] },
     { role: "Momentum", ids: ["momentum"] },
     { role: "Baseline", ids: ["baseline"] },
-    { role: "Long-term v5", ids: ["us-day"] },
+    { role: "US Long-Term v5", ids: ["us-day"] },
   ];
   const TRADE_GOAL = 20;
   const JUDGE_MONTHS = 6;

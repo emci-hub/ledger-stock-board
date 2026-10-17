@@ -254,7 +254,7 @@
     }
   }
 
-  function formatDay(value) {
+  function formatDay(value, withYear) {
     if (!value) return "—";
     const asDate = String(value).slice(0, 10);
     const date = new Date(`${asDate}T12:00:00Z`);
@@ -263,7 +263,18 @@
       timeZone: "UTC",
       month: "short",
       day: "numeric",
+      year: withYear ? "numeric" : undefined,
     }).format(date);
+  }
+
+  function markedRows(points) {
+    if (root.PaperSeries) return root.PaperSeries.orderedMarks(points);
+    return (points || []).filter((point) => isNum(point.value));
+  }
+
+  function accountBadge(account) {
+    const profile = groupsApi() && groupsApi().profileFor(account && account.id);
+    return profile && profile.badge ? profile.badge : "";
   }
 
   function parseDateValue(value) {
@@ -356,7 +367,7 @@
   let gradientSeq = 0;
 
   function sparklineSvg(points) {
-    const rows = (points || []).filter((p) => isNum(p.value));
+    const rows = markedRows(points);
     if (!rows.length) {
       return `<svg class="spark" viewBox="0 0 120 36" aria-hidden="true"></svg>`;
     }
@@ -384,8 +395,9 @@
 
   function equityChartSvg(points, options) {
     const opts = options || {};
-    const rows = (points || []).filter((p) => isNum(p.value));
+    const rows = markedRows(points);
     if (!rows.length) return null;
+    const longHistory = root.PaperSeries ? root.PaperSeries.spanDays(rows) > 31 : rows.length > 24;
 
     const W = 640;
     const H = 280;
@@ -444,8 +456,8 @@
         )}</text>`;
       })
       .join("");
-    const firstLabel = formatDay(rows[0].date);
-    const lastLabel = formatDay(rows[rows.length - 1].date);
+    const firstLabel = formatDay(rows[0].date, longHistory);
+    const lastLabel = formatDay(rows[rows.length - 1].date, longHistory);
     const xLabels =
       `<text x="${padL}" y="${H - 10}" font-family="DM Sans, sans-serif" font-size="12" fill="#5c656d">${escapeHtml(firstLabel)}</text>` +
       (rows.length > 1
@@ -465,13 +477,15 @@
         : "";
     const dots = rows
       .map((p, i) => {
+        const last = i === rows.length - 1;
+        const first = i === 0;
+        if (longHistory && !first && !last) return "";
         const parts = [];
-        if (isNum(p.benchmark)) {
+        if (isNum(p.benchmark) && (!longHistory || last)) {
           parts.push(
             `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(p.benchmark).toFixed(1)}" r="3" fill="#8B978F" />`
           );
         }
-        const last = i === rows.length - 1;
         parts.push(
           `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(p.value).toFixed(1)}" r="${last ? 5 : 3.2}" fill="#1a1d1f" stroke="#ffffff" stroke-width="${last ? 2 : 0}" />`
         );
@@ -513,6 +527,7 @@
     isNum,
     sortAccountsForDisplay,
     isAccountPaused,
+    accountBadge,
     displayName,
     displayLabel,
     displayStatus,

@@ -17,6 +17,11 @@
     { role: "Breakout momentum", ids: ["momentum"] },
     { role: "US Long-Term v5", ids: ["us-day"] },
   ];
+  const BACKTEST_SPECS = [
+    { role: "Ghost Dip, Gemini (backtest)", ids: ["bt-ghost-orig"], started: "2026-07-16" },
+    { role: "Ghost Dip, red-teamed (backtest)", ids: ["bt-ghost-fixed"], started: "2026-07-16" },
+    { role: "Breakout momentum (backtest)", ids: ["bt-momentum"], started: "2026-07-16" },
+  ];
   const TRADE_GOAL = 20;
   const JUDGE_MONTHS = 6;
 
@@ -131,30 +136,39 @@
     const baselineReturn = baseline && isNum(baseline.returnPct) ? baseline.returnPct : null;
     const start = (lab && lab.start) || null;
     const asof = labAsOf(snapshot);
-    const rows = LAB_SPECS.map((spec) => {
+    function rowFor(spec, { backtest }) {
       const account = findAccount(accounts, spec.ids);
       const returnPct = account && isNum(account.returnPct) ? account.returnPct : null;
       const closed = account ? closedTradeCount(account) : null;
       const isBaseline = spec.ids.indexOf("baseline") !== -1;
+      const benchReturnPct =
+        account && account.benchmark && isNum(account.benchmark.returnPct) ? account.benchmark.returnPct : null;
+      const progressStart = backtest ? spec.started || start : start;
       return {
         role: spec.role,
         ids: spec.ids,
         id: account ? account.id : spec.ids[0],
         present: Boolean(account),
+        backtest: Boolean(backtest),
         name: account ? account.name || account.id : null,
         label: account ? account.label || "" : "",
         currency: account ? account.currency || null : null,
         value: account && isNum(account.value) ? account.value : null,
         returnPct,
-        vsSpy: points(returnPct, spyReturn),
-        vsQqq: points(returnPct, qqqReturn),
-        vsBaseline: isBaseline ? (isNum(returnPct) ? 0 : null) : points(returnPct, baselineReturn),
+        vsSpy: backtest ? null : points(returnPct, spyReturn),
+        vsQqq: backtest ? null : points(returnPct, qqqReturn),
+        vsBaseline: backtest ? null : isBaseline ? (isNum(returnPct) ? 0 : null) : points(returnPct, baselineReturn),
+        vsBenchmark: backtest ? points(returnPct, benchReturnPct) : null,
         closedTrades: closed,
-        progress: account ? judgingProgress({ start, asof, closedTrades: closed }) : null,
+        progress: account ? judgingProgress({ start: progressStart, asof, closedTrades: closed }) : null,
         signals: account && Array.isArray(account.signals) ? account.signals : [],
+        trades: account && Array.isArray(account.trades) ? account.trades : [],
+        equityCurve: account && Array.isArray(account.equityCurve) ? account.equityCurve : [],
         status: account ? account.status || null : null,
       };
-    });
+    }
+    const rows = LAB_SPECS.map((spec) => rowFor(spec, { backtest: false }));
+    const backtestRows = BACKTEST_SPECS.map((spec) => rowFor(spec, { backtest: true }));
     return {
       spyReturn,
       qqqReturn,
@@ -166,11 +180,13 @@
       start,
       asof,
       rows,
+      backtestRows,
     };
   }
 
   return {
     LAB_SPECS,
+    BACKTEST_SPECS,
     TRADE_GOAL,
     JUDGE_MONTHS,
     isNum,

@@ -46,6 +46,54 @@ function paperAccount(partial) {
   };
 }
 
+/** Three-month replay sample. Dates are intentionally out of order. */
+function backtestAccounts() {
+  const curve = [
+    { date: "2026-10-19", value: 1084, benchmark: 1042 },
+    { date: "2026-07-16", value: 1000, benchmark: 1000 },
+    { date: "2026-08-20", value: 1032, benchmark: 1014 },
+    { date: "2026-09-15", value: 1055, benchmark: 1028 },
+  ];
+  const trades = [
+    { date: "2026-10-19", time: "09:45", ticker: "NVDA", side: "BUY", shares: 1, price: 184, value: 184, reason: "Live continuation after the replay." },
+    { date: "2026-07-16", time: "10:05", ticker: "AVGO", side: "BUY", shares: 2, price: 170, value: 340, reason: "Replay entry. The rule fired." },
+    { date: "2026-08-20", time: "15:30", ticker: "AVGO", side: "SELL", shares: 2, price: 188, value: 376, reason: "Replay exit." },
+  ];
+  const shared = {
+    startValue: 1000,
+    currency: "USD",
+    benchmark: { ticker: "SPY", name: "SPDR S&P 500 ETF", returnPct: 4.2 },
+    equityCurve: curve,
+    trades,
+  };
+  return [
+    paperAccount({
+      ...shared,
+      id: "bt-ghost-orig",
+      name: "BT-GHOST-ORIG",
+      value: 1084,
+      returnPct: 8.4,
+      cash: 200,
+    }),
+    paperAccount({
+      ...shared,
+      id: "bt-ghost-fixed",
+      name: "BT-GHOST-FIXED",
+      value: 1061,
+      returnPct: 6.1,
+      cash: 240,
+    }),
+    paperAccount({
+      ...shared,
+      id: "bt-momentum",
+      name: "BT-MOMENTUM",
+      value: 1110,
+      returnPct: 11,
+      cash: 150,
+    }),
+  ];
+}
+
 function buildSampleSnapshot() {
   const watchlist = readJson("watchlist-v2.json");
   const hotToday = readJson("hot-today.json");
@@ -93,6 +141,7 @@ function buildSampleSnapshot() {
       cash: state.cash,
       valueNote: `Marked value from the baseline state file as of ${state.asof}. Start value was not in that file, so return is unavailable.`,
     }),
+    ...backtestAccounts(),
   ]);
 
   return {

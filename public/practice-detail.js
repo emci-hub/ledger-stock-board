@@ -170,11 +170,9 @@
   }
 
   function tradesSection(account) {
-    const rows = (account.trades || []).slice().sort((a, b) => {
-      const da = `${a.date || ""} ${a.time || ""}`;
-      const db = `${b.date || ""} ${b.time || ""}`;
-      return db.localeCompare(da);
-    });
+    const rows = window.PaperSeries
+      ? window.PaperSeries.orderedTrades(account.trades)
+      : (account.trades || []).slice();
     if (!rows.length) return empty("No trades yet for this account.");
     return `<div class="table-scroll"><table class="data-table">
       <thead>
@@ -194,7 +192,7 @@
             const side = String(t.side || "").toUpperCase();
             const tone = side === "SELL" ? "neg-text" : side === "BUY" ? "pos-text" : "";
             return `<tr>
-              <td class="num">${P.escapeHtml(P.formatDay(t.date))}${
+              <td class="num">${P.escapeHtml(P.formatDay(t.date, true))}${
                 t.time ? `<br>${P.escapeHtml(t.time)}` : ""
               }</td>
               <td class="${tone}">${P.escapeHtml(side || "—")}</td>
@@ -225,7 +223,7 @@
         <span><i class="swatch bench"></i>${P.escapeHtml(bench)}</span>
       </div>
       ${svg}
-      <p class="chart-foot">This account only, indexed to its own starting value. Dashed line is ${P.escapeHtml(
+      <p class="chart-foot">This account only, earliest mark on the left. A replay that starts in July keeps those dates. Dashed line is ${P.escapeHtml(
         bench
       )}.</p>
     </div>`;

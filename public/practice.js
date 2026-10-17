@@ -50,6 +50,7 @@
     const watchlist = P.isWatchlistAccount(account);
     const tone = paused ? "paused-card" : watchlist ? "flat" : P.tone(account.returnPct);
     const blurb = P.accountBlurb(account);
+    const badge = P.accountBadge(account);
     const status = P.displayStatus(account);
     const id = P.escapeHtml(account.id);
     const ret = P.isNum(account.returnPct)
@@ -84,7 +85,7 @@
           ${blurb ? `<p class="hc-blurb">${P.escapeHtml(blurb)}</p>` : ""}
           <div class="hc-id">${id}</div>
         </div>
-        <span class="status-pill ${P.escapeHtml(status)}">${P.escapeHtml(status)}</span>
+        <span class="status-pill">${P.escapeHtml(badge || status)}</span>
       </div>
       ${figures}
     </button>`;

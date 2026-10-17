@@ -32,6 +32,7 @@ for (const id of [
   "lt-watch",
   "us-ghost",
   "ghost-orig",
+  "ghost-macro",
   "momentum",
   "baseline",
 ]) {
@@ -175,10 +176,10 @@ assert.equal(ready.fraction, 1);
 const board = Lab.scoreboard(doc);
 assert.equal(board.spyReturn, 0);
 assert.equal(board.qqqReturn, 0);
-assert.equal(board.rows.length, 5);
+assert.equal(board.rows.length, 6);
 assert.deepStrictEqual(
   board.rows.map((row) => row.id),
-  ["baseline", "ghost-orig", "us-ghost", "momentum", "us-day"]
+  ["baseline", "ghost-orig", "us-ghost", "ghost-macro", "momentum", "us-day"]
 );
 const usDay = board.rows.find((row) => row.id === "us-day");
 assert.equal(usDay.role, "US Long-Term v5");
@@ -196,10 +197,10 @@ const ghostRow = board.rows.find((row) => row.id === "ghost-orig");
 assert.equal(ghostRow.signals.length, 2);
 assert.equal(ghostRow.value, null);
 assert.equal(ghostRow.vsSpy, null);
-assert.equal(board.backtestRows.length, 3);
+assert.equal(board.backtestRows.length, 4);
 assert.deepStrictEqual(
   board.backtestRows.map((row) => row.id),
-  ["bt-ghost-orig", "bt-ghost-fixed", "bt-momentum"]
+  ["bt-ghost-orig", "bt-ghost-fixed", "bt-ghost-macro", "bt-momentum"]
 );
 const replay = board.backtestRows[0];
 assert.equal(replay.backtest, true);
@@ -212,6 +213,21 @@ assert.equal(replay.vsBenchmark, 4.2);
 assert.equal(replay.closedTrades, 1);
 assert.equal(replay.progress.start, "2026-07-16");
 assert.ok(replay.progress.elapsedDays > 31, "the replay clock includes the months before October");
+const macro = board.rows.find((row) => row.id === "ghost-macro");
+assert.equal(macro.role, "Ghost Dip + market weather");
+assert.equal(macro.present, true);
+assert.equal(macro.returnPct, null);
+assert.equal(macro.vsSpy, null);
+assert.equal(macro.backtest, false);
+const macroReplay = board.backtestRows.find((row) => row.id === "bt-ghost-macro");
+assert.equal(macroReplay.backtest, true);
+assert.equal(macroReplay.role, "Ghost Dip + market weather (backtest)");
+assert.equal(macroReplay.returnPct, 5.5);
+assert.equal(macroReplay.vsSpy, null);
+assert.equal(macroReplay.vsQqq, null);
+assert.equal(macroReplay.vsBaseline, null);
+assert.equal(macroReplay.vsBenchmark, 1.3);
+assert.equal(macroReplay.progress.start, "2026-07-16");
 const stored = doc.accounts.find((account) => account.id === "bt-ghost-orig");
 assert.equal(stored.trades.find((trade) => trade.ticker === "AVGO" && trade.side === "BUY").date, "2026-07-16");
 assert.equal(stored.equityCurve.find((point) => point.date === "2026-07-16").value, 1000);
@@ -226,7 +242,9 @@ assert.equal(newestFirst[0].date, "2026-10-19");
 assert.equal(newestFirst[newestFirst.length - 1].date, "2026-07-16");
 
 const missing = Lab.scoreboard({ accounts: [], lab: { start: "2026-10-16", asof: "2026-10-16", SPY: 1, SPY_now: 1, QQQ: 1, QQQ_now: 1 } });
-assert.equal(missing.rows.length, 5);
+assert.equal(missing.rows.length, 6);
+assert.equal(missing.backtestRows.length, 4);
 assert.ok(missing.rows.every((row) => row.present === false));
+assert.ok(missing.backtestRows.every((row) => row.present === false));
 
 console.log("paper ingest: ok — watchlist, hot today, lab, signals, and the judging bar");

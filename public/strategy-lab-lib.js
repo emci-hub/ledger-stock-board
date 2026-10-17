@@ -14,12 +14,14 @@
     { role: "Buy & hold A/B names, the bar to beat", ids: ["baseline"] },
     { role: "Ghost Dip, Gemini version", ids: ["ghost-orig"] },
     { role: "Ghost Dip, red-teamed", ids: ["us-ghost", "ghost-fixed"] },
+    { role: "Ghost Dip + market weather", ids: ["ghost-macro"] },
     { role: "Breakout momentum", ids: ["momentum"] },
     { role: "US Long-Term v5", ids: ["us-day"] },
   ];
   const BACKTEST_SPECS = [
     { role: "Ghost Dip, Gemini (backtest)", ids: ["bt-ghost-orig"], started: "2026-07-16" },
     { role: "Ghost Dip, red-teamed (backtest)", ids: ["bt-ghost-fixed"], started: "2026-07-16" },
+    { role: "Ghost Dip + market weather (backtest)", ids: ["bt-ghost-macro"], started: "2026-07-16" },
     { role: "Breakout momentum (backtest)", ids: ["bt-momentum"], started: "2026-07-16" },
   ];
   const TRADE_GOAL = 20;

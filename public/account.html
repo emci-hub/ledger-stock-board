@@ -3,23 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="light">
 <title>Account — Practice Run — Ledger</title>
 <meta name="description" content="One paper-trading account. Pretend money, not financial advice.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/practice.css">
 </head>
 <body>
 <div class="wrap">
 
-  <nav class="site-nav" aria-label="Ledger sections">
-    <a href="/" aria-current="page">Practice Run</a>
-    <a href="/board">Family Board</a>
+  <nav class="site-nav" aria-label="Ledger">
+    <a href="/">Overview</a>
+    <a href="/watchlist">Watchlist</a>
+    <a href="/lab">Strategy Lab</a>
+    <a href="/accounts" aria-current="page">Accounts</a>
   </nav>
 
-  <p class="back-row"><a class="back-link" href="/">← All accounts</a></p>
+  <p class="back-row"><a class="back-link" href="/accounts">← All accounts</a></p>
 
   <p class="state-msg" id="state-msg" role="status">Loading this account…</p>
 
@@ -28,7 +30,9 @@
   <footer>
     <span>Paper trading only — pretend money, no real trades, not financial advice.</span>
     <span class="foot-links">
-      <a href="/">All accounts</a>
+      <a href="/accounts">All accounts</a>
+      <a href="/watchlist">Watchlist</a>
+      <a href="/lab">Strategy Lab</a>
       <a href="/board">Family board</a>
       <a href="/api/paper">Raw snapshot</a>
     </span>

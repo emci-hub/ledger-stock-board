@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<title>Strategy Lab — Ledger</title>
+<meta name="description" content="Paper strategy comparison against SPY, QQQ, and the baseline. Not financial advice.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/practice.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="site-nav" aria-label="Ledger">
+    <a href="/">Overview</a>
+    <a href="/watchlist">Watchlist</a>
+    <a href="/lab" aria-current="page">Strategy Lab</a>
+    <a href="/accounts">Accounts</a>
+  </nav>
+
+  <header class="page-head">
+    <p class="kicker" id="asof">Strategy Lab</p>
+    <h1>Strategy Lab</h1>
+    <p class="sub">Ghost original, ghost fixed, momentum, the baseline, and long-term v5. Compared with SPY, QQQ, and the baseline. Paper money only.</p>
+    <p class="sub" id="window"></p>
+  </header>
+
+  <p class="advice" role="note"><strong>Advice only, not buy orders.</strong> Results are judged at 6 months or 20 closed trades, whichever comes later. Keep an account only if it beats both the baseline and SPY.</p>
+
+  <p class="state-msg" id="state-msg" role="status">Loading the lab…</p>
+
+  <main id="dash" hidden>
+    <section>
+      <div class="section-label">Benchmarks</div>
+      <div class="bench-strip" id="bench-strip"></div>
+    </section>
+    <section>
+      <div class="section-label">Accounts</div>
+      <div class="lab-list" id="rows"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Paper trading only — pretend money, no real trades.</span>
+    <span class="foot-links">
+      <a href="/watchlist">Watchlist</a>
+      <a href="/accounts">Accounts</a>
+      <a href="/board">Family board</a>
+    </span>
+  </footer>
+</div>
+<script src="/practice-lib.js"></script>
+<script src="/strategy-lab-lib.js"></script>
+<script src="/lab.js"></script>
+</body>
+</html>

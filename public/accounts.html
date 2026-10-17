@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<title>Accounts — Ledger</title>
+<meta name="description" content="Paper-trading accounts. Scoreboard, then one account at a time.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/practice.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="site-nav" aria-label="Ledger">
+    <a href="/">Overview</a>
+    <a href="/watchlist">Watchlist</a>
+    <a href="/lab">Strategy Lab</a>
+    <a href="/accounts" aria-current="page">Accounts</a>
+  </nav>
+
+  <header class="page-head">
+    <div class="head-top">
+      <div class="brand">
+        <h1>Accounts</h1>
+        <span class="tick" id="day-pill">day — of —</span>
+      </div>
+      <div class="head-meta">
+        <span class="updated" id="updated-label"><span class="dot"></span>loading…</span>
+        <span class="run-range" id="run-range"></span>
+      </div>
+    </div>
+    <p class="sub" id="run-note">Every synced account. Open one for its scorecard, picks, trades, chart, lessons, and rules.</p>
+    <p class="disclaimer" role="note">
+      <strong>Pretend money, not financial advice.</strong>
+      <span>Every number is on paper. Nothing here is an instruction to buy or sell.</span>
+    </p>
+  </header>
+
+  <p class="state-msg" id="state-msg" role="status">Loading accounts…</p>
+
+  <main id="dash" hidden>
+    <section aria-labelledby="scoreboard-label">
+      <div class="section-label" id="scoreboard-label">Scoreboard</div>
+      <div class="home-list" id="home-list"></div>
+      <p class="home-foot" id="home-foot"></p>
+    </section>
+
+    <section class="detail-wrap" id="account-detail" aria-labelledby="detail-label">
+      <div class="section-label" id="detail-label">Account detail</div>
+      <p class="section-intro" id="detail-intro">One account at a time. Scorecard, picks, trades, then chart, projection, lessons, and rules.</p>
+      <div class="acct-tabs" id="acct-tabs" role="tablist" aria-label="Accounts"></div>
+      <div class="detail-panel" id="acct-panel" role="tabpanel" aria-labelledby="detail-label"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Paper trading only — pretend money, no real trades.</span>
+    <span class="foot-links">
+      <a href="/">Overview</a>
+      <a href="/watchlist">Watchlist</a>
+      <a href="/lab">Strategy Lab</a>
+      <a href="/board">Family board</a>
+      <a href="/api/paper">Raw snapshot</a>
+    </span>
+  </footer>
+
+</div>
+<script src="/practice-lib.js"></script>
+<script src="/practice-detail.js"></script>
+<script src="/practice.js"></script>
+</body>
+</html>

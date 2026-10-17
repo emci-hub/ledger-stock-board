@@ -860,9 +860,24 @@ app.post("/api/admin/discovery", async (req, res) => {
   }
 });
 
-/** Family stock board. Lives at /board — / is the Practice Run dashboard. */
+/** Family stock board. Lives at /board. / is the paper-trading overview. */
 app.get("/board", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "board.html"));
+});
+
+/** Practice Run account workspace — scoreboard plus one account’s detail. */
+app.get("/accounts", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "accounts.html"));
+});
+
+/** Frozen graded watchlist and the hot-today tape. */
+app.get("/watchlist", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "watchlist.html"));
+});
+
+/** Strategy Lab scoreboard. Paper comparisons only. */
+app.get("/lab", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "lab.html"));
 });
 
 /**
@@ -875,7 +890,7 @@ app.get("/account/:id", (req, res) => {
 });
 
 app.get("/account", (req, res) => {
-  res.redirect(302, "/");
+  res.redirect(302, "/accounts");
 });
 
 app.get("/archive", (req, res) => {

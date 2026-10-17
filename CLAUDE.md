@@ -14,11 +14,16 @@ Read this first, every session. This is the Code-side twin of the "Stock Big" Cl
 - Repo: emci-hub/ledger-stock-board (public)
 
 ## Screens and routes
-- `/` — **Practice Run** (`public/index.html` + `practice.css` + `practice.js` + `practice-lib.js` + `practice-detail.js`). Scoreboard of every synced account at the top; **directly below**, one account’s detail at a time (tabs / tap a card to jump). **No global/cross-account sections**. Layout is density-aware: iPhone (≤430px) compact 2-column mini cards, ~14px base (≥12px secondary), sticky 44px tabs; tablet two columns; desktop (≥1200px) uses ~1600px and a 3-column detail (scorecard+picks | trades | analysis). Renderer never drops unknown ids.
-- `/account/:id` — the same four sections for that one account (`public/account.html` + `account.js`). Order: (1) scorecard (2) today’s picks (3) trades — positions + history (4) analysis — that account’s equity vs its own benchmark, its projection vs actual, lessons, strategy.
-- `/board` — the family stock board (`public/board.html`, formerly `public/index.html`). All of its APIs, `/archive`, `/dev-status`, search and watchlist are unchanged.
+- `/` — **Overview** (`public/index.html` + `overview.js`). Card for every synced account (value, return, status). Links into Watchlist, Strategy Lab, and each account. Renderer never drops an id.
+- `/watchlist` — frozen graded watchlist plus Hot Today (`public/watchlist.html`). Grade, score, and every grade input, with the plain-English `explain` text from the snapshot. Sortable, filter by grade.
+- `/lab` — **Strategy Lab** (`public/lab.html`). Compares ghost-orig, us-ghost (ghost fixed), momentum, baseline, and us-day (long-term v5) with SPY, QQQ, and the baseline. Signal log on each account.
+- `/accounts` — account workspace (`public/accounts.html`). Scoreboard, then one account’s detail at a time. Same four sections as before: scorecard, picks, trades, analysis. A signal log shows when the account has one.
+- `/account/:id` — that one account (`public/account.html` + `account.js`).
+- `/board` — the family stock board (`public/board.html`). `/archive` and `/dev-status` stay. Family board is linked from the footer.
 - `/healthz` — unchanged, still what UptimeRobot pings.
-- Top nav on both surfaces switches between Practice Run and the family board.
+- Top nav on these pages: Overview, Watchlist, Strategy Lab, Accounts.
+
+The paper snapshot may also carry optional `watchlist` (v2 graded list), `hot_today`, `lab` (SPY/QQQ start and latest), and per-account `signals`. Missing blocks are omitted. A bad shape is still a 400. Existing account payloads keep working. An explicit `value: null` stays null (unavailable), not zero.
 
 ## Practice Run (paper trading) — `/`, `/account/:id` and `/api/paper*`
 A fixed two-week paper test (Oct 15–29, 2026, pretend money, **never real trades**). The synced document can carry any account ids; the renderer sorts for display (`lib/paperAccounts.js` `PREFERRED_ORDER`, then unknowns appended) and **never drops** an id. Current live ids: `us-swing`, `ca-swing`, `glb-branch` (Green line breakout, benchmark VOO/SPY), `lottery-us`, `lottery-ca`, then paused `us-day`, `ca-day`. The data is produced on a separate machine and pushed here — this app never computes, estimates or AI-fills a paper number. Anything the snapshot doesn't carry renders as "unavailable" (rule 1 applies to this screen too).

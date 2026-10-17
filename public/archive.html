@@ -5,71 +5,73 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ledger — Archive &amp; candidates</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
+<meta name="color-scheme" content="light">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0D1210; --bg-line:#141B18; --surface:#151C1A; --line:#26302B;
-    --ink:#EDEFE9; --muted:#8B978F; --muted-dim:#5C6862;
-    --green:#4FB88A; --rust:#E2735A; --gold:#D9A857; --warn:#C4A35A;
+    --bg:#f4f5f7; --surface:#ffffff; --surface-2:#f7f8fa; --line:#e4e7eb;
+    --ink:#1a1d21; --muted:#5c6570; --muted-dim:#7b848e;
+    --green:#0b7a43; --rust:#b42318; --gold:#5c6570; --warn:#5c6570;
   }
   *{box-sizing:border-box;}
   body{
     margin:0;
-    background:
-      radial-gradient(ellipse 80% 50% at 10% -10%, rgba(79,184,138,0.08), transparent 50%),
-      repeating-linear-gradient(0deg, var(--bg-line) 0px, var(--bg-line) 1px, transparent 1px, transparent 64px),
-      var(--bg);
+    background:var(--bg);
     color:var(--ink);
-    font-family:'Source Sans 3',sans-serif;
+    font-family:"DM Sans", sans-serif;
     -webkit-font-smoothing:antialiased;
+    line-height:1.5;
   }
-  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 90px;}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 24px 80px;}
+  .site-nav{display:flex;flex-wrap:wrap;gap:4px 8px;margin:0 0 28px;padding:0 0 8px;border-bottom:1px solid var(--line);}
+  .site-nav a{color:var(--muted);text-decoration:none;font-weight:600;font-size:15px;min-height:44px;padding:0 12px;display:inline-flex;align-items:center;border-bottom:2px solid transparent;}
+  .site-nav a:hover{color:var(--ink);}
   header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:8px;}
-  h1{font-family:'Fraunces',serif;font-size:28px;margin:0;font-weight:600;}
-  .tick{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted-dim);margin-left:8px;}
+  h1{font-family:"DM Sans", sans-serif;font-size:36px;margin:0;font-weight:650;letter-spacing:-0.03em;}
+  .tick{font-family:"DM Sans", sans-serif;font-size:11px;color:var(--muted-dim);margin-left:8px;}
   .nav a{color:var(--muted);font-size:13px;text-decoration:none;border-bottom:1px solid var(--line);}
   .nav a:hover{color:var(--ink);}
   .sub{color:var(--muted);font-size:14px;margin:0 0 20px;max-width:560px;line-height:1.5;}
   .banner{
     border:1px dashed var(--line);border-radius:10px;padding:12px 14px;
-    color:var(--muted);font-size:13px;margin-bottom:18px;background:rgba(0,0,0,0.15);
+    color:var(--muted);font-size:14px;margin-bottom:18px;background:var(--surface);
   }
   .toolbar{
     display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;
     margin-bottom:22px;padding:12px 14px;border:1px solid var(--line);
-    border-radius:12px;background:rgba(21,28,26,0.7);
+    border-radius:12px;background:var(--surface);
   }
   .avail{
-    font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--gold);
+    font-family:"DM Sans", sans-serif;font-size:12px;color:var(--gold);
     flex:1 1 180px;
   }
   .avail.zero{color:var(--muted);}
   .toolbar button,.row-actions button{
-    font-family:'Source Sans 3',sans-serif;font-size:13px;font-weight:500;
+    font-family:"DM Sans", sans-serif;font-size:13px;font-weight:500;
     color:var(--ink);background:transparent;border:1px solid var(--line);
     border-radius:8px;padding:6px 12px;cursor:pointer;
   }
   .toolbar button:hover:not(:disabled),.row-actions button:hover:not(:disabled){
-    border-color:#3A4A43;background:rgba(255,255,255,0.03);
+    border-color:#c5cad1;background:#fff;
   }
   .toolbar button:disabled,.row-actions button:disabled{
     opacity:0.45;cursor:not-allowed;
   }
   .pw-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
   .pw-row input{
-    font-family:'IBM Plex Mono',monospace;font-size:12px;
-    background:#0F1513;border:1px solid var(--line);border-radius:8px;
+    font-family:"DM Sans", sans-serif;font-size:12px;
+    background:#fff;border:1px solid var(--line);border-radius:8px;color:var(--ink);
     color:var(--ink);padding:6px 10px;width:140px;
   }
   .msg{font-size:12px;color:var(--muted);width:100%;}
   .msg.err{color:var(--rust);} .msg.ok{color:var(--green);}
   .section-label{
-    font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.04em;
+    font-family:"DM Sans", sans-serif;font-size:11px;letter-spacing:0.04em;
     color:var(--muted-dim);text-transform:uppercase;margin:28px 0 10px;
   }
   .list{display:flex;flex-direction:column;gap:6px;}
   details.row{
-    border:1px solid var(--line);border-radius:10px;background:rgba(21,28,26,0.55);
+    border:1px solid var(--line);border-radius:10px;background:var(--surface);
     overflow:hidden;
   }
   details.row[open]{background:var(--surface);}
@@ -80,30 +82,30 @@
   }
   summary.row-sum::-webkit-details-marker{display:none;}
   .id-block{min-width:0;}
-  .ticker{font-family:'Fraunces',serif;font-weight:600;font-size:17px;}
+  .ticker{font-family:"DM Sans", sans-serif;font-weight:600;font-size:17px;}
   .name{font-size:12px;color:var(--muted-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .badge{
-    font-family:'IBM Plex Mono',monospace;font-size:10px;
+    font-family:"DM Sans", sans-serif;font-size:10px;
     border:1px solid var(--line);border-radius:6px;padding:2px 6px;white-space:nowrap;
   }
   .badge.candidate{color:var(--gold);}
   .badge.archived{color:var(--muted);}
-  .price{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:500;text-align:right;}
-  .delta{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;text-align:right;}
+  .price{font-family:"DM Sans", sans-serif;font-size:14px;font-weight:500;text-align:right;}
+  .delta{font-family:"DM Sans", sans-serif;font-size:12px;font-weight:600;text-align:right;}
   .delta.up{color:var(--green);} .delta.down{color:var(--rust);}
-  .exch{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted-dim);text-align:right;}
+  .exch{font-family:"DM Sans", sans-serif;font-size:11px;color:var(--muted-dim);text-align:right;}
   .via-source{
-    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);
+    font-family:"DM Sans", sans-serif;font-size:10px;color:var(--muted-dim);
     margin-left:6px;white-space:nowrap;
   }
   .body{padding:0 14px 14px;border-top:1px solid transparent;}
   details[open] .body{border-top-color:var(--line);padding-top:12px;margin-top:0;}
   .warns{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
   .warn{
-    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--warn);
+    font-family:"DM Sans", sans-serif;font-size:10px;color:var(--warn);
     border:1px solid rgba(196,163,90,0.35);border-radius:6px;padding:3px 7px;
   }
-  .meta{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-dim);margin-bottom:8px;}
+  .meta{font-family:"DM Sans", sans-serif;font-size:10px;color:var(--muted-dim);margin-bottom:8px;}
   .summary{font-size:13px;line-height:1.5;color:var(--muted);margin-bottom:12px;}
   .row-actions{display:flex;flex-wrap:wrap;gap:8px;}
   .empty-note{color:var(--muted);font-size:14px;padding:16px 0;}
@@ -126,11 +128,17 @@
 </head>
 <body>
 <div class="wrap">
+  <nav class="site-nav" aria-label="Ledger">
+    <a href="/">Overview</a>
+    <a href="/watchlist">Watchlist</a>
+    <a href="/lab">Strategy Lab</a>
+    <a href="/accounts">Accounts</a>
+  </nav>
   <header>
     <div>
-      <h1>Ledger <span class="tick">archive &amp; candidates</span></h1>
+      <h1>Archive</h1>
     </div>
-    <nav class="nav"><a href="/board">← Back to live board</a></nav>
+    <nav class="nav"><a href="/board">Family board</a></nav>
   </header>
   <p class="sub">Browse archived names and not-yet-promoted candidates. Listing uses cheap discovery signals only — no API cost until you Analyze.</p>
   <div class="banner">Candidates are FMP movers waiting for a full report (via FMP = discovery signal only). Archived stocks were rotated off the live board; their history stays intact. Active board cards never show FMP — they use TD/MX/AV after analysis.</div>

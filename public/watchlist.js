@@ -222,6 +222,243 @@
     return { asof: null, hot: account.hotToday, all: [], note: null };
   }
 
+  function textOrEmpty(value) {
+    if (value == null || value === "") return "";
+    return String(value);
+  }
+
+  function gradeParts(value) {
+    if (value == null || value === "") return { letter: "", reason: "", source: "", date: "" };
+    if (typeof value === "string" || typeof value === "number") {
+      return { letter: String(value), reason: "", source: "", date: "" };
+    }
+    if (typeof value !== "object") return { letter: "", reason: "", source: "", date: "" };
+    return {
+      letter: textOrEmpty(value.grade),
+      reason: textOrEmpty(value.reason),
+      source: textOrEmpty(value.source),
+      date: textOrEmpty(value.date),
+    };
+  }
+
+  function signalText(value) {
+    if (value == null || value === "") return "—";
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+    if (Array.isArray(value)) return value.map((item) => signalText(item)).filter((item) => item && item !== "—").join(", ") || "—";
+    if (typeof value === "object") {
+      return Object.entries(value)
+        .map(([key, item]) => `${key}: ${signalText(item)}`)
+        .join(" · ");
+    }
+    return "—";
+  }
+
+  function disruptionChip(stock) {
+    const label = textOrEmpty(stock.disruption);
+    if (!label) return "";
+    const key = label.toUpperCase();
+    const tone = key === "GREEN" ? "disruption-green" : key === "YELLOW" ? "disruption-yellow" : key === "RED" ? "disruption-red" : "";
+    const why = textOrEmpty(stock.disruption_why);
+    return `<span class="disruption ${tone}" title="${P.escapeHtml(why)}">${P.escapeHtml(key)}</span>`;
+  }
+
+  function percentCap(value, fallback) {
+    return typeof value === "number" && Number.isFinite(value) ? Math.round(value * 100) : fallback;
+  }
+
+  function capsLine(watchlist) {
+    const caps = watchlist && watchlist.config && watchlist.config.caps;
+    const perName = percentCap(caps && caps.per_name, 10);
+    const perTheme = percentCap(caps && caps.per_theme, 30);
+    return `No more than ${perName}% in one stock, and no more than ${perTheme}% in one theme. Yellow means half size.`;
+  }
+
+  function failSentence(stock) {
+    const reasons = Array.isArray(stock.fail_reasons) ? stock.fail_reasons.map((item) => textOrEmpty(item)).filter(Boolean) : [];
+    if (!reasons.length) return "No fail reason was included in this snapshot.";
+    return reasons.join(" ");
+  }
+
+  function watchOnlyItem(stock, note) {
+    const ticker = textOrEmpty(stock.ticker) || "—";
+    const name = textOrEmpty(stock.name);
+    return `<li>
+      <b>${P.escapeHtml(ticker)}</b>${name ? ` <span class="god-name">${P.escapeHtml(name)}</span>` : ""}
+      ${note ? `<p>${P.escapeHtml(note)}</p>` : `<p>${P.escapeHtml(failSentence(stock))}</p>`}
+    </li>`;
+  }
+
+  function gradesHtml(card) {
+    const grades = card && card.grades && typeof card.grades === "object" ? card.grades : {};
+    const V3 = window.WatchlistV3;
+    return V3.GRADE_FIELDS.map(([key, label]) => {
+      const parts = gradeParts(grades[key]);
+      const letter = parts.letter || "—";
+      const sourceBits = [parts.source, parts.date ? P.formatDay(parts.date, true) : ""].filter(Boolean);
+      return `<article class="god-grade">
+        <h3>${P.escapeHtml(label)}</h3>
+        <p><span class="letter">${P.escapeHtml(letter)}</span>${parts.reason ? P.escapeHtml(parts.reason) : `<span class="flat-text">No reason in this snapshot.</span>`}</p>
+        <p class="god-meta">${sourceBits.length ? P.escapeHtml(sourceBits.join(" · ")) : "Source not in this snapshot."}</p>
+      </article>`;
+    }).join("");
+  }
+
+  function issueTable(rows) {
+    const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+    if (!list.length) return `<p class="empty">No issues logged for this name.</p>`;
+    const body = list
+      .map((row) => {
+        if (typeof row === "string") {
+          return `<tr><td>${P.escapeHtml(row)}</td><td>—</td><td>—</td><td>—</td></tr>`;
+        }
+        return `<tr>
+          <td>${P.escapeHtml(textOrEmpty(row.issue) || "—")}</td>
+          <td>${P.escapeHtml(row.date ? P.formatDay(row.date, true) : "—")}</td>
+          <td>${P.escapeHtml(textOrEmpty(row.fix_plan) || "—")}</td>
+          <td>${P.escapeHtml(textOrEmpty(row.status) || "—")}</td>
+        </tr>`;
+      })
+      .join("");
+    return `<div class="table-scroll"><table class="data-table">
+      <thead><tr><th>Issue</th><th>Date</th><th>Fix plan</th><th>Status</th></tr></thead>
+      <tbody>${body}</tbody></table></div>`;
+  }
+
+  function newsHtml(news) {
+    const block = news && typeof news === "object" ? news : {};
+    const tags = Array.isArray(block.macro_tags) ? block.macro_tags.map((tag) => textOrEmpty(tag)).filter(Boolean) : [];
+    const tagHtml = tags.length
+      ? `<div class="chip-row">${tags.map((tag) => `<span class="status-pill">${P.escapeHtml(tag)}</span>`).join("")}</div>`
+      : `<p class="god-meta">No macro tags in this snapshot.</p>`;
+    const log = Array.isArray(block.log) ? block.log.filter(Boolean) : [];
+    const logHtml = log.length
+      ? `<div class="table-scroll"><table class="data-table"><thead><tr>
+          <th>Date</th><th>What happened</th><th>Source</th><th>Why it matters</th><th>Type</th>
+        </tr></thead><tbody>${log
+          .map((row) => {
+            if (typeof row === "string") return `<tr><td colspan="5">${P.escapeHtml(row)}</td></tr>`;
+            const kind = textOrEmpty(row.type);
+            const kindLabel = kind === "thesis-changing" ? "Thesis-changing" : kind === "price-only" ? "Price only" : kind || "—";
+            return `<tr>
+              <td>${P.escapeHtml(row.date ? P.formatDay(row.date, true) : "—")}</td>
+              <td>${P.escapeHtml(textOrEmpty(row.summary) || "—")}</td>
+              <td>${P.escapeHtml(textOrEmpty(row.source) || "—")}</td>
+              <td>${P.escapeHtml(textOrEmpty(row.impact) || "—")}</td>
+              <td>${P.escapeHtml(kindLabel)}</td>
+            </tr>`;
+          })
+          .join("")}</tbody></table></div>`
+      : `<p class="empty">No news log in this snapshot.</p>`;
+    const catalysts = Array.isArray(block.catalysts) ? block.catalysts.filter(Boolean) : [];
+    const catalystHtml = catalysts.length
+      ? `<ul class="watch-next">${catalysts
+          .map((row) => {
+            if (typeof row === "string") return `<li>${P.escapeHtml(row)}</li>`;
+            const when = row.date ? P.formatDay(row.date, true) : "";
+            const event = textOrEmpty(row.event) || "Event not named";
+            return `<li>${when ? `${P.escapeHtml(when)} — ` : ""}${P.escapeHtml(event)}</li>`;
+          })
+          .join("")}</ul>`
+      : `<p class="god-meta">No dated catalysts in this snapshot.</p>`;
+    const signals = block.signals && typeof block.signals === "object" ? block.signals : {};
+    const signalHtml = window.WatchlistV3.SIGNAL_FIELDS.map(([key, label]) => {
+      return `<div><dt>${P.escapeHtml(label)}</dt><dd>${P.escapeHtml(signalText(signals[key]))}</dd></div>`;
+    }).join("");
+    return `<div class="news-block"><h3 class="block-label">Macro tags</h3>${tagHtml}</div>
+      <div class="news-block"><h3 class="block-label">News log</h3>${logHtml}</div>
+      <div class="news-block"><h3 class="block-label">Catalysts</h3>${catalystHtml}</div>
+      <div class="news-block"><h3 class="block-label">Signals</h3><dl class="signal-grid">${signalHtml}</dl></div>`;
+  }
+
+  function godCard(stock, open) {
+    const V3 = window.WatchlistV3;
+    const card = stock.report_card && typeof stock.report_card === "object" ? stock.report_card : {};
+    const ticker = textOrEmpty(stock.ticker) || "—";
+    const name = textOrEmpty(stock.name);
+    const description = textOrEmpty(card.description);
+    const overall = textOrEmpty(card.overall) || "—";
+    const composite = V3.compositeOf(stock);
+    const compositeLabel = composite == null ? "—" : Number.isInteger(composite) ? String(composite) : composite.toFixed(1);
+    const statusTag = textOrEmpty(card.status_tag);
+    const theme = textOrEmpty(stock.theme);
+    const badges = [
+      `<span class="grade-badge" title="Overall grade">${P.escapeHtml(overall)}</span>`,
+      `<span class="composite-num" title="Company score, 0 to 100">${P.escapeHtml(compositeLabel)}</span>`,
+      statusTag ? `<span class="status-pill">${P.escapeHtml(statusTag)}</span>` : "",
+      disruptionChip(stock),
+      V3.newsHold(stock) ? `<span class="status-pill">News hold</span>` : "",
+      V3.halfSize(stock) ? `<span class="status-pill">Half size</span>` : "",
+    ]
+      .filter(Boolean)
+      .join("");
+    const watchNext = Array.isArray(card.watch_next) ? card.watch_next.map((item) => textOrEmpty(item)).filter(Boolean) : [];
+    const watchHtml = watchNext.length
+      ? `<ul class="watch-next">${watchNext.map((item) => `<li>${P.escapeHtml(item)}</li>`).join("")}</ul>`
+      : `<p class="god-meta">Nothing listed to watch next.</p>`;
+    return `<article class="god-card">
+      <div class="god-top">
+        <div>
+          <h2>${P.escapeHtml(ticker)}${name ? `<span class="god-name">${P.escapeHtml(name)}</span>` : ""}</h2>
+          ${description ? `<p class="hc-blurb">${P.escapeHtml(description)}</p>` : `<p class="hc-blurb">No one-line description in this snapshot.</p>`}
+          ${theme ? `<p class="hc-id">Theme: ${P.escapeHtml(theme)}${stock.cyclical === true ? " · boom-bust, judged over 7 years" : ""}</p>` : ""}
+        </div>
+        <div class="god-badges">${badges}</div>
+      </div>
+      <details${open ? " open" : ""}>
+        <summary>Grades, issues, and news</summary>
+        <div class="god-detail">
+          <div class="god-grades">${gradesHtml(card)}</div>
+          <h3 class="block-label">Issue log</h3>
+          ${issueTable(card.issue_log)}
+          <h3 class="block-label">What to watch next</h3>
+          ${watchHtml}
+          <h3 class="block-label">News</h3>
+          ${newsHtml(stock.news)}
+        </div>
+      </details>
+    </article>`;
+  }
+
+  function renderV3(watchlist) {
+    const V3 = window.WatchlistV3;
+    const parts = V3.partition(watchlist);
+    el("caps-line").textContent = capsLine(watchlist);
+    const godCount = parts.god.length;
+    el("god-count").textContent = godCount
+      ? `${godCount} name${godCount === 1 ? "" : "s"}, highest score first.`
+      : "No god-tier names in this snapshot.";
+    el("god-list").innerHTML = godCount
+      ? parts.god.map((stock, index) => godCard(stock, index === 0)).join("")
+      : `<p class="empty">No god-tier names in this snapshot.</p>`;
+    const watchRows = parts.watchOnly;
+    const otherRows = parts.other;
+    const watchCount = watchRows.length + otherRows.length;
+    el("watch-only-count").textContent = watchCount
+      ? `${watchCount} name${watchCount === 1 ? "" : "s"} that did not pass every test.`
+      : "No names in this group.";
+    const blocks = [];
+    if (watchRows.length) {
+      blocks.push(`<ul class="watch-only-list">${watchRows.map((stock) => watchOnlyItem(stock)).join("")}</ul>`);
+    }
+    if (otherRows.length) {
+      blocks.push(`<p class="section-intro">These names did not say god or watch-only, so they stay visible and are not treated as god-tier.</p>`);
+      blocks.push(
+        `<ul class="watch-only-list">${otherRows
+          .map((stock) => {
+            const status = textOrEmpty(stock.status);
+            const note = status
+              ? `Status on the snapshot: ${status}. ${failSentence(stock)}`
+              : `Status was not on the snapshot. ${failSentence(stock)}`;
+            return watchOnlyItem(stock, note);
+          })
+          .join("")}</ul>`
+      );
+    }
+    el("watch-only-body").innerHTML = blocks.length
+      ? blocks.join("")
+      : `<p class="empty">No watch-only names in this snapshot.</p>`;
+  }
+
   async function load() {
     let result;
     try {
@@ -243,10 +480,20 @@
     stocks = wl && Array.isArray(wl.stocks) ? wl.stocks : [];
     explain = (wl && wl.explain) || {};
     const asof = (wl && wl.asof) || (hot && hot.asof) || "";
-    el("asof").textContent = asof ? `Snapshot ${asof}` : "Snapshot date unavailable";
-    if (wl && wl.method) el("method").textContent = wl.method;
+    const useV3 = Boolean(window.WatchlistV3 && wl && window.WatchlistV3.isV3(wl));
+    el("asof").textContent = asof
+      ? `Snapshot ${asof}${useV3 && wl.version ? " · " + wl.version : ""}`
+      : "Snapshot date unavailable";
+    if (useV3) {
+      el("method").textContent = "God-tier names that passed every test. A grade is about the company, not the price.";
+    } else if (wl && wl.method) {
+      el("method").textContent = wl.method;
+    }
+    const hotRows = hot && Array.isArray(hot.hot) ? hot.hot : [];
+    const hotSection = el("hot-section");
+    if (hotSection) hotSection.hidden = useV3 && hotRows.length === 0;
     el("hot-meta").textContent = hot && hot.asof ? `As of ${hot.asof}${hot.generated ? " · generated " + hot.generated : ""}` : "";
-    el("hot-body").innerHTML = hotTable((hot && hot.hot) || []);
+    el("hot-body").innerHTML = hotTable(hotRows);
     const all = hot && Array.isArray(hot.all) ? hot.all : [];
     const tape = el("tape");
     if (all.length) {
@@ -257,8 +504,16 @@
     } else {
       tape.hidden = true;
     }
-    renderFilters();
-    renderTable();
+    if (useV3) {
+      renderV3(wl);
+      el("v2").hidden = true;
+      el("v3").hidden = false;
+    } else {
+      renderFilters();
+      renderTable();
+      el("v2").hidden = false;
+      el("v3").hidden = true;
+    }
     el("state-msg").hidden = true;
     el("dash").hidden = false;
   }

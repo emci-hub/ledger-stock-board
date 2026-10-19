@@ -1,0 +1,143 @@
+{
+  "asof": "2026-10-16",
+  "version": "v3.1-god-tier",
+  "counts": { "god": 2, "watch-only": 1 },
+  "config": {
+    "caps": { "per_name": 0.1, "per_theme": 0.3 },
+    "report_card": {
+      "weights": { "health": 0.3, "trajectory": 0.25, "runway": 0.2, "risks": 0.15, "response": 0.1 },
+      "bands": { "A": 75, "B": 60, "C": 45 }
+    }
+  },
+  "stocks": [
+    {
+      "ticker": "MSFT",
+      "name": "Microsoft",
+      "theme": "Software",
+      "cyclical": false,
+      "price": 529.05,
+      "status": "god",
+      "disruption": "GREEN",
+      "disruption_why": "No free product replaces the software companies keep paying for.",
+      "size_mult": 1,
+      "fail_reasons": [],
+      "tests": {
+        "roic": [true, 0.27, "5-year return on capital stays above 15%."],
+        "gp_assets": [true, 0.42, "Gross profit on assets holds up."],
+        "debt": [true, 0.27, "Net debt is well under 2 times EBITDA."],
+        "asset_growth": [true, 0.08, "Assets are not growing faster than the business."],
+        "cash_conv": [true, 1.1, "Free cash flow covers net income."],
+        "filings_3y": [true, 12, "Public for more than 3 years."]
+      },
+      "vetoes": {
+        "beneish": [false, -2.4],
+        "piotroski": [false, 7],
+        "altman": [false, 4.1]
+      },
+      "news_hold": false,
+      "report_card": {
+        "description": "Sells software and cloud services that businesses keep paying for.",
+        "grades": {
+          "health": { "grade": "A", "reason": "High return on capital and light debt.", "source": "Annual report", "date": "2026-07-30" },
+          "trajectory": { "grade": "A", "reason": "Sales and profit are still rising.", "source": "Earnings release", "date": "2026-07-30" },
+          "runway": { "grade": "B", "reason": "Cloud still has room, but growth is slower than a few years ago.", "source": "Quarterly report", "date": "2026-07-30" },
+          "risks": { "grade": "B", "reason": "A few large customers and a big spending plan.", "source": "Annual report", "date": "2026-07-30" },
+          "response": { "grade": "A", "reason": "Management has handled past slowdowns without cutting the core business.", "source": "Shareholder letter", "date": "2026-07-30" }
+        },
+        "overall": "A",
+        "composite": 88,
+        "status_tag": "Growing",
+        "issue_log": [
+          { "issue": "Cloud growth cooled", "date": "2026-04-30", "fix_plan": "Watch the next two quarters before changing the grade.", "status": "open" }
+        ],
+        "watch_next": ["Next earnings: is cloud growth still slowing?", "Does AI spending stay inside the cash the business already earns?"]
+      },
+      "news": {
+        "macro_tags": ["rates", "software spend"],
+        "log": [
+          { "date": "2026-10-01", "summary": "A large customer renewed a multi-year contract.", "source": "Company filing", "impact": "Supports the reason we own the business.", "type": "thesis-changing" }
+        ],
+        "catalysts": [{ "date": "2026-10-28", "event": "Quarterly earnings" }],
+        "signals": {
+          "insider": "No unusual selling",
+          "buybacks": "Steady",
+          "short_interest": "Low",
+          "estimate_revisions": "Slightly up"
+        }
+      }
+    },
+    {
+      "ticker": "NVDA",
+      "name": "NVIDIA",
+      "theme": "Chips",
+      "cyclical": true,
+      "price": 184.2,
+      "status": "god",
+      "disruption": "YELLOW",
+      "disruption_why": "Customers are building their own chips. The check is done, and it is not red.",
+      "size_mult": 0.5,
+      "fail_reasons": [],
+      "tests": {
+        "roic": [true, 0.67, "Judged over 7 years because chip demand booms and busts."],
+        "gp_assets": [true, 0.55, "Gross profit on assets is strong across the cycle."],
+        "debt": [true, -0.12, "Net cash."],
+        "asset_growth": [true, 0.2, "Asset growth is matched by sales."],
+        "cash_conv": [true, 0.95, "Profits are turning into cash."],
+        "filings_3y": [true, 20, "Public for more than 3 years."]
+      },
+      "vetoes": {
+        "beneish": [false, -2.1],
+        "piotroski": [false, 6],
+        "altman": [false, 8.2]
+      },
+      "news_hold": true,
+      "report_card": {
+        "description": "Designs the chips used to train AI models. Demand swings hard, so the score uses a 7-year window.",
+        "grades": {
+          "health": { "grade": "A", "reason": "Very high return on capital and no net debt.", "source": "Annual report", "date": "2026-08-27" },
+          "trajectory": { "grade": "B", "reason": "Still growing, but the pace is no longer a straight line up.", "source": "Earnings release", "date": "2026-08-27" },
+          "runway": { "grade": "B", "reason": "AI spending can pause. The 7-year view already includes past busts.", "source": "Annual report", "date": "2026-08-27" },
+          "risks": { "grade": "C", "reason": "A few customers are a large share of sales, and they are designing their own chips.", "source": "Annual report", "date": "2026-08-27" },
+          "response": { "grade": "B", "reason": "The company has cut plans before when demand fell.", "source": "Earnings call", "date": "2026-08-27" }
+        },
+        "overall": "B",
+        "composite": 71,
+        "status_tag": "Steady",
+        "issue_log": [
+          { "issue": "Customers designing their own chips", "date": "2026-08-27", "fix_plan": "Keep the disruption flag at yellow and the position at half size until the next filing.", "status": "open" }
+        ],
+        "watch_next": ["Whether the biggest customers keep buying, or switch to their own chips."]
+      },
+      "news": {
+        "macro_tags": ["AI spend", "export rules"],
+        "log": [
+          { "date": "2026-10-12", "summary": "A new export rule may limit which chips can be shipped.", "source": "Reuters", "impact": "Could change the sales story. Buying waits until the next filing.", "type": "thesis-changing" },
+          { "date": "2026-10-14", "summary": "The share price fell after a broad chip selloff.", "source": "Market tape", "impact": "The price moved. The business story did not.", "type": "price-only" }
+        ],
+        "catalysts": [{ "date": "2026-11-19", "event": "Quarterly earnings" }],
+        "signals": {
+          "insider": "Light selling, in line with past years",
+          "buybacks": "None recently",
+          "short_interest": "Moderate",
+          "estimate_revisions": "Mixed"
+        }
+      }
+    },
+    {
+      "ticker": "INTC",
+      "name": "Intel",
+      "theme": "Chips",
+      "cyclical": true,
+      "price": 23.4,
+      "status": "watch-only",
+      "disruption": "YELLOW",
+      "disruption_why": "Rivals took the lead in manufacturing.",
+      "size_mult": 0.5,
+      "fail_reasons": [
+        "Return on capital was under 8% in a year.",
+        "Profits are not turning into cash.",
+        "The spending plan is large next to the cash the business earns."
+      ]
+    }
+  ]
+}

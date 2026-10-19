@@ -224,6 +224,59 @@ details.acct-group[open] > summary::after{content:"Hide";}
 .col-plain{display:block;max-width:11rem;white-space:normal;margin-top:4px;}
 .stat-help{display:block;margin-top:2px;font-weight:400;}
 .wl-table th{vertical-align:top;}
+.read-box p{margin:8px 0;color:var(--muted);font-size:14px;max-width:78ch;}
+.god-list{display:flex;flex-direction:column;gap:16px;}
+.god-card{
+  background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 18px 8px;
+}
+.god-top{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;}
+.god-card h2{margin:0;font-size:1.25rem;font-weight:650;letter-spacing:-0.02em;}
+.god-name{font-weight:500;color:var(--muted);font-size:1rem;margin-left:8px;}
+.god-badges{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.grade-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:40px;height:40px;padding:0 10px;border-radius:12px;
+  border:1px solid var(--ink);font-weight:650;font-size:1.15rem;background:var(--surface);
+}
+.composite-num{font-weight:650;font-size:1.15rem;letter-spacing:-0.03em;}
+.god-card .data-table{min-width:0;}
+.god-card .data-table th,.god-card .data-table td{white-space:normal;}
+.god-card details{margin-top:8px;border-top:1px solid var(--line-soft);}
+.god-card summary{cursor:pointer;font-weight:650;min-height:44px;display:flex;align-items:center;}
+.god-detail{padding:4px 0 12px;}
+.god-grades{display:grid;gap:10px;margin:0 0 16px;}
+@media (min-width:800px){.god-grades{grid-template-columns:1fr 1fr;}}
+.god-grade{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:12px;}
+.god-grade h3{margin:0 0 4px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:var(--muted);font-weight:650;}
+.god-grade .letter{font-size:1.15rem;font-weight:650;margin-right:8px;}
+.god-grade p{margin:4px 0 0;font-size:14px;color:var(--ink);}
+.god-meta{margin:6px 0 0;font-size:13px;color:var(--muted);}
+.chip-row{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 12px;}
+.watch-next{margin:0;padding-left:18px;color:var(--ink);font-size:14px;}
+.watch-next li{margin:4px 0;}
+.news-block{margin:0 0 16px;}
+.news-block h3,.god-detail h3.block-label{
+  margin:0 0 8px;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:var(--muted);font-weight:650;
+}
+.signal-grid{display:grid;gap:10px;grid-template-columns:1fr;}
+@media (min-width:720px){.signal-grid{grid-template-columns:1fr 1fr;}}
+.signal-grid div{background:var(--surface-2);border-radius:10px;padding:10px 12px;}
+.signal-grid dt{font-size:12px;color:var(--muted);margin:0 0 2px;}
+.signal-grid dd{margin:0;font-size:14px;font-weight:600;}
+details.watch-only{margin:8px 0 28px;}
+details.watch-only > summary{list-style:none;cursor:pointer;margin:0 0 8px;}
+details.watch-only > summary::-webkit-details-marker{display:none;}
+details.watch-only > summary .group-summary{margin-bottom:0;}
+details.watch-only > summary::after{
+  content:"Show";float:right;font-size:13px;font-weight:650;color:var(--muted);
+}
+details.watch-only[open] > summary::after{content:"Hide";}
+.watch-only-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:10px;}
+.watch-only-list li{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
+.watch-only-list p{margin:4px 0 0;color:var(--muted);font-size:14px;}
+.disruption-green{background:#eef6f1;border-color:#c9ddd2;}
+.disruption-yellow{background:#fbf6ea;border-color:#e4d7b0;}
+.disruption-red{background:#f8f1f0;border-color:#e4d0cc;}
 
 .detail-wrap{margin-top:40px;}
 .acct-tabs{

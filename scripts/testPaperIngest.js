@@ -4,6 +4,8 @@
  * Run: node scripts/testPaperIngest.js
  */
 const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
 const { normalizeSnapshot, PaperSnapshotError } = require("../services/paperRun");
 const seed = require("../data/paper-run-seed.json");
 const { buildSampleSnapshot } = require("./sampleSnapshot");
@@ -240,6 +242,103 @@ assert.ok(Series.spanDays(ordered) > 90);
 const newestFirst = Series.orderedTrades(stored.trades);
 assert.equal(newestFirst[0].date, "2026-10-19");
 assert.equal(newestFirst[newestFirst.length - 1].date, "2026-07-16");
+
+const V3 = require("../public/watchlist-v3");
+const v3Fixture = require("../data/samples/watchlist-v3.json");
+assert.equal(V3.isV3(doc.watchlist), false, "the v2 sample stays on the old watchlist page");
+assert.equal(doc.watchlist.version, undefined);
+assert.equal(V3.isV3(v3Fixture), true);
+assert.equal(V3.isV3({ version: " V3.2-beta " }), true);
+assert.equal(V3.isV3({ version: "v2" }), false);
+assert.equal(V3.isV3({}), false);
+const v3Parts = V3.partition(v3Fixture);
+assert.deepStrictEqual(
+  v3Parts.god.map((stock) => stock.ticker),
+  ["MSFT", "NVDA"],
+  "god-tier names sort by composite, highest first"
+);
+assert.equal(v3Parts.god[0].report_card.overall, "A");
+assert.equal(v3Parts.god[1].disruption, "YELLOW");
+assert.equal(V3.newsHold(v3Parts.god[1]), true);
+assert.equal(V3.halfSize(v3Parts.god[1]), true);
+assert.equal(V3.halfSize(v3Parts.god[0]), false);
+assert.deepStrictEqual(
+  v3Parts.watchOnly.map((stock) => stock.ticker),
+  ["INTC"]
+);
+assert.equal(v3Parts.other.length, 0);
+const sparse = V3.partition({
+  version: "v3",
+  stocks: [
+    { ticker: "LOW", status: "god", report_card: { composite: 10 } },
+    { ticker: "NONE", status: "god" },
+    { ticker: "HIGH", status: "God", report_card: { composite: 90 } },
+    { ticker: "ODD", status: "maybe" },
+    null,
+  ],
+});
+assert.deepStrictEqual(
+  sparse.god.map((stock) => stock.ticker),
+  ["HIGH", "LOW", "NONE"]
+);
+assert.equal(V3.compositeOf(sparse.god[2]), null);
+assert.deepStrictEqual(
+  sparse.other.map((stock) => stock.ticker),
+  ["ODD"]
+);
+
+const storedV3 = normalizeSnapshot({
+  accounts: [
+    {
+      id: "lt-watch",
+      kind: "watchlist",
+      currency: "USD",
+      value: null,
+      benchmark: { ticker: "SPY" },
+    },
+  ],
+  watchlist: v3Fixture,
+});
+assert.equal(storedV3.watchlist.version, "v3.1-god-tier");
+assert.equal(storedV3.watchlist.stocks.length, 3);
+assert.equal(storedV3.watchlist.config.caps.per_name, 0.1);
+assert.equal(storedV3.watchlist.config.caps.per_theme, 0.3);
+const storedNvda = storedV3.watchlist.stocks.find((stock) => stock.ticker === "NVDA");
+assert.equal(storedNvda.news_hold, true);
+assert.equal(storedNvda.size_mult, 0.5);
+assert.equal(storedNvda.status, "god");
+assert.equal(storedNvda.report_card.composite, 71);
+assert.equal(storedNvda.report_card.overall, "B");
+assert.equal(storedNvda.news.log[0].type, "thesis-changing");
+const storedIntc = storedV3.watchlist.stocks.find((stock) => stock.ticker === "INTC");
+assert.equal(storedIntc.status, "watch-only");
+assert.equal(storedIntc.report_card, undefined, "a watch-only name can omit the report card");
+assert.ok(storedIntc.fail_reasons[0].includes("under 8%"));
+
+const softV3 = normalizeSnapshot({
+  accounts: [
+    {
+      id: "lt-watch",
+      kind: "watchlist",
+      currency: "USD",
+      benchmark: { ticker: "SPY" },
+    },
+  ],
+  watchlist: {
+    version: "  v3.1-test  ",
+    stocks: [{ ticker: "ABC", status: "watch-only", fail_reasons: "not-an-array", news_hold: "yes" }],
+  },
+});
+assert.equal(softV3.watchlist.version, "v3.1-test");
+assert.deepStrictEqual(softV3.watchlist.stocks[0].fail_reasons, []);
+assert.equal(softV3.watchlist.stocks[0].news_hold, true);
+
+const pageHtml = fs.readFileSync(path.join(__dirname, "..", "public", "watchlist.html"), "utf8");
+const pageJs = fs.readFileSync(path.join(__dirname, "..", "public", "watchlist.js"), "utf8");
+assert.ok(pageHtml.includes("How names get in"), "v3 page explains how a name gets in");
+assert.ok(pageHtml.includes("watchlist-v3.js"), "the page loads the v3 helper");
+assert.ok(pageHtml.includes("one quarter of grace"), "the rules include one quarter of grace");
+assert.ok(pageJs.includes("WatchlistV3.isV3"), "v2 rendering stays when the version is not v3");
 
 const missing = Lab.scoreboard({ accounts: [], lab: { start: "2026-10-16", asof: "2026-10-16", SPY: 1, SPY_now: 1, QQQ: 1, QQQ_now: 1 } });
 assert.equal(missing.rows.length, 6);

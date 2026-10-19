@@ -225,6 +225,7 @@ const STOCK_NUMBER_FIELDS = [
   "price",
   "score",
   "val_vs_hist",
+  "size_mult",
 ];
 
 function normalizeStock(raw, idx, errors) {
@@ -255,6 +256,15 @@ function normalizeStock(raw, idx, errors) {
   if (Object.prototype.hasOwnProperty.call(raw, "fails")) {
     stock.fails = normalizeFails(raw.fails, label, errors);
   }
+  if (Object.prototype.hasOwnProperty.call(raw, "fail_reasons")) {
+    const reasons = raw.fail_reasons;
+    stock.fail_reasons = Array.isArray(reasons)
+      ? reasons.map((item) => trimOrNull(item)).filter(Boolean)
+      : [];
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, "news_hold")) stock.news_hold = optionalBool(raw.news_hold);
+  if (Object.prototype.hasOwnProperty.call(raw, "status")) stock.status = trimOrNull(raw.status);
+  if (Object.prototype.hasOwnProperty.call(raw, "theme")) stock.theme = trimOrNull(raw.theme);
   return stock;
 }
 
@@ -272,7 +282,7 @@ function normalizeExplain(value, errors) {
   return out;
 }
 
-/** Optional top-level graded watchlist (watchlist_v2 shape). Absent = unchanged. */
+/** Optional top-level watchlist. v2 is the graded table; v3 is the god-tier list. Absent = unchanged. */
 function normalizeWatchlist(value, errors) {
   if (!isPlainObject(value)) {
     errors.push("watchlist must be an object");
@@ -281,13 +291,17 @@ function normalizeWatchlist(value, errors) {
   const stocks = asObjectArray(value.stocks == null ? [] : value.stocks, "watchlist.stocks", errors).map(
     (raw, idx) => normalizeStock(raw, idx, errors)
   );
-  return {
+  const version = trimOrNull(value.version);
+  const watchlist = {
     ...value,
     asof: trimOrNull(value.asof),
     method: trimOrNull(value.method),
     explain: normalizeExplain(value.explain, errors),
     stocks,
   };
+  if (version) watchlist.version = version;
+  else delete watchlist.version;
+  return watchlist;
 }
 
 const HOT_NUMBER_FIELDS = ["close", "chg_pct", "vol_x", "dd18m_pct"];

@@ -33,10 +33,28 @@
       .replace(/[\s_]+/g, "-");
   }
 
+  function isFiniteNumber(value) {
+    return typeof value === "number" && Number.isFinite(value);
+  }
+
+  function overallGrade(stock) {
+    const overall = stock && stock.report_card && stock.report_card.overall;
+    if (overall == null || overall === "") return "";
+    if (typeof overall === "string" || typeof overall === "number") return String(overall).trim();
+    if (typeof overall === "object" && overall.grade != null) return String(overall.grade).trim();
+    return "";
+  }
+
   function compositeOf(stock) {
     const card = stock && stock.report_card;
-    const value = card && card.composite;
-    return typeof value === "number" && Number.isFinite(value) ? value : null;
+    if (!card || typeof card !== "object") return null;
+    if (isFiniteNumber(card.composite)) return card.composite;
+    const overall = card.overall;
+    if (overall && typeof overall === "object") {
+      if (isFiniteNumber(overall.composite_0_100)) return overall.composite_0_100;
+      if (isFiniteNumber(overall.composite)) return overall.composite;
+    }
+    return null;
   }
 
   function halfSize(stock) {
@@ -44,8 +62,41 @@
     return typeof value === "number" && Number.isFinite(value) && value < 1;
   }
 
+  function holdFlag(value) {
+    if (value === true) return true;
+    return Boolean(value && typeof value === "object" && value.on === true);
+  }
+
   function newsHold(stock) {
-    return Boolean(stock && stock.news_hold === true);
+    if (!stock) return false;
+    if (holdFlag(stock.news_hold)) return true;
+    const card = stock.report_card;
+    return Boolean(card && typeof card === "object" && holdFlag(card.news_hold));
+  }
+
+  function newsOf(stock) {
+    const direct = stock && stock.news;
+    const ctx = stock && stock.report_card && stock.report_card.news_context;
+    const block = direct && typeof direct === "object" ? direct : ctx && typeof ctx === "object" ? ctx : {};
+    const log = Array.isArray(block.log) ? block.log : Array.isArray(block.news_log) ? block.news_log : [];
+    return {
+      macro_tags: Array.isArray(block.macro_tags) ? block.macro_tags : [],
+      log,
+      catalysts: Array.isArray(block.catalysts) ? block.catalysts : [],
+      signals: block.signals && typeof block.signals === "object" ? block.signals : {},
+    };
+  }
+
+  function watchNextOf(stock) {
+    const card = stock && stock.report_card;
+    if (!card || typeof card !== "object") return [];
+    if (Array.isArray(card.watch_next)) {
+      return card.watch_next.map((item) => String(item || "").trim()).filter(Boolean);
+    }
+    if (typeof card.watch_next_quarter === "string" && card.watch_next_quarter.trim()) {
+      return [card.watch_next_quarter.trim()];
+    }
+    return [];
   }
 
   function byTicker(a, b) {
@@ -91,9 +142,12 @@
     SIGNAL_FIELDS,
     isV3,
     statusKey,
+    overallGrade,
     compositeOf,
     halfSize,
     newsHold,
+    newsOf,
+    watchNextOf,
     sortGod,
     partition,
   };

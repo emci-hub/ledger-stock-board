@@ -227,6 +227,36 @@
     return String(value);
   }
 
+  function shownDay(value) {
+    const text = textOrEmpty(value);
+    if (!text) return "—";
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) return P.formatDay(text, true);
+    return text;
+  }
+
+  function shownSignal(key, value) {
+    if (value == null || value === "") return "—";
+    if (key === "insider" && value && typeof value === "object" && !Array.isArray(value)) {
+      if ("buys_6m" in value || "sales_6m" in value) {
+        return `${value.buys_6m ?? "—"} buys and ${value.sales_6m ?? "—"} sales in 6 months`;
+      }
+    }
+    if (key === "buybacks" && typeof value === "number" && Number.isFinite(value)) {
+      const abs = Math.abs(value);
+      if (abs >= 1e9) return `US$${(value / 1e9).toFixed(1)} billion`;
+      if (abs >= 1e6) return `US$${(value / 1e6).toFixed(0)} million`;
+    }
+    if (key === "short_interest" && typeof value === "number" && value > 0 && value < 1) {
+      return `${(value * 100).toFixed(2)}% of shares`;
+    }
+    if (key === "estimate_revisions" && value && typeof value === "object" && !Array.isArray(value)) {
+      if ("up_30d" in value || "down_30d" in value) {
+        return `${value.up_30d ?? "—"} up and ${value.down_30d ?? "—"} down in 30 days`;
+      }
+    }
+    return signalText(value);
+  }
+
   function gradeParts(value) {
     if (value == null || value === "") return { letter: "", reason: "", source: "", date: "" };
     if (typeof value === "string" || typeof value === "number") {
@@ -294,7 +324,7 @@
     return V3.GRADE_FIELDS.map(([key, label]) => {
       const parts = gradeParts(grades[key]);
       const letter = parts.letter || "—";
-      const sourceBits = [parts.source, parts.date ? P.formatDay(parts.date, true) : ""].filter(Boolean);
+      const sourceBits = [parts.source, parts.date ? shownDay(parts.date) : ""].filter((bit) => bit && bit !== "—");
       return `<article class="god-grade">
         <h3>${P.escapeHtml(label)}</h3>
         <p><span class="letter">${P.escapeHtml(letter)}</span>${parts.reason ? P.escapeHtml(parts.reason) : `<span class="flat-text">No reason in this snapshot.</span>`}</p>
@@ -313,7 +343,7 @@
         }
         return `<tr>
           <td>${P.escapeHtml(textOrEmpty(row.issue) || "—")}</td>
-          <td>${P.escapeHtml(row.date ? P.formatDay(row.date, true) : "—")}</td>
+          <td>${P.escapeHtml(shownDay(row.date))}</td>
           <td>${P.escapeHtml(textOrEmpty(row.fix_plan) || "—")}</td>
           <td>${P.escapeHtml(textOrEmpty(row.status) || "—")}</td>
         </tr>`;
@@ -324,8 +354,8 @@
       <tbody>${body}</tbody></table></div>`;
   }
 
-  function newsHtml(news) {
-    const block = news && typeof news === "object" ? news : {};
+  function newsHtml(stock) {
+    const block = window.WatchlistV3.newsOf(stock);
     const tags = Array.isArray(block.macro_tags) ? block.macro_tags.map((tag) => textOrEmpty(tag)).filter(Boolean) : [];
     const tagHtml = tags.length
       ? `<div class="chip-row">${tags.map((tag) => `<span class="status-pill">${P.escapeHtml(tag)}</span>`).join("")}</div>`
@@ -340,7 +370,7 @@
             const kind = textOrEmpty(row.type);
             const kindLabel = kind === "thesis-changing" ? "Thesis-changing" : kind === "price-only" ? "Price only" : kind || "—";
             return `<tr>
-              <td>${P.escapeHtml(row.date ? P.formatDay(row.date, true) : "—")}</td>
+              <td>${P.escapeHtml(shownDay(row.date))}</td>
               <td>${P.escapeHtml(textOrEmpty(row.summary) || "—")}</td>
               <td>${P.escapeHtml(textOrEmpty(row.source) || "—")}</td>
               <td>${P.escapeHtml(textOrEmpty(row.impact) || "—")}</td>
@@ -354,7 +384,7 @@
       ? `<ul class="watch-next">${catalysts
           .map((row) => {
             if (typeof row === "string") return `<li>${P.escapeHtml(row)}</li>`;
-            const when = row.date ? P.formatDay(row.date, true) : "";
+            const when = row.date ? shownDay(row.date) : "";
             const event = textOrEmpty(row.event) || "Event not named";
             return `<li>${when ? `${P.escapeHtml(when)} — ` : ""}${P.escapeHtml(event)}</li>`;
           })
@@ -362,7 +392,8 @@
       : `<p class="god-meta">No dated catalysts in this snapshot.</p>`;
     const signals = block.signals && typeof block.signals === "object" ? block.signals : {};
     const signalHtml = window.WatchlistV3.SIGNAL_FIELDS.map(([key, label]) => {
-      return `<div><dt>${P.escapeHtml(label)}</dt><dd>${P.escapeHtml(signalText(signals[key]))}</dd></div>`;
+      const raw = signals[key] != null && signals[key] !== "" ? signals[key] : key === "buybacks" ? signals.buyback : null;
+      return `<div><dt>${P.escapeHtml(label)}</dt><dd>${P.escapeHtml(shownSignal(key, raw))}</dd></div>`;
     }).join("");
     return `<div class="news-block"><h3 class="block-label">Macro tags</h3>${tagHtml}</div>
       <div class="news-block"><h3 class="block-label">News log</h3>${logHtml}</div>
@@ -376,11 +407,13 @@
     const ticker = textOrEmpty(stock.ticker) || "—";
     const name = textOrEmpty(stock.name);
     const description = textOrEmpty(card.description);
-    const overall = textOrEmpty(card.overall) || "—";
+    const overall = V3.overallGrade(stock) || "—";
     const composite = V3.compositeOf(stock);
-    const compositeLabel = composite == null ? "—" : Number.isInteger(composite) ? String(composite) : composite.toFixed(1);
+    const compositeLabel = composite == null ? "—" : Number.isInteger(composite) ? String(composite) : String(Math.round(composite * 10) / 10);
     const statusTag = textOrEmpty(card.status_tag);
     const theme = textOrEmpty(stock.theme);
+    const price = P.isNum(stock.price) ? P.money(stock.price, "USD") : "";
+    const holdWhy = V3.newsHold(stock) ? textOrEmpty(stock.news_hold_reason) : "";
     const badges = [
       `<span class="grade-badge" title="Overall grade">${P.escapeHtml(overall)}</span>`,
       `<span class="composite-num" title="Company score, 0 to 100">${P.escapeHtml(compositeLabel)}</span>`,
@@ -391,7 +424,7 @@
     ]
       .filter(Boolean)
       .join("");
-    const watchNext = Array.isArray(card.watch_next) ? card.watch_next.map((item) => textOrEmpty(item)).filter(Boolean) : [];
+    const watchNext = V3.watchNextOf(stock);
     const watchHtml = watchNext.length
       ? `<ul class="watch-next">${watchNext.map((item) => `<li>${P.escapeHtml(item)}</li>`).join("")}</ul>`
       : `<p class="god-meta">Nothing listed to watch next.</p>`;
@@ -400,7 +433,8 @@
         <div>
           <h2>${P.escapeHtml(ticker)}${name ? `<span class="god-name">${P.escapeHtml(name)}</span>` : ""}</h2>
           ${description ? `<p class="hc-blurb">${P.escapeHtml(description)}</p>` : `<p class="hc-blurb">No one-line description in this snapshot.</p>`}
-          ${theme ? `<p class="hc-id">Theme: ${P.escapeHtml(theme)}${stock.cyclical === true ? " · boom-bust, judged over 7 years" : ""}</p>` : ""}
+          ${theme || price ? `<p class="hc-id">${theme ? `Theme: ${P.escapeHtml(theme)}` : ""}${stock.cyclical === true ? " · boom-bust, judged over 7 years" : ""}${price ? `${theme || stock.cyclical === true ? " · " : ""}${P.escapeHtml(price)}` : ""}</p>` : ""}
+          ${holdWhy ? `<p class="hc-id">${P.escapeHtml(holdWhy)}</p>` : ""}
         </div>
         <div class="god-badges">${badges}</div>
       </div>
@@ -413,7 +447,7 @@
           <h3 class="block-label">What to watch next</h3>
           ${watchHtml}
           <h3 class="block-label">News</h3>
-          ${newsHtml(stock.news)}
+          ${newsHtml(stock)}
         </div>
       </details>
     </article>`;
@@ -428,7 +462,7 @@
       ? `${godCount} name${godCount === 1 ? "" : "s"}, highest score first.`
       : "No god-tier names in this snapshot.";
     el("god-list").innerHTML = godCount
-      ? parts.god.map((stock, index) => godCard(stock, index === 0)).join("")
+      ? parts.god.map((stock) => godCard(stock, false)).join("")
       : `<p class="empty">No god-tier names in this snapshot.</p>`;
     const watchRows = parts.watchOnly;
     const otherRows = parts.other;

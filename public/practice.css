@@ -274,6 +274,27 @@ details.watch-only[open] > summary::after{content:"Hide";}
 .watch-only-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:10px;}
 .watch-only-list li{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
 .watch-only-list p{margin:4px 0 0;color:var(--muted);font-size:14px;}
+.beta-table{min-width:720px;}
+.beta-table th,.beta-table td{white-space:normal;}
+.beta-table .status-pill{margin:2px 4px 2px 0;}
+@media (max-width:720px){
+  .beta-table,.beta-table thead,.beta-table tbody,.beta-table tr,.beta-table td{display:block;width:100%;min-width:0;}
+  .beta-table thead{display:none;}
+  .beta-table{min-width:0;}
+  .table-scroll:has(.beta-table){background:transparent;border:0;overflow:visible;}
+  .beta-table tr{
+    background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    margin:0 0 10px;padding:12px 14px;
+  }
+  .beta-table td{border:0;padding:2px 0;text-align:left;}
+  .beta-table td.num{text-align:left;}
+  .beta-table td::before{
+    content:attr(data-label);
+    display:block;font-size:12px;font-weight:650;letter-spacing:0.04em;
+    text-transform:uppercase;color:var(--muted);
+  }
+  .beta-table td.tick::before{display:none;}
+}
 .disruption-green{background:#eef6f1;border-color:#c9ddd2;}
 .disruption-yellow{background:#fbf6ea;border-color:#e4d7b0;}
 .disruption-red{background:#f8f1f0;border-color:#e4d0cc;}

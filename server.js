@@ -875,6 +875,15 @@ app.get("/watchlist", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "watchlist.html"));
 });
 
+/** AI names that failed the god-tier gate. Research only. */
+app.get("/beta", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "beta.html"));
+});
+
+app.get("/api/beta-watchlist", (req, res) => {
+  res.sendFile(path.join(__dirname, "data", "samples", "beta-watchlist.json"));
+});
+
 /** Strategy Lab scoreboard. Paper comparisons only. */
 app.get("/lab", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "lab.html"));

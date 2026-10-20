@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<title>Beta watchlist — Ledger</title>
+<meta name="description" content="AI names that failed the god-tier gate. Research only, not buy orders.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/practice.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="site-nav" aria-label="Ledger">
+    <a href="/">Overview</a>
+    <a href="/watchlist">GOD-Tier watchlist</a>
+    <a href="/beta" aria-current="page">Beta</a>
+    <a href="/lab">Strategy Lab</a>
+    <a href="/accounts">Accounts</a>
+  </nav>
+
+  <header class="page-head">
+    <p class="kicker" id="asof">Beta watchlist</p>
+    <h1>Beta watchlist</h1>
+    <p class="sub">AI-related companies that did not pass the god-tier tests. Scored on 11 staying-power checks, 22 points at most.</p>
+  </header>
+
+  <p class="advice" role="note"><strong>Advice only, not buy orders.</strong> These names are riskier than the god-tier list. A grade is about the company, not the price.</p>
+
+  <p class="state-msg" id="state-msg" role="status">Loading the beta list…</p>
+
+  <main id="dash" hidden>
+    <section class="read-box" id="what">
+      <h2>What this is</h2>
+      <p>God-tier is the strict list. Beta is the riskier list next to it: AI-related companies that failed that gate. A grade here describes the company, not the price you would pay to get in. Each account still uses its own price rules.</p>
+      <p>Eleven staying-power tests score 0, 1, or 2. The most a name can earn is 22. A missing filing scores 0. Nothing on this page is promoted to god-tier.</p>
+    </section>
+
+    <section>
+      <div class="section-label">Ranked names</div>
+      <p class="section-intro" id="count-line"></p>
+      <div class="table-scroll">
+        <table class="data-table beta-table" id="beta-table"></table>
+      </div>
+    </section>
+
+    <section class="read-box">
+      <h2>Grade cutoffs</h2>
+      <ul id="grade-cuts"></ul>
+      <p>A zero on cash runway caps the grade at C. One customer over 40% of sales caps it at C. A controlling holder caps it at B, unless the company already produces free cash flow.</p>
+    </section>
+
+    <section class="read-box">
+      <h2>Eject rules</h2>
+      <p>A name comes off the list if any of these is true. NBIS and SMCI are still listed, and flagged for review.</p>
+      <ul id="eject-rules"></ul>
+    </section>
+
+    <section class="read-box">
+      <h2>Change log</h2>
+      <ul id="change-log"></ul>
+    </section>
+  </main>
+
+  <footer>
+    <span>Paper trading only — pretend money, no real trades.</span>
+    <span class="foot-links">
+      <a href="/watchlist">GOD-Tier watchlist</a>
+      <a href="/lab">Strategy Lab</a>
+      <a href="/accounts">Accounts</a>
+    </span>
+  </footer>
+</div>
+<script src="/practice-lib.js"></script>
+<script src="/beta-watchlist.js"></script>
+<script src="/beta.js"></script>
+</body>
+</html>

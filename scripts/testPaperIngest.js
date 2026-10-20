@@ -4,6 +4,8 @@
  * Run: node scripts/testPaperIngest.js
  */
 const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
 const { normalizeSnapshot, PaperSnapshotError } = require("../services/paperRun");
 const seed = require("../data/paper-run-seed.json");
 const { buildSampleSnapshot } = require("./sampleSnapshot");
@@ -240,6 +242,142 @@ assert.ok(Series.spanDays(ordered) > 90);
 const newestFirst = Series.orderedTrades(stored.trades);
 assert.equal(newestFirst[0].date, "2026-10-19");
 assert.equal(newestFirst[newestFirst.length - 1].date, "2026-07-16");
+
+const V3 = require("../public/watchlist-v3");
+const v3Fixture = require("../data/samples/watchlist-v3.json");
+assert.equal(V3.isV3(doc.watchlist), false, "the v2 sample stays on the old watchlist page");
+assert.equal(doc.watchlist.version, undefined);
+assert.equal(V3.isV3(v3Fixture), true);
+assert.equal(V3.isV3({ version: " V3.2-beta " }), true);
+assert.equal(V3.isV3({ version: "v2" }), false);
+assert.equal(V3.isV3({}), false);
+const v3Parts = V3.partition(v3Fixture);
+assert.equal(v3Parts.god.length, 15);
+assert.equal(v3Parts.watchOnly.length, 37);
+assert.deepStrictEqual(
+  v3Parts.god.map((stock) => stock.ticker),
+  ["ANET", "CDNS", "MA", "V", "KLAC", "FTNT", "ISRG", "MCO", "AAPL", "NFLX", "META", "ADBE", "AMAT", "KEYS", "CSCO"],
+  "god-tier names sort by company score, highest first"
+);
+assert.deepStrictEqual(
+  v3Parts.god.filter((stock) => V3.overallGrade(stock) === "A").map((stock) => stock.ticker).sort(),
+  ["AAPL", "ADBE", "ANET", "CDNS", "FTNT", "ISRG", "KLAC", "MA", "MCO", "META", "NFLX", "V"]
+);
+assert.deepStrictEqual(
+  v3Parts.god.filter((stock) => V3.overallGrade(stock) === "B").map((stock) => stock.ticker),
+  ["AMAT", "KEYS", "CSCO"]
+);
+const meta = v3Parts.god.find((stock) => stock.ticker === "META");
+assert.equal(V3.newsHold(meta), true);
+assert.equal(V3.compositeOf(meta), 78.3);
+assert.equal(V3.halfSize(meta), true);
+assert.equal(V3.newsOf(meta).log.length > 0, true);
+assert.equal(v3Parts.other.length, 0);
+assert.ok(v3Parts.watchOnly.every((stock) => Array.isArray(stock.fail_reasons) && stock.fail_reasons.length));
+const sparse = V3.partition({
+  version: "v3",
+  stocks: [
+    { ticker: "LOW", status: "god", report_card: { composite: 10 } },
+    { ticker: "NONE", status: "god" },
+    { ticker: "HIGH", status: "God", report_card: { composite: 90 } },
+    { ticker: "ODD", status: "maybe" },
+    null,
+  ],
+});
+assert.deepStrictEqual(
+  sparse.god.map((stock) => stock.ticker),
+  ["HIGH", "LOW", "NONE"]
+);
+assert.equal(V3.compositeOf(sparse.god[2]), null);
+assert.deepStrictEqual(
+  sparse.other.map((stock) => stock.ticker),
+  ["ODD"]
+);
+
+const storedV3 = normalizeSnapshot({
+  accounts: [
+    {
+      id: "lt-watch",
+      kind: "watchlist",
+      currency: "USD",
+      value: null,
+      benchmark: { ticker: "SPY" },
+    },
+  ],
+  watchlist: v3Fixture,
+});
+assert.equal(storedV3.watchlist.version, "v3.1-specialist-revised-2026-10-19");
+assert.equal(storedV3.watchlist.stocks.length, 52);
+assert.equal(storedV3.watchlist.config.caps.per_name, 0.1);
+assert.equal(storedV3.watchlist.config.caps.per_theme, 0.3);
+const storedMeta = storedV3.watchlist.stocks.find((stock) => stock.ticker === "META");
+assert.equal(storedMeta.news_hold, true);
+assert.equal(storedMeta.size_mult, 0.5);
+assert.equal(storedMeta.status, "god");
+assert.equal(storedMeta.report_card.overall.grade, "A");
+assert.equal(storedMeta.report_card.overall.composite_0_100, 78.3);
+assert.equal(storedMeta.report_card.news_context.news_log[0].type != null, true);
+const storedWatch = storedV3.watchlist.stocks.find((stock) => stock.status === "watch-only");
+assert.ok(storedWatch.fail_reasons[0], "watch-only names keep their fail reasons");
+
+const softV3 = normalizeSnapshot({
+  accounts: [
+    {
+      id: "lt-watch",
+      kind: "watchlist",
+      currency: "USD",
+      benchmark: { ticker: "SPY" },
+    },
+  ],
+  watchlist: {
+    version: "  v3.1-test  ",
+    stocks: [{ ticker: "ABC", status: "watch-only", fail_reasons: "not-an-array", news_hold: "yes" }],
+  },
+});
+assert.equal(softV3.watchlist.version, "v3.1-test");
+assert.deepStrictEqual(softV3.watchlist.stocks[0].fail_reasons, []);
+assert.equal(softV3.watchlist.stocks[0].news_hold, true);
+
+const pageHtml = fs.readFileSync(path.join(__dirname, "..", "public", "watchlist.html"), "utf8");
+const pageJs = fs.readFileSync(path.join(__dirname, "..", "public", "watchlist.js"), "utf8");
+assert.ok(pageHtml.includes("How names get in"), "v3 page explains how a name gets in");
+assert.ok(pageHtml.includes("<title>GOD-Tier watchlist</title>"), "page title is GOD-Tier watchlist");
+assert.ok(pageHtml.includes("<h1>GOD-Tier watchlist</h1>"), "page heading is GOD-Tier watchlist");
+assert.ok(pageHtml.includes(">GOD-Tier watchlist</a>"), "nav label is GOD-Tier watchlist");
+assert.ok(pageHtml.includes("watchlist-v3.js"), "the page loads the v3 helper");
+assert.ok(pageHtml.includes("one quarter of grace"), "the rules include one quarter of grace");
+assert.ok(pageJs.includes("WatchlistV3.isV3"), "v2 rendering stays when the version is not v3");
+
+const Beta = require("../public/beta-watchlist");
+const beta = require("../data/samples/beta-watchlist.json");
+const betaRows = Beta.ranked(beta);
+assert.deepStrictEqual(
+  betaRows.map((row) => row.ticker),
+  ["PLTR", "CRDO", "CRWD", "ALAB", "NET", "DDOG", "SNOW", "APP", "RKLB", "ARM", "MDB", "RDDT", "IONQ", "SPCX", "NBIS", "SMCI", "CRWV", "CBRS", "TEM", "OKLO"]
+);
+assert.deepStrictEqual(
+  betaRows.slice(0, 3).map((row) => row.score),
+  [16, 16, 16]
+);
+assert.equal(betaRows.find((row) => row.ticker === "PLTR").grade, "B");
+assert.equal(betaRows.find((row) => row.ticker === "OKLO").grade, "D");
+assert.equal(betaRows.find((row) => row.ticker === "OKLO").score, 7);
+assert.deepStrictEqual(Beta.flagsFor(betaRows.find((row) => row.ticker === "NBIS")), ["Eject review"]);
+assert.deepStrictEqual(Beta.flagsFor(betaRows.find((row) => row.ticker === "SMCI")), ["Eject review"]);
+assert.deepStrictEqual(Beta.flagsFor(betaRows.find((row) => row.ticker === "PLTR")), ["Promotion candidate, not promoted"]);
+assert.deepStrictEqual(Beta.flagsFor(betaRows.find((row) => row.ticker === "APP")), [
+  "Promotion candidate, not promoted",
+  "Upgraded C to B",
+]);
+assert.deepStrictEqual(Beta.flagsFor(betaRows.find((row) => row.ticker === "RKLB")), ["Upgraded C to B"]);
+assert.equal(betaRows.find((row) => row.ticker === "PLTR").price, 194.15);
+assert.ok(beta.changelog.some((line) => line.includes("yearly revenue")));
+assert.ok(beta.changelog.some((line) => line.includes("net cash")));
+const betaHtml = fs.readFileSync(path.join(__dirname, "..", "public", "beta.html"), "utf8");
+const serverSrc = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+assert.ok(betaHtml.includes("What this is"));
+assert.ok(serverSrc.includes('app.get("/beta"'));
+assert.ok(serverSrc.includes("/api/beta-watchlist"));
 
 const missing = Lab.scoreboard({ accounts: [], lab: { start: "2026-10-16", asof: "2026-10-16", SPY: 1, SPY_now: 1, QQQ: 1, QQQ_now: 1 } });
 assert.equal(missing.rows.length, 6);

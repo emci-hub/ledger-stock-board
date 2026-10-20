@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light">
-<title>Watchlist — Ledger</title>
+<title>GOD-Tier watchlist</title>
 <meta name="description" content="Frozen AI and tech watchlist. Advice only, not buy orders.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,14 +16,15 @@
 
   <nav class="site-nav" aria-label="Ledger">
     <a href="/">Overview</a>
-    <a href="/watchlist" aria-current="page">Watchlist</a>
+    <a href="/watchlist" aria-current="page">GOD-Tier watchlist</a>
+    <a href="/beta">Beta</a>
     <a href="/lab">Strategy Lab</a>
     <a href="/accounts">Accounts</a>
   </nav>
 
   <header class="page-head">
-    <p class="kicker" id="asof">Watchlist</p>
-    <h1>Watchlist</h1>
+    <p class="kicker" id="asof">GOD-Tier watchlist</p>
+    <h1>GOD-Tier watchlist</h1>
     <p class="sub" id="method">The frozen AI and tech list. Grade, score, and every input that went into the grade.</p>
   </header>
 
@@ -32,7 +33,7 @@
   <p class="state-msg" id="state-msg" role="status">Loading the watchlist…</p>
 
   <main id="dash" hidden>
-    <section>
+    <section id="hot-section">
       <div class="section-label">Hot today</div>
       <p class="section-intro" id="hot-meta"></p>
       <div id="hot-body"></div>
@@ -43,6 +44,7 @@
       <div id="tape-body"></div>
     </details>
 
+    <div id="v2">
     <section>
       <div class="section-label">Graded names</div>
       <div class="toolbar">
@@ -55,6 +57,42 @@
         <table class="wl-table" id="wl-table"></table>
       </div>
     </section>
+    </div>
+
+    <div id="v3" hidden>
+      <section class="read-box" id="how-in">
+        <h2>How names get in</h2>
+        <p>A company joins this list only if it passes every test:</p>
+        <ul>
+          <li>It has been public for at least 3 years.</li>
+          <li>Return on capital averages at least 15% over 5 years, and no single year is under 8%.</li>
+          <li>Profits turn into cash: free cash flow is at least 0.8 times net income.</li>
+          <li>Debt stays low: net debt under 2 times EBITDA, and interest covered 8 times.</li>
+          <li>Assets are not growing in a reckless way.</li>
+          <li>No accounting or bankruptcy red flags.</li>
+          <li>Boom-bust chip names are judged over 7 years, not a short hot streak.</li>
+          <li>The disruption check is done, and it is not red.</li>
+        </ul>
+        <p>Grades judge the company only, never the price. Each account uses its own price rules.</p>
+        <p id="caps-line">No more than 10% in one stock, and no more than 30% in one theme. Yellow means half size.</p>
+        <p>Names are rescored every quarter. A name that slips gets one quarter of grace before it leaves.</p>
+      </section>
+
+      <section>
+        <div class="section-label">God tier</div>
+        <p class="section-intro">These passed every test. Highest company score first. The score is not a price target.</p>
+        <p class="count-line" id="god-count"></p>
+        <div class="god-list" id="god-list"></div>
+      </section>
+
+      <details id="watch-only" class="watch-only">
+        <summary>
+          <span class="group-title">Watch only</span>
+          <span class="group-summary" id="watch-only-count">Names that failed at least one test.</span>
+        </summary>
+        <div id="watch-only-body"></div>
+      </details>
+    </div>
   </main>
 
   <footer>
@@ -68,6 +106,7 @@
 </div>
 <script src="/account-groups.js"></script>
 <script src="/practice-lib.js"></script>
+<script src="/watchlist-v3.js"></script>
 <script src="/watchlist.js"></script>
 </body>
 </html>

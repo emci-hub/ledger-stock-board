@@ -1,0 +1,64 @@
+{
+  "asof": "2026-10-19",
+  "title": "Beta watchlist",
+  "maxScore": 22,
+  "tests": [
+    "Cash runway",
+    "Quality of backing",
+    "Backlog vs yearly revenue",
+    "Market position",
+    "Revenue growth",
+    "Gross-margin trend",
+    "Path to profit",
+    "Dilution",
+    "Customer concentration",
+    "Governance",
+    "Lockup and insider supply"
+  ],
+  "grades": [
+    { "letter": "A", "rule": "17 or higher" },
+    { "letter": "B", "rule": "13 to 16" },
+    { "letter": "C", "rule": "9 to 12" },
+    { "letter": "D", "rule": "8 or lower" }
+  ],
+  "gradeCaps": [
+    "A zero on the cash-runway test caps the grade at C.",
+    "One customer over 40% of sales caps the grade at C.",
+    "A controlling holder caps the grade at B, unless the company already turns a free-cash-flow profit."
+  ],
+  "eject": [
+    "Cash runway under 18 months, with no committed financing.",
+    "A going-concern note.",
+    "Restated financials, or a fraud or SEC enforcement finding.",
+    "The auditor resigns.",
+    "Beneish M above −1.78 on two straight reports.",
+    "Revenue falling for two straight quarters versus a year earlier.",
+    "Grade D for two straight quarters."
+  ],
+  "changelog": [
+    "Oct 19, 2026: backlog is now compared with yearly revenue, not with the company's market value.",
+    "Oct 19, 2026: the cash-runway test scores at least 1 when net cash covers three years of burn or more."
+  ],
+  "names": [
+    { "rank": 1, "ticker": "PLTR", "exchange": "Nasdaq", "score": 16, "grade": "B", "status": "Growing", "price": 194.15, "reason": "Rev +93%, FCF US$3.4B, RPO US$4.9B (0.8x rev); founder voting class", "flags": ["promotion"] },
+    { "rank": 2, "ticker": "CRDO", "exchange": "Nasdaq", "score": 16, "grade": "B", "status": "Growing", "price": 172.81, "reason": "Rev +115%, 34% net margin; top customer 43%, no RPO disclosed", "flags": [] },
+    { "rank": 3, "ticker": "CRWD", "exchange": "Nasdaq", "score": 16, "grade": "B", "status": "Steady", "price": 228.1, "reason": "RPO US$10.7B (~2x rev), FCF US$1.6B; growth 23%", "flags": [] },
+    { "rank": 4, "ticker": "ALAB", "exchange": "Nasdaq", "score": 15, "grade": "B", "status": "Growing", "price": 286.58, "reason": "Rev +104%, profitable; top customer 29%, shares +7.8%", "flags": [] },
+    { "rank": 5, "ticker": "NET", "exchange": "NYSE", "score": 15, "grade": "B", "status": "Growing", "price": 297.58, "reason": "RPO US$2.7B (1.1x rev), FCF positive; GAAP loss", "flags": [] },
+    { "rank": 6, "ticker": "DDOG", "exchange": "Nasdaq", "score": 15, "grade": "B", "status": "Growing", "price": 260.36, "reason": "Rev +36%, RPO US$3.5B (0.9x), net cash US$3.7B", "flags": [] },
+    { "rank": 7, "ticker": "SNOW", "exchange": "NYSE", "score": 15, "grade": "B", "status": "Steady", "price": 315.35, "reason": "RPO US$9.0B (1.7x rev), FCF US$1.2B; GAAP loss US$1.1B", "flags": [] },
+    { "rank": 8, "ticker": "APP", "exchange": "Nasdaq", "score": 14, "grade": "B", "status": "Growing", "price": 269.12, "reason": "Rev +53%, 65% net margin, buybacks; dual-class", "flags": ["promotion", "upgraded"] },
+    { "rank": 9, "ticker": "RKLB", "exchange": "Nasdaq", "score": 14, "grade": "B", "status": "Growing", "price": 51.36, "reason": "Rev +62%, backlog US$2.36B (3.1x rev); losses, shares +16%", "flags": ["upgraded"] },
+    { "rank": 10, "ticker": "ARM", "exchange": "Nasdaq", "score": 14, "grade": "B", "status": "Steady", "price": 228.05, "reason": "Rev +22%, GM 98%; SoftBank control, RPO not found", "flags": [] },
+    { "rank": 11, "ticker": "MDB", "exchange": "Nasdaq", "score": 13, "grade": "B", "status": "Steady", "price": 348.69, "reason": "FCF US$659M, net cash; growth 25%, RPO not found", "flags": [] },
+    { "rank": 12, "ticker": "RDDT", "exchange": "NYSE", "score": 12, "grade": "C", "status": "Growing", "price": 155.14, "reason": "Rev +61%, profitable; shares +8.4%, dual-class", "flags": [] },
+    { "rank": 13, "ticker": "IONQ", "exchange": "NYSE", "score": 12, "grade": "C", "status": "Growing", "price": 30.78, "reason": "RPO US$470M (1.9x rev); FCF −US$484M, shares +50%", "flags": [] },
+    { "rank": 14, "ticker": "SPCX", "exchange": "Nasdaq", "score": 11, "grade": "C", "status": "Growing", "price": 147.96, "reason": "Backlog US$47.5B (~1.8x rev); Musk control, −US$32.5B FCF, unlocks", "flags": [] },
+    { "rank": 15, "ticker": "NBIS", "exchange": "Nasdaq", "score": 11, "grade": "C", "status": "Growing", "price": 170.24, "reason": "Rev +454%; about 1.4 years of runway, and net debt", "flags": ["eject"] },
+    { "rank": 16, "ticker": "SMCI", "exchange": "Nasdaq", "score": 10, "grade": "C", "status": "Slipping", "price": 32.1, "reason": "Rev +93%; operating cash about 1.1 years, gross margin 11%", "flags": ["eject"] },
+    { "rank": 17, "ticker": "CRWV", "exchange": "Nasdaq", "score": 9, "grade": "C", "status": "Slipping", "price": 61.12, "reason": "US$104B RPO; −US$10.5B first-half free cash flow, debt wall in 2027", "flags": [] },
+    { "rank": 18, "ticker": "CBRS", "exchange": "Nasdaq", "score": 8, "grade": "D", "status": "Slipping", "price": 120.66, "reason": "49% one customer, GAAP gross margin 14%, unlocks", "flags": [] },
+    { "rank": 19, "ticker": "TEM", "exchange": "Nasdaq", "score": 8, "grade": "D", "status": "Steady", "price": 64.34, "reason": "Rev +22%, first small GAAP profit in Q2; net debt, trailing free cash flow negative", "flags": [] },
+    { "rank": 20, "ticker": "OKLO", "exchange": "NYSE", "score": 7, "grade": "D", "status": "Steady", "price": 27.24, "reason": "Almost no revenue, shares +30%", "flags": [] }
+  ]
+}

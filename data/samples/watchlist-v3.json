@@ -1,0 +1,1780 @@
+{
+ "asof": "2026-10-19",
+ "version": "v3.1-specialist-revised-2026-10-19",
+ "counts": {
+  "god": 15,
+  "watch-only": 37
+ },
+ "config": {
+  "caps": {
+   "per_name": 0.1,
+   "per_theme": 0.3
+  }
+ },
+ "stocks": [
+  {
+   "ticker": "AAPL",
+   "name": "Apple Inc.",
+   "theme": "hardware/networking",
+   "cyclical": false,
+   "price": 342.94,
+   "status": "god",
+   "disruption": "GREEN",
+   "disruption_why": "iPhone/Services ecosystem; GM rising; no free rival; risks are regulatory (App Store) not substitution",
+   "size_mult": 1,
+   "news_hold": false,
+   "report_card": {
+    "description": "Phones, Macs, wearables + Services (App Store, iCloud, payments); earns hardware margin plus high-margin services take.",
+    "grades": {
+     "health": {
+      "grade": "A",
+      "reason": "5y ROIC 88%, GP/assets 0.59, cash conv 1.03, ND/EBITDA 0.13 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "A",
+      "reason": "rev +14% y/y, 3y CAGR +7%, OM +1.3pt, FCF/sh +44%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "B",
+      "reason": "Installed base >2.3B devices feeds Services; AI features and price rises June 2026; hardware market mature",
+      "source": "Apple Q3 FY26 8-K (2026-07-30)",
+      "date": "2026-07-30"
+     },
+     "risks": {
+      "grade": "C",
+      "reason": "App Store antitrust (EU DMA, Epic link-out ruling) hits 75% margin Services; supply-chain chip bottlenecks; CEO transition",
+      "source": "Reuters 2026-07-30; 24/7 Wall St 2026-10-16",
+      "date": "2026-10-16"
+     },
+     "response": {
+      "grade": "B",
+      "reason": "Raised prices, tariff refunds; complying with EU rules while appealing — partly working",
+      "source": "Apple Q3 FY26 8-K",
+      "date": "2026-07-30"
+     }
+    },
+    "overall": {
+     "grade": "A",
+     "composite_0_100": 80,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Growing",
+    "issue_log": [
+     {
+      "issue": "App Store fee pressure (EU/US courts)",
+      "date": "2024-03",
+      "fix_plan": "Comply + appeal; grow other services",
+      "status": "open"
+     },
+     {
+      "issue": "Advanced-node supply constraint",
+      "date": "2026-07-30",
+      "fix_plan": "Supplier capacity adds",
+      "status": "open"
+     },
+     {
+      "issue": "CEO change to John Ternus",
+      "date": "2026",
+      "fix_plan": "Leadership transition",
+      "status": "monitoring"
+     }
+    ],
+    "watch_next_quarter": "FQ4 Nov 2: does 9-11% growth guide hold after June price rises; Services growth vs App Store pressure; supply easing.",
+    "news_context": {
+     "macro_tags": [
+      "tariffs",
+      "China/Taiwan",
+      "USD"
+     ],
+     "news_log": [
+      {
+       "date": "2026-10-06",
+       "summary": "Q4 FY26 earnings set for Nov 2, Ternus's first call as CEO",
+       "source": "9to5Mac",
+       "impact": "low",
+       "type": "price-only"
+      },
+      {
+       "date": "2026-10-16",
+       "summary": "Election odds raise app-store legislation risk",
+       "source": "24/7 Wall St",
+       "impact": "med",
+       "type": "price-only"
+      },
+      {
+       "date": "2026-07-30",
+       "summary": "Beat on iPhone/Mac but soft Sept-qtr guide on chip supply",
+       "source": "Reuters",
+       "impact": "med",
+       "type": "price-only"
+      }
+     ],
+     "catalysts": [
+      {
+       "date": "2026-11-02",
+       "event": "FQ4 FY26 earnings"
+      },
+      {
+       "date": "2026-11-03",
+       "event": "US midterm election (app-store bills)"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 0,
+       "sales_6m": 35
+      },
+      "buyback": 90711000000,
+      "short_interest": 0.0083,
+      "estimate_revisions": {
+       "up_30d": 1,
+       "down_30d": 1
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "ANET",
+   "name": "Arista Networks, Inc.",
+   "theme": "hardware/networking",
+   "cyclical": false,
+   "price": 182.95,
+   "status": "god",
+   "disruption": "YELLOW",
+   "disruption_why": "Microsoft ~26% and Meta ~15% of revenue; white-box/NVIDIA Ethernet competition | YELLOW flags: asset growth >30% (cash-backed)",
+   "size_mult": 0.5,
+   "news_hold": false,
+   "report_card": {
+    "description": "Cloud/AI data-center Ethernet switches + EOS software; sells to hyperscalers and enterprises.",
+    "grades": {
+     "health": {
+      "grade": "A",
+      "reason": "5y ROIC 89%, GP/assets 0.28, cash conv 25.11, ND/EBITDA -2.88 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "A",
+      "reason": "rev +33% y/y, 3y CAGR +26%, OM +0.0pt, FCF/sh +27%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "A",
+      "reason": "AI back-end Ethernet adoption; scale-out networking growth",
+      "source": "Arista 2025 10-K",
+      "date": "2026-10-19"
+     },
+     "risks": {
+      "grade": "B",
+      "reason": "Two hyperscale customers each >10% (Microsoft, Meta); white-box rivals",
+      "source": "Arista 2025 10-K",
+      "date": "2026-10-19"
+     },
+     "response": {
+      "grade": "B",
+      "reason": "Diversifying into enterprise campus and AI clusters — working",
+      "source": "Arista 2025 10-K",
+      "date": "2026-10-19"
+     }
+    },
+    "overall": {
+     "grade": "A",
+     "composite_0_100": 91.7,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Growing",
+    "issue_log": [
+     {
+      "issue": "Hyperscaler concentration",
+      "date": "ongoing",
+      "fix_plan": "Enterprise/campus growth",
+      "status": "open"
+     }
+    ],
+    "watch_next_quarter": "Q3 early Nov: AI networking revenue, customer mix, guide.",
+    "news_context": {
+     "macro_tags": [
+      "AI capex cycle",
+      "tariffs"
+     ],
+     "news_log": [],
+     "catalysts": [
+      {
+       "date": "2026-11 (early)",
+       "event": "Q3 earnings"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 0,
+       "sales_6m": 83
+      },
+      "buyback": 1603100000,
+      "short_interest": 0.0114,
+      "estimate_revisions": {
+       "up_30d": 1,
+       "down_30d": 0
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "CSCO",
+   "name": "Cisco Systems, Inc.",
+   "theme": "hardware/networking",
+   "cyclical": false,
+   "price": 106.5,
+   "status": "god",
+   "disruption": "YELLOW",
+   "disruption_why": "No customer >10% disclosed; 10-K cites price-focused competition from Asian/Chinese vendors",
+   "size_mult": 0.5,
+   "news_hold": false,
+   "report_card": {
+    "description": "Networking, security (Splunk) and collaboration; >half revenue recurring.",
+    "grades": {
+     "health": {
+      "grade": "B",
+      "reason": "5y ROIC 27%, GP/assets 0.32, cash conv 1.07, ND/EBITDA 0.85 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "B",
+      "reason": "rev +12% y/y, 3y CAGR +4%, OM +3.5pt, FCF/sh -4%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "B",
+      "reason": "AI networking orders from webscale; Splunk recurring growth; mature core",
+      "source": "Cisco FY2025 10-K",
+      "date": "2026-10-19"
+     },
+     "risks": {
+      "grade": "C",
+      "reason": "Price competition from Asian vendors; slow core growth",
+      "source": "Cisco FY2025 10-K",
+      "date": "2026-10-19"
+     },
+     "response": {
+      "grade": "B",
+      "reason": "Shift to subscriptions/Splunk and AI infrastructure — working",
+      "source": "Cisco FY2025 10-K",
+      "date": "2026-10-19"
+     }
+    },
+    "overall": {
+     "grade": "B",
+     "composite_0_100": 61.7,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Steady",
+    "issue_log": [
+     {
+      "issue": "Low growth core",
+      "date": "ongoing",
+      "fix_plan": "AI/security mix",
+      "status": "open"
+     }
+    ],
+    "watch_next_quarter": "FQ1 mid-Nov: AI orders, ARR growth.",
+    "news_context": {
+     "macro_tags": [
+      "tariffs",
+      "AI capex cycle"
+     ],
+     "news_log": [],
+     "catalysts": [
+      {
+       "date": "2026-11 (mid)",
+       "event": "FQ1 FY27 earnings"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 0,
+       "sales_6m": 78
+      },
+      "buyback": 7979000000,
+      "short_interest": 0.012999999,
+      "estimate_revisions": {
+       "up_30d": 1,
+       "down_30d": 1
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "KEYS",
+   "name": "Keysight Technologies Inc.",
+   "theme": "hardware/networking",
+   "cyclical": false,
+   "price": 335.86,
+   "status": "god",
+   "disruption": "GREEN",
+   "disruption_why": "No customer >10%; ~40k customers; no free rival",
+   "size_mult": 1,
+   "news_hold": false,
+   "report_card": {
+    "description": "Electronic test & measurement hardware/software for R&D in comms, auto, aerospace, semis.",
+    "grades": {
+     "health": {
+      "grade": "B",
+      "reason": "5y ROIC 19%, GP/assets 0.36, cash conv 1.34, ND/EBITDA -0.06 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "B",
+      "reason": "rev +26% y/y, 3y CAGR +7%, OM +3.3pt, FCF/sh +4%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "B",
+      "reason": "6G/AI data-center/auto test demand; software mix rising",
+      "source": "Keysight FY2025 10-K",
+      "date": "2026-10-19"
+     },
+     "risks": {
+      "grade": "B",
+      "reason": "Cyclical R&D spend; trade restrictions; no customer >10%",
+      "source": "Keysight FY2025 10-K",
+      "date": "2026-10-19"
+     },
+     "response": {
+      "grade": "B",
+      "reason": "Software and acquisitions (Spirent) lift recurring mix",
+      "source": "Keysight FY2025 10-K",
+      "date": "2026-10-19"
+     }
+    },
+    "overall": {
+     "grade": "B",
+     "composite_0_100": 66.7,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Steady",
+    "issue_log": [
+     {
+      "issue": "R&D spending cycle",
+      "date": "ongoing",
+      "fix_plan": "Diversified end markets",
+      "status": "open"
+     }
+    ],
+    "watch_next_quarter": "FQ4 late Nov: orders, book-to-bill.",
+    "news_context": {
+     "macro_tags": [
+      "tariffs",
+      "China/Taiwan"
+     ],
+     "news_log": [],
+     "catalysts": [
+      {
+       "date": "2026-11 (late)",
+       "event": "FQ4 earnings"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 1,
+       "sales_6m": 41
+      },
+      "buyback": 377000000,
+      "short_interest": 0.0164,
+      "estimate_revisions": {
+       "up_30d": 11,
+       "down_30d": 0
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "ISRG",
+   "name": "Intuitive Surgical, Inc.",
+   "theme": "health-tech",
+   "cyclical": false,
+   "price": 433.18,
+   "status": "god",
+   "disruption": "GREEN",
+   "disruption_why": "Robotic-surgery installed base; Medtronic/J&J robots entering",
+   "size_mult": 1,
+   "news_hold": false,
+   "report_card": {
+    "description": "da Vinci surgical robots; earns recurring instruments/service on each procedure.",
+    "grades": {
+     "health": {
+      "grade": "B",
+      "reason": "5y ROIC 18%, GP/assets 0.35, cash conv 0.84, ND/EBITDA -1.23 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "A",
+      "reason": "rev +21% y/y, 3y CAGR +19%, OM +2.5pt, FCF/sh +65%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "A",
+      "reason": "Procedure growth ~15%+, da Vinci 5 rollout, new indications",
+      "source": "Intuitive 2025 10-K",
+      "date": "2026-10-19"
+     },
+     "risks": {
+      "grade": "B",
+      "reason": "Tariffs on systems; hospital capex; emerging robot rivals",
+      "source": "Intuitive 2025 10-K",
+      "date": "2026-10-19"
+     },
+     "response": {
+      "grade": "A",
+      "reason": "da Vinci 5 ramp and pricing hold share",
+      "source": "Intuitive 2025 10-K",
+      "date": "2026-10-19"
+     }
+    },
+    "overall": {
+     "grade": "A",
+     "composite_0_100": 85,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Growing",
+    "issue_log": [
+     {
+      "issue": "Tariff cost",
+      "date": "2025",
+      "fix_plan": "Supply chain + pricing",
+      "status": "open"
+     }
+    ],
+    "watch_next_quarter": "Q3 Oct: procedure growth, dV5 placements.",
+    "news_context": {
+     "macro_tags": [
+      "tariffs",
+      "rates"
+     ],
+     "news_log": [],
+     "catalysts": [
+      {
+       "date": "2026-10 (mid/late)",
+       "event": "Q3 earnings"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 0,
+       "sales_6m": 62
+      },
+      "buyback": 2295300000,
+      "short_interest": 0.0211,
+      "estimate_revisions": {
+       "up_30d": 1,
+       "down_30d": 0
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "META",
+   "name": "Meta Platforms, Inc.",
+   "theme": "internet",
+   "cyclical": false,
+   "price": 705.44,
+   "status": "god",
+   "disruption": "YELLOW",
+   "disruption_why": "Ad pricing and impressions both rising; TikTok/YouTube compete but no free substitute for its ad network | YELLOW flags: asset growth >30% (cash-backed)",
+   "size_mult": 0.5,
+   "news_hold": true,
+   "report_card": {
+    "description": "Facebook, Instagram, WhatsApp; sells targeted ads, investing heavily in AI and Reality Labs.",
+    "grades": {
+     "health": {
+      "grade": "A",
+      "reason": "5y ROIC 32%, GP/assets 0.41, cash conv 1.77, ND/EBITDA -0.06 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "B",
+      "reason": "rev +28% y/y, 3y CAGR +23%, OM -5.9pt, FCF/sh -18%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "A",
+      "reason": "AI-driven ad ranking lifting pricing; 3.5B+ daily users; large reinvestment runway in AI",
+      "source": "Meta Q2 2026 results",
+      "date": "2026-07-29"
+     },
+     "risks": {
+      "grade": "C",
+      "reason": "Capex $130-145B in 2026 squeezed FCF to $0.8B in Q2; $18B youth-safety settlement; EU regulation",
+      "source": "Meta Q2 2026 PR; Wichita Eagle",
+      "date": "2026-10"
+     },
+     "response": {
+      "grade": "B",
+      "reason": "Settlement resolves multistate cases; ad growth funding capex so far — capex payoff still unproven",
+      "source": "Meta Q2 2026 PR",
+      "date": "2026-07-29"
+     }
+    },
+    "overall": {
+     "grade": "A",
+     "composite_0_100": 78.3,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Steady",
+    "issue_log": [
+     {
+      "issue": "AI capex crushing FCF",
+      "date": "2026-07-29",
+      "fix_plan": "Ad revenue growth to cover capex",
+      "status": "open"
+     },
+     {
+      "issue": "Youth-safety litigation",
+      "date": "2026",
+      "fix_plan": "$18B/10yr settlement + teen protections",
+      "status": "fix announced"
+     }
+    ],
+    "watch_next_quarter": "Q3 Oct 21: 2027 capex guide (est $194-250B), ~$10B legal charge, ad revenue growth vs capex.",
+    "news_context": {
+     "macro_tags": [
+      "AI capex cycle",
+      "rates",
+      "USD"
+     ],
+     "news_log": [
+      {
+       "date": "2026-10",
+       "summary": "Multistate youth-safety settlement up to $18B over 10 yrs; ~$10B Q3 charge",
+       "source": "HL / Wichita Eagle",
+       "impact": "high",
+       "type": "thesis-changing"
+      },
+      {
+       "date": "2026-07-29",
+       "summary": "Q2: capex $31.1B, FCF $0.78B",
+       "source": "Meta IR",
+       "impact": "med",
+       "type": "price-only"
+      }
+     ],
+     "catalysts": [
+      {
+       "date": "2026-10-21",
+       "event": "Q3 2026 earnings + 2027 capex guide"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 0,
+       "sales_6m": 84
+      },
+      "buyback": 26248000000,
+      "short_interest": 0.0152,
+      "estimate_revisions": {
+       "up_30d": 0,
+       "down_30d": 3
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   },
+   "news_hold_reason": "High-impact $18B settlement + 2027 capex guide due Oct 21; update card within 2 days after earnings"
+  },
+  {
+   "ticker": "NFLX",
+   "name": "Netflix, Inc.",
+   "theme": "internet",
+   "cyclical": false,
+   "price": 69.85,
+   "status": "god",
+   "disruption": "YELLOW",
+   "disruption_why": "Consumer subs, raises prices; free rival (YouTube) competes for viewing time",
+   "size_mult": 0.5,
+   "news_hold": false,
+   "report_card": {
+    "description": "Subscription streaming plus growing ad tier.",
+    "grades": {
+     "health": {
+      "grade": "A",
+      "reason": "5y ROIC 25%, GP/assets 0.41, cash conv 0.83, ND/EBITDA 0.35 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "A",
+      "reason": "rev +16% y/y, 3y CAGR +16%, OM +0.2pt, FCF/sh +34%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "B",
+      "reason": "Ads tier, live events, price rises; global penetration",
+      "source": "Netflix 2025 10-K",
+      "date": "2026-10-19"
+     },
+     "risks": {
+      "grade": "C",
+      "reason": "Free rival YouTube for viewing time; content cost",
+      "source": "Netflix 2025 10-K",
+      "date": "2026-10-19"
+     },
+     "response": {
+      "grade": "B",
+      "reason": "Ad tier and pricing working",
+      "source": "Netflix 2025 10-K",
+      "date": "2026-10-19"
+     }
+    },
+    "overall": {
+     "grade": "A",
+     "composite_0_100": 80,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Growing",
+    "issue_log": [
+     {
+      "issue": "Competition for viewing time",
+      "date": "ongoing",
+      "fix_plan": "Live/ads/games",
+      "status": "open"
+     }
+    ],
+    "watch_next_quarter": "Q4 Jan: ad revenue, engagement.",
+    "news_context": {
+     "macro_tags": [
+      "USD"
+     ],
+     "news_log": [],
+     "catalysts": [
+      {
+       "date": "2027-01 (mid)",
+       "event": "Q4 earnings"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 0,
+       "sales_6m": 73
+      },
+      "buyback": 9127167000,
+      "short_interest": 0.0199,
+      "estimate_revisions": {
+       "up_30d": 2,
+       "down_30d": 2
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "MA",
+   "name": "Mastercard Incorporated",
+   "theme": "quality compounders",
+   "cyclical": false,
+   "price": 616.4,
+   "status": "god",
+   "disruption": "GREEN",
+   "disruption_why": "Card-network duopoly; fee and volume growth; stablecoins/real-time payments are a long-run watch",
+   "size_mult": 1,
+   "news_hold": false,
+   "report_card": {
+    "description": "Card payment network; earns small fees on transaction volume plus value-added services.",
+    "grades": {
+     "health": {
+      "grade": "A",
+      "reason": "5y ROIC 81%, GP/assets 0.47, cash conv 1.09, ND/EBITDA 0.62 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "A",
+      "reason": "rev +16% y/y, 3y CAGR +14%, OM +2.5pt, FCF/sh +4%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "A",
+      "reason": "Cash-to-digital shift, cross-border, services",
+      "source": "MA 10-K",
+      "date": "2026-02"
+     },
+     "risks": {
+      "grade": "B",
+      "reason": "Interchange regulation (CCCA), litigation, stablecoin rails",
+      "source": "MA 10-K",
+      "date": "2026-02"
+     },
+     "response": {
+      "grade": "B",
+      "reason": "Tokenization, stablecoin partnerships, settlements",
+      "source": "MA 10-K",
+      "date": "2026-02"
+     }
+    },
+    "overall": {
+     "grade": "A",
+     "composite_0_100": 91.7,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Growing",
+    "issue_log": [
+     {
+      "issue": "Interchange/swipe-fee legislation",
+      "date": "ongoing",
+      "fix_plan": "Lobbying, settlements",
+      "status": "open"
+     }
+    ],
+    "watch_next_quarter": "Q3 late Oct: cross-border volume, services growth.",
+    "news_context": {
+     "macro_tags": [
+      "rates",
+      "USD"
+     ],
+     "news_log": [],
+     "catalysts": [
+      {
+       "date": "2026-10-29 (est)",
+       "event": "Q3 earnings"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 0,
+       "sales_6m": 41
+      },
+      "buyback": 11727000000,
+      "short_interest": 0.0073,
+      "estimate_revisions": {
+       "up_30d": 22,
+       "down_30d": 5
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "MCO",
+   "name": "Moody's Corporation",
+   "theme": "quality compounders",
+   "cyclical": false,
+   "price": 481.26,
+   "status": "god",
+   "disruption": "GREEN",
+   "disruption_why": "Ratings duopoly with S&P; regulatory moat; AI tools are a watch for Analytics",
+   "size_mult": 1,
+   "news_hold": false,
+   "report_card": {
+    "description": "Credit ratings (Moody's Investors Service) plus data/analytics (Moody's Analytics).",
+    "grades": {
+     "health": {
+      "grade": "A",
+      "reason": "5y ROIC 26%, GP/assets 0.42, cash conv 1.1, ND/EBITDA 1.31 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "A",
+      "reason": "rev +12% y/y, 3y CAGR +14%, OM +4.2pt, FCF/sh +29%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "B",
+      "reason": "Debt issuance refinancing wall; analytics recurring revenue",
+      "source": "MCO 10-K",
+      "date": "2026-02"
+     },
+     "risks": {
+      "grade": "B",
+      "reason": "Issuance cyclicality with rates; regulation",
+      "source": "MCO 10-K",
+      "date": "2026-02"
+     },
+     "response": {
+      "grade": "B",
+      "reason": "Analytics mix growing (more recurring)",
+      "source": "MCO 10-K",
+      "date": "2026-02"
+     }
+    },
+    "overall": {
+     "grade": "A",
+     "composite_0_100": 85,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Growing",
+    "issue_log": [
+     {
+      "issue": "Issuance cyclicality",
+      "date": "ongoing",
+      "fix_plan": "Grow recurring analytics",
+      "status": "open"
+     }
+    ],
+    "watch_next_quarter": "Q3 late Oct: issuance volumes, ARR.",
+    "news_context": {
+     "macro_tags": [
+      "rates"
+     ],
+     "news_log": [],
+     "catalysts": [
+      {
+       "date": "2026-10-22 (est)",
+       "event": "Q3 earnings"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 0,
+       "sales_6m": 47
+      },
+      "buyback": 1706000000,
+      "short_interest": 0.0189,
+      "estimate_revisions": {
+       "up_30d": 2,
+       "down_30d": 3
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "V",
+   "name": "Visa Inc.",
+   "theme": "quality compounders",
+   "cyclical": false,
+   "price": 402.92,
+   "status": "god",
+   "disruption": "GREEN",
+   "disruption_why": "Card-network duopoly; DOJ debit antitrust suit open",
+   "size_mult": 1,
+   "news_hold": false,
+   "report_card": {
+    "description": "Largest card payment network; fees on transaction volume plus value-added services.",
+    "grades": {
+     "health": {
+      "grade": "A",
+      "reason": "5y ROIC 41%, GP/assets 0.38, cash conv 0.98, ND/EBITDA 0.33 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "A",
+      "reason": "rev +14% y/y, 3y CAGR +12%, OM +3.4pt, FCF/sh -1%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "A",
+      "reason": "Cash-to-digital, cross-border, VAS",
+      "source": "Visa FY2025 10-K",
+      "date": "2026-10-19"
+     },
+     "risks": {
+      "grade": "B",
+      "reason": "Interchange regulation, DOJ debit suit, stablecoin rails",
+      "source": "Visa FY2025 10-K",
+      "date": "2026-10-19"
+     },
+     "response": {
+      "grade": "B",
+      "reason": "Tokenization, stablecoin settlement pilots",
+      "source": "Visa FY2025 10-K",
+      "date": "2026-10-19"
+     }
+    },
+    "overall": {
+     "grade": "A",
+     "composite_0_100": 91.7,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Growing",
+    "issue_log": [
+     {
+      "issue": "DOJ debit antitrust suit",
+      "date": "2024-09",
+      "fix_plan": "Defend in court",
+      "status": "open"
+     }
+    ],
+    "watch_next_quarter": "FQ4 late Oct: cross-border volume.",
+    "news_context": {
+     "macro_tags": [
+      "rates",
+      "USD"
+     ],
+     "news_log": [],
+     "catalysts": [
+      {
+       "date": "2026-10 (late)",
+       "event": "FQ4 earnings"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 0,
+       "sales_6m": 48
+      },
+      "buyback": 18316000000,
+      "short_interest": 0.0121,
+      "estimate_revisions": {
+       "up_30d": 3,
+       "down_30d": 0
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "FTNT",
+   "name": "Fortinet, Inc.",
+   "theme": "security",
+   "cyclical": false,
+   "price": 171.5,
+   "status": "god",
+   "disruption": "GREEN",
+   "disruption_why": "Firewall/SASE with own ASICs; GM steady ~80%; largest distributor 28% of revenue (a channel, not an end customer)",
+   "size_mult": 1,
+   "news_hold": false,
+   "report_card": {
+    "description": "Network security appliances (FortiGate) + subscription security services; custom ASICs keep costs low.",
+    "grades": {
+     "health": {
+      "grade": "A",
+      "reason": "5y ROIC 85%, GP/assets 0.56, cash conv 1.28, ND/EBITDA -0.94 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "A",
+      "reason": "rev +19% y/y, 3y CAGR +15%, OM +1.5pt, FCF/sh +65%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "B",
+      "reason": "SASE and firewall refresh cycle; services ~2/3 of revenue; solid market growth",
+      "source": "Fortinet 2025 10-K",
+      "date": "2026-02"
+     },
+     "risks": {
+      "grade": "B",
+      "reason": "Distributor concentration (top 3 = 55% of revenue, but channel not end customers); firewall-refresh timing",
+      "source": "Fortinet 2025 10-K",
+      "date": "2026-02"
+     },
+     "response": {
+      "grade": "B",
+      "reason": "Pushing SASE/unified platform to cut refresh cyclicality — early progress",
+      "source": "Fortinet 2025 10-K",
+      "date": "2026-02"
+     }
+    },
+    "overall": {
+     "grade": "A",
+     "composite_0_100": 85,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Growing",
+    "issue_log": [
+     {
+      "issue": "Firewall refresh cycle timing",
+      "date": "2025-08",
+      "fix_plan": "Unified SASE/SecOps growth",
+      "status": "open"
+     }
+    ],
+    "watch_next_quarter": "Q3 Oct 28: billings growth, refresh progress, SASE ARR.",
+    "news_context": {
+     "macro_tags": [
+      "rates",
+      "tariffs"
+     ],
+     "news_log": [
+      {
+       "date": "2026-10",
+       "summary": "Q3 earnings scheduled Oct 28",
+       "source": "Fortinet IR",
+       "impact": "low",
+       "type": "price-only"
+      }
+     ],
+     "catalysts": [
+      {
+       "date": "2026-10-28",
+       "event": "Q3 2026 earnings"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 3,
+       "sales_6m": 41
+      },
+      "buyback": 2289800000,
+      "short_interest": 0.020599999,
+      "estimate_revisions": {
+       "up_30d": 36,
+       "down_30d": 0
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "AMAT",
+   "name": "Applied Materials, Inc.",
+   "theme": "semis",
+   "cyclical": true,
+   "price": 413.11,
+   "status": "god",
+   "disruption": "YELLOW",
+   "disruption_why": "Two customers 19% and 15%; China domestic equipment makers gaining under subsidies/export controls (low-end rival)",
+   "size_mult": 0.5,
+   "news_hold": false,
+   "report_card": {
+    "description": "Largest semiconductor equipment maker (deposition, etch, inspection) plus services.",
+    "grades": {
+     "health": {
+      "grade": "A",
+      "reason": "5y ROIC 38%, GP/assets 0.35, cash conv 0.8, ND/EBITDA -0.15 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "B",
+      "reason": "rev +8% y/y, 3y CAGR +6%, OM -0.5pt, FCF/sh -3%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "B",
+      "reason": "Gate-all-around, advanced packaging, DRAM for AI",
+      "source": "AMAT FY2025 10-K",
+      "date": "2026-10-19"
+     },
+     "risks": {
+      "grade": "C",
+      "reason": "Cyclical; China ~30% of sales under export controls; two customers 19%/15%; China rivals",
+      "source": "AMAT FY2025 10-K",
+      "date": "2026-10-19"
+     },
+     "response": {
+      "grade": "B",
+      "reason": "Shift toward leading-edge/AGS services — working",
+      "source": "AMAT FY2025 10-K",
+      "date": "2026-10-19"
+     }
+    },
+    "overall": {
+     "grade": "B",
+     "composite_0_100": 71.7,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Steady",
+    "issue_log": [
+     {
+      "issue": "China export controls",
+      "date": "2023",
+      "fix_plan": "Non-China growth",
+      "status": "open"
+     }
+    ],
+    "watch_next_quarter": "FQ4 mid-Nov: China mix, leading-edge demand.",
+    "news_context": {
+     "macro_tags": [
+      "chip export controls",
+      "China/Taiwan",
+      "AI capex cycle"
+     ],
+     "news_log": [],
+     "catalysts": [
+      {
+       "date": "2026-11 (mid)",
+       "event": "FQ4 earnings"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 1,
+       "sales_6m": 23
+      },
+      "buyback": 4895000000,
+      "short_interest": 0.0171,
+      "estimate_revisions": {
+       "up_30d": 0,
+       "down_30d": 1
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "KLAC",
+   "name": "KLA Corporation",
+   "theme": "semis",
+   "cyclical": true,
+   "price": 166.4,
+   "status": "god",
+   "disruption": "GREEN",
+   "disruption_why": "Process-control leader (~55% share); TSMC a large customer",
+   "size_mult": 1,
+   "news_hold": false,
+   "report_card": {
+    "description": "Process control/inspection equipment for chipmakers; very high margins.",
+    "grades": {
+     "health": {
+      "grade": "A",
+      "reason": "5y ROIC 40%, GP/assets 0.46, cash conv 0.9, ND/EBITDA 0.67 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "A",
+      "reason": "rev +12% y/y, 3y CAGR +9%, OM +2.8pt, FCF/sh +2%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "A",
+      "reason": "Inspection intensity rises with complexity and advanced packaging",
+      "source": "KLA FY2025 10-K",
+      "date": "2026-10-19"
+     },
+     "risks": {
+      "grade": "C",
+      "reason": "Cyclical; China exposure under export controls",
+      "source": "KLA FY2025 10-K",
+      "date": "2026-10-19"
+     },
+     "response": {
+      "grade": "B",
+      "reason": "Services growth and leading-edge share — working",
+      "source": "KLA FY2025 10-K",
+      "date": "2026-10-19"
+     }
+    },
+    "overall": {
+     "grade": "A",
+     "composite_0_100": 86.7,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Growing",
+    "issue_log": [
+     {
+      "issue": "China export controls",
+      "date": "2023",
+      "fix_plan": "Diversify customers",
+      "status": "open"
+     }
+    ],
+    "watch_next_quarter": "FQ1 late Oct: China mix, WFE outlook.",
+    "news_context": {
+     "macro_tags": [
+      "chip export controls",
+      "China/Taiwan",
+      "AI capex cycle"
+     ],
+     "news_log": [],
+     "catalysts": [
+      {
+       "date": "2026-10 (late)",
+       "event": "FQ1 earnings"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 0,
+       "sales_6m": 39
+      },
+      "buyback": 2289769000,
+      "short_interest": 0.0186,
+      "estimate_revisions": {
+       "up_30d": 1,
+       "down_30d": 0
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "ADBE",
+   "name": "Adobe Inc.",
+   "theme": "software",
+   "cyclical": false,
+   "price": 247.09,
+   "status": "god",
+   "disruption": "YELLOW",
+   "disruption_why": "Canva and free AI image/video tools gaining at the low end; GM still ~89%",
+   "size_mult": 0.5,
+   "news_hold": false,
+   "report_card": {
+    "description": "Creative Cloud, Document Cloud (Acrobat) and Experience Cloud subscriptions; sells to creators and enterprises.",
+    "grades": {
+     "health": {
+      "grade": "A",
+      "reason": "5y ROIC 50%, GP/assets 0.77, cash conv 1.42, ND/EBITDA 0.07 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "A",
+      "reason": "rev +12% y/y, 3y CAGR +11%, OM -0.5pt, FCF/sh +18%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "B",
+      "reason": "Firefly/agentic workflows and enterprise IP indemnity; Acrobat AI; mature core",
+      "source": "Adobe news 2026-04",
+      "date": "2026-04"
+     },
+     "risks": {
+      "grade": "C",
+      "reason": "Free/low-end rivals (Canva, gen-AI tools) gaining at low end — YELLOW",
+      "source": "PCWorld; Futurum",
+      "date": "2026"
+     },
+     "response": {
+      "grade": "C",
+      "reason": "Firefly, creative agent, enterprise governance launched — monetization not yet proven",
+      "source": "Adobe news 2026-04",
+      "date": "2026-04"
+     }
+    },
+    "overall": {
+     "grade": "A",
+     "composite_0_100": 76.7,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Growing",
+    "issue_log": [
+     {
+      "issue": "Low-end AI/Canva competition",
+      "date": "2023",
+      "fix_plan": "Firefly + agents + enterprise governance",
+      "status": "fix announced"
+     }
+    ],
+    "watch_next_quarter": "FQ4 (mid-Dec): AI-influenced ARR, net new Digital Media ARR, FY27 guide.",
+    "news_context": {
+     "macro_tags": [
+      "USD",
+      "rates"
+     ],
+     "news_log": [
+      {
+       "date": "2026-04",
+       "summary": "Firefly creative agent launched",
+       "source": "Adobe",
+       "impact": "low",
+       "type": "price-only"
+      }
+     ],
+     "catalysts": [
+      {
+       "date": "2026-12 (mid)",
+       "event": "FQ4 FY26 earnings + FY27 guide"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 3,
+       "sales_6m": 12
+      },
+      "buyback": 11281000000,
+      "short_interest": 0.051,
+      "estimate_revisions": {
+       "up_30d": 17,
+       "down_30d": 5
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "CDNS",
+   "name": "Cadence Design Systems, Inc.",
+   "theme": "software",
+   "cyclical": false,
+   "price": 325.86,
+   "status": "god",
+   "disruption": "YELLOW",
+   "disruption_why": "EDA duopoly with Synopsys; record $8.1B backlog; no credible free/open-source rival at the leading edge",
+   "size_mult": 0.5,
+   "news_hold": false,
+   "report_card": {
+    "description": "Chip-design software (EDA), IP and system simulation; recurring licenses sold to chip and system makers.",
+    "grades": {
+     "health": {
+      "grade": "A",
+      "reason": "5y ROIC 27%, GP/assets 0.41, cash conv 1.24, ND/EBITDA 0.49 (4/4 health tests pass)",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19",
+      "date": "2026-10-19"
+     },
+     "trajectory": {
+      "grade": "A",
+      "reason": "rev +15% y/y, 3y CAGR +15%, OM +3.1pt, FCF/sh +4%",
+      "source": "SEC EDGAR companyfacts (yfinance fallback) as of 2026-10-19 (TTM vs year-ago; guidance/estimates in signals)",
+      "date": "2026-10-19"
+     },
+     "runway": {
+      "grade": "A",
+      "reason": "Backlog ~$8.1B; AI chip design complexity and custom silicon drive demand",
+      "source": "Cadence Q2 2026",
+      "date": "2026-07"
+     },
+     "risks": {
+      "grade": "B",
+      "reason": "China export-control exposure; customer R&D budget cycles; YELLOW flag on hardware margin mix",
+      "source": "Cadence 10-K",
+      "date": "2026-02"
+     },
+     "response": {
+      "grade": "B",
+      "reason": "Diversifying into systems/simulation; export license compliance — working",
+      "source": "Cadence Q2 2026",
+      "date": "2026-07"
+     }
+    },
+    "overall": {
+     "grade": "A",
+     "composite_0_100": 91.7,
+     "capped_C": false,
+     "buffer_note": "first v3.1 snapshot; +/-5 pt buffer at band edges applies from next rescore"
+    },
+    "status_tag": "Growing",
+    "issue_log": [
+     {
+      "issue": "China export controls on EDA",
+      "date": "2025-05",
+      "fix_plan": "Compliance; non-China growth",
+      "status": "monitoring"
+     }
+    ],
+    "watch_next_quarter": "Q3 Oct 26: backlog trend, hardware (emulation) demand, China revenue.",
+    "news_context": {
+     "macro_tags": [
+      "chip export controls",
+      "China/Taiwan",
+      "AI capex cycle"
+     ],
+     "news_log": [
+      {
+       "date": "2026-07",
+       "summary": "Q2 revenue +24%, backlog $8.1B",
+       "source": "Cadence IR",
+       "impact": "med",
+       "type": "price-only"
+      }
+     ],
+     "catalysts": [
+      {
+       "date": "2026-10-26",
+       "event": "Q3 2026 earnings"
+      }
+     ],
+     "signals": {
+      "insider": {
+       "buys_6m": 1,
+       "sales_6m": 72
+      },
+      "buyback": 1094876000,
+      "short_interest": 0.0215,
+      "estimate_revisions": {
+       "up_30d": 16,
+       "down_30d": 1
+      },
+      "src": "yfinance",
+      "date": "2026-10-19"
+     }
+    }
+   }
+  },
+  {
+   "ticker": "APH",
+   "name": "Amphenol Corporation",
+   "status": "watch-only",
+   "fail_reasons": [
+    "asset_growth: 0.746 (asset growth >30%, not cash-backed (3y OCF CAGR 0.33, ND/EBITDA 1.29))"
+   ]
+  },
+  {
+   "ticker": "DELL",
+   "name": "Dell Technologies Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "asset_growth: 0.429 (asset growth >30%, not cash-backed (3y OCF CAGR 0.42, ND/EBITDA 1.32))"
+   ]
+  },
+  {
+   "ticker": "IBM",
+   "name": "International Business Machines",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.094 (5-yr avg; min yr 0.029)",
+    "debt: 3.66 (net debt/EBITDA; interest cover 6.6)"
+   ]
+  },
+  {
+   "ticker": "AMZN",
+   "name": "Amazon.com, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.151 (5-yr avg; min yr 0.065)"
+   ]
+  },
+  {
+   "ticker": "GOOGL",
+   "name": "Alphabet Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "asset_growth: 0.836 (asset growth >30%, not cash-backed (3y OCF CAGR 0.22, ND/EBITDA -0.82))",
+    "cash_conv: 0.42 (3-yr FCF/net income (min 0.8))"
+   ]
+  },
+  {
+   "ticker": "SHOP",
+   "name": "Shopify Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.015 (5-yr avg; min yr -0.225)"
+   ]
+  },
+  {
+   "ticker": "UBER",
+   "name": "Uber Technologies, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.065 (5-yr avg; min yr -0.117)"
+   ]
+  },
+  {
+   "ticker": "SPGI",
+   "name": "S&P Global Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.101 (5-yr avg; min yr 0.072)",
+    "gp_assets: 0.182 (gross profit/total assets (floor 0.2; score input))"
+   ]
+  },
+  {
+   "ticker": "CRWD",
+   "name": "CrowdStrike Holdings, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: -0.053 (5-yr avg; min yr -0.126; total-capital fallback)",
+    "debt: -21.37 (net debt/EBITDA; interest cover -5.9)",
+    "cash_conv: None (3-yr FCF/net income (min 0.8))"
+   ]
+  },
+  {
+   "ticker": "NET",
+   "name": "Cloudflare, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: -0.337 (5-yr avg; min yr -0.393)",
+    "debt: None (net debt/EBITDA; interest cover -6815.1; negative EBITDA)",
+    "cash_conv: None (3-yr FCF/net income (min 0.8))",
+    "VETO piotroski: 3"
+   ]
+  },
+  {
+   "ticker": "PANW",
+   "name": "Palo Alto Networks, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.112 (5-yr avg; min yr -0.038; total-capital fallback)",
+    "gp_assets: 0.167 (gross profit/total assets (floor 0.2; score input))",
+    "asset_growth: 1.055 (asset growth >30%, not cash-backed (3y OCF CAGR 0.18, ND/EBITDA -0.84))"
+   ]
+  },
+  {
+   "ticker": "ADI",
+   "name": "Analog Devices, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.067 (7-yr avg; min yr 0.031 (through-cycle))",
+    "gp_assets: 0.189 (gross profit/total assets (floor 0.2; score input))"
+   ]
+  },
+  {
+   "ticker": "AMD",
+   "name": "Advanced Micro Devices, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.159 (7-yr avg; min yr 0.006 (through-cycle))"
+   ]
+  },
+  {
+   "ticker": "ARM",
+   "name": "Arm Holdings plc",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.155 (6-yr avg; min yr 0.037 (through-cycle))"
+   ]
+  },
+  {
+   "ticker": "ASML",
+   "name": "ASML Holding N.V. - New York Re",
+   "status": "watch-only",
+   "fail_reasons": [
+    "cash_conv: 0.73 (3-yr FCF/net income (min 0.8))"
+   ]
+  },
+  {
+   "ticker": "AVGO",
+   "name": "Broadcom Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.166 (7-yr avg; min yr 0.055 (through-cycle))",
+    "VETO beneish: -1.67"
+   ]
+  },
+  {
+   "ticker": "LRCX",
+   "name": "Lam Research Corporation",
+   "status": "watch-only",
+   "fail_reasons": [
+    "VETO beneish: -1.68"
+   ]
+  },
+  {
+   "ticker": "MPWR",
+   "name": "Monolithic Power Systems, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "cash_conv: 0.63 (3-yr FCF/net income (min 0.8))"
+   ]
+  },
+  {
+   "ticker": "MRVL",
+   "name": "Marvell Technology, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.006 (7-yr avg; min yr -0.034 (through-cycle))",
+    "cyc_worst_om: -0.125 (worst op margin over 7 yrs)",
+    "gp_assets: 0.179 (gross profit/total assets (floor 0.2; score input))",
+    "debt: 0.36 (net debt/EBITDA; interest cover 7.6)"
+   ]
+  },
+  {
+   "ticker": "MU",
+   "name": "Micron Technology, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.17 (7-yr avg; min yr -0.095 (through-cycle))",
+    "cyc_worst_om: -0.37 (worst op margin over 7 yrs)",
+    "VETO beneish: 0.37"
+   ]
+  },
+  {
+   "ticker": "NVDA",
+   "name": "NVIDIA Corporation",
+   "status": "watch-only",
+   "fail_reasons": [
+    "cash_conv: 0.78 (3-yr OCF/net income (capex exception, min 1.0); FCF/NI 0.74)",
+    "VETO beneish: -0.39"
+   ]
+  },
+  {
+   "ticker": "QCOM",
+   "name": "QUALCOMM Incorporated",
+   "status": "watch-only",
+   "fail_reasons": [
+    "disruption RED: Apple moving to its own modem ('significant negative impact' per 10-K); Samsung/Xiaomi each >10%; Apple ~21% of revenue (>20%) and moving to in-house modems; replacement revenue (auto/PC/DC) not yet proven"
+   ]
+  },
+  {
+   "ticker": "TER",
+   "name": "Teradyne, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "VETO beneish: -1.36"
+   ]
+  },
+  {
+   "ticker": "TSM",
+   "name": "Taiwan Semiconductor Manufactur",
+   "status": "watch-only",
+   "fail_reasons": [
+    "asset_growth: 0.401 (asset growth >30%, not cash-backed (3y OCF CAGR 0.15, ND/EBITDA -0.81))",
+    "cash_conv: 0.59 (3-yr FCF/net income (min 0.8))"
+   ]
+  },
+  {
+   "ticker": "TXN",
+   "name": "Texas Instruments Incorporated",
+   "status": "watch-only",
+   "fail_reasons": [
+    "cash_conv: 0.6 (3-yr FCF/net income (min 0.8))"
+   ]
+  },
+  {
+   "ticker": "APP",
+   "name": "Applovin Corporation",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.505 (5-yr avg; min yr -0.009)"
+   ]
+  },
+  {
+   "ticker": "CRM",
+   "name": "Salesforce, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.079 (5-yr avg; min yr 0.014)",
+    "debt: 2.2 (net debt/EBITDA; interest cover 21.8)"
+   ]
+  },
+  {
+   "ticker": "DDOG",
+   "name": "Datadog, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: -0.024 (5-yr avg; min yr -0.175)",
+    "debt: -51.07 (net debt/EBITDA; interest cover 1.4)"
+   ]
+  },
+  {
+   "ticker": "INTU",
+   "name": "Intuit Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.148 (5-yr avg; min yr 0.101)"
+   ]
+  },
+  {
+   "ticker": "MSFT",
+   "name": "Microsoft Corporation",
+   "status": "watch-only",
+   "fail_reasons": [
+    "cash_conv: 0.66 (3-yr FCF/net income (min 0.8))"
+   ]
+  },
+  {
+   "ticker": "NOW",
+   "name": "ServiceNow, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.146 (5-yr avg; min yr 0.086)",
+    "asset_growth: 0.436 (asset growth >30%, not cash-backed (3y OCF CAGR 0.21, ND/EBITDA 1.26))"
+   ]
+  },
+  {
+   "ticker": "ORCL",
+   "name": "Oracle Corporation",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.128 (5-yr avg; min yr 0.116)",
+    "gp_assets: 0.151 (gross profit/total assets (floor 0.2; score input))",
+    "debt: 2.72 (net debt/EBITDA; interest cover 4.5)",
+    "asset_growth: 0.681 (asset growth >30%, not cash-backed (3y OCF CAGR 0.36, ND/EBITDA 2.72))",
+    "cash_conv: -1.09 (3-yr FCF/net income (min 0.8))",
+    "disruption RED: OCI backlog heavily tied to OpenAI; $288B lease commitments"
+   ]
+  },
+  {
+   "ticker": "PLTR",
+   "name": "Palantir Technologies Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.236 (5-yr avg; min yr -0.05; total-capital fallback)"
+   ]
+  },
+  {
+   "ticker": "PTC",
+   "name": "PTC Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.129 (5-yr avg; min yr 0.089)"
+   ]
+  },
+  {
+   "ticker": "SAP",
+   "name": "SAP  SE",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.133 (5-yr avg; min yr 0.082)"
+   ]
+  },
+  {
+   "ticker": "SNOW",
+   "name": "Snowflake Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: -0.726 (5-yr avg; min yr -1.796; total-capital fallback)",
+    "debt: None (net debt/EBITDA; interest cover -148.8; negative EBITDA)",
+    "cash_conv: None (3-yr FCF/net income (min 0.8))"
+   ]
+  },
+  {
+   "ticker": "SNPS",
+   "name": "Synopsys, Inc.",
+   "status": "watch-only",
+   "fail_reasons": [
+    "roic: 0.14 (5-yr avg; min yr 0.017)",
+    "gp_assets: 0.143 (gross profit/total assets (floor 0.2; score input))",
+    "debt: 2.46 (net debt/EBITDA; interest cover 1.3)"
+   ]
+  }
+ ]
+}

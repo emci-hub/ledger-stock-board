@@ -344,7 +344,9 @@ assert.ok(pageHtml.includes("How names get in"), "v3 page explains how a name ge
 assert.ok(pageHtml.includes("<title>GOD-Tier watchlist</title>"), "page title is GOD-Tier watchlist");
 assert.ok(pageHtml.includes("<h1>GOD-Tier watchlist</h1>"), "page heading is GOD-Tier watchlist");
 assert.ok(pageHtml.includes(">GOD-Tier watchlist</a>"), "nav label is GOD-Tier watchlist");
+assert.ok(pageHtml.includes('href="/watchlist" aria-current="page"'), "watchlist highlights its tab");
 assert.ok(pageHtml.includes("watchlist-v3.js"), "the page loads the v3 helper");
+assert.ok(pageHtml.includes("compact-list.js"), "god-tier uses the shared compact list");
 assert.ok(pageHtml.includes("one quarter of grace"), "the rules include one quarter of grace");
 assert.ok(pageJs.includes("WatchlistV3.isV3"), "v2 rendering stays when the version is not v3");
 
@@ -375,9 +377,24 @@ assert.ok(beta.changelog.some((line) => line.includes("yearly revenue")));
 assert.ok(beta.changelog.some((line) => line.includes("net cash")));
 const betaHtml = fs.readFileSync(path.join(__dirname, "..", "public", "beta.html"), "utf8");
 const serverSrc = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
-assert.ok(betaHtml.includes("What this is"));
+assert.ok(betaHtml.includes("How names get in"), "beta explains how names get in");
+assert.ok(betaHtml.includes("Nothing on this page is promoted to god-tier"));
+assert.ok(betaHtml.includes("compact-list.js"), "beta uses the shared compact list");
+assert.ok(betaHtml.includes('href="/beta" aria-current="page"'), "beta highlights its tab");
 assert.ok(serverSrc.includes('app.get("/beta"'));
 assert.ok(serverSrc.includes("/api/beta-watchlist"));
+
+const navCss = fs.readFileSync(path.join(__dirname, "..", "public", "site-nav.css"), "utf8");
+assert.ok(navCss.includes("position:sticky"), "the shared header stays on screen");
+for (const file of ["index.html", "watchlist.html", "beta.html", "lab.html", "accounts.html", "account.html", "board.html"]) {
+  const html = fs.readFileSync(path.join(__dirname, "..", "public", file), "utf8");
+  assert.ok(html.includes('class="site-nav"'), `${file} has the shared nav`);
+  assert.ok(html.includes("site-nav.css"), `${file} loads the shared nav style`);
+  assert.ok(html.includes("site-nav.js"), `${file} loads the shared nav script`);
+  assert.ok(html.includes('class="nav-brand">Ledger</span>'), `${file} shows the Ledger header`);
+  assert.ok(html.includes(">GOD-Tier watchlist</a>"), `${file} links to the god-tier page`);
+  assert.ok(html.includes('href="/beta"'), `${file} links to beta`);
+}
 
 const missing = Lab.scoreboard({ accounts: [], lab: { start: "2026-10-16", asof: "2026-10-16", SPY: 1, SPY_now: 1, QQQ: 1, QQQ_now: 1 } });
 assert.equal(missing.rows.length, 6);

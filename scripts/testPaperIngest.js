@@ -346,6 +346,7 @@ assert.ok(pageHtml.includes("<h1>GOD-Tier watchlist</h1>"), "page heading is GOD
 assert.ok(pageHtml.includes(">GOD-Tier watchlist</a>"), "nav label is GOD-Tier watchlist");
 assert.ok(pageHtml.includes('href="/watchlist" aria-current="page"'), "watchlist highlights its tab");
 assert.ok(pageHtml.includes("watchlist-v3.js"), "the page loads the v3 helper");
+assert.ok(pageHtml.includes("compact-list.js"), "god-tier uses the shared compact list");
 assert.ok(pageHtml.includes("one quarter of grace"), "the rules include one quarter of grace");
 assert.ok(pageJs.includes("WatchlistV3.isV3"), "v2 rendering stays when the version is not v3");
 
@@ -376,7 +377,9 @@ assert.ok(beta.changelog.some((line) => line.includes("yearly revenue")));
 assert.ok(beta.changelog.some((line) => line.includes("net cash")));
 const betaHtml = fs.readFileSync(path.join(__dirname, "..", "public", "beta.html"), "utf8");
 const serverSrc = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
-assert.ok(betaHtml.includes("What this is"));
+assert.ok(betaHtml.includes("How names get in"), "beta explains how names get in");
+assert.ok(betaHtml.includes("Nothing on this page is promoted to god-tier"));
+assert.ok(betaHtml.includes("compact-list.js"), "beta uses the shared compact list");
 assert.ok(betaHtml.includes('href="/beta" aria-current="page"'), "beta highlights its tab");
 assert.ok(serverSrc.includes('app.get("/beta"'));
 assert.ok(serverSrc.includes("/api/beta-watchlist"));

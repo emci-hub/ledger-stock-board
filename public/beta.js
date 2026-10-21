@@ -20,27 +20,64 @@
     return (items || []).map((item) => `<li>${P.escapeHtml(String(item))}</li>`).join("");
   }
 
-  function rowHtml(row) {
-    const flags = B.flagsFor(row);
-    const price = P.isNum(row.price) ? P.money(row.price, "USD") : "—";
+  const CHIP = {
+    eject: { label: "Eject review", tone: "red", title: "Eject review" },
+    promotion: { label: "Promotion candidate", title: "Promotion candidate, not promoted" },
+    upgraded: { label: "Upgraded", title: "Upgraded C to B" },
+  };
+
+  function chipsFor(row) {
+    const flags = row && Array.isArray(row.flags) ? row.flags : [];
+    return flags.map((flag) => CHIP[String(flag)] || { label: B.flagLabel(flag) }).filter((chip) => chip.label);
+  }
+
+  function byScore(rows) {
+    return rows.slice().sort((a, b) => {
+      const left = typeof a.score === "number" && Number.isFinite(a.score) ? a.score : -1;
+      const right = typeof b.score === "number" && Number.isFinite(b.score) ? b.score : -1;
+      if (right !== left) return right - left;
+      const rankA = typeof a.rank === "number" && Number.isFinite(a.rank) ? a.rank : 999;
+      const rankB = typeof b.rank === "number" && Number.isFinite(b.rank) ? b.rank : 999;
+      if (rankA !== rankB) return rankA - rankB;
+      return String(a.ticker || "").localeCompare(String(b.ticker || ""));
+    });
+  }
+
+  function detailHtml(row) {
+    const bits = [];
+    if (row.reason) bits.push(`<p>${P.escapeHtml(row.reason)}</p>`);
+    const fullFlags = B.flagsFor(row);
+    if (fullFlags.length) bits.push(`<p class="god-meta">${P.escapeHtml(fullFlags.join(" · "))}</p>`);
+    const where = [row.exchange, P.isNum(row.score) ? `Score ${row.score} of 22` : ""].filter(Boolean);
+    if (where.length) bits.push(`<p class="god-meta">${P.escapeHtml(where.join(" · "))}</p>`);
+    bits.push(
+      `<p class="god-meta">The file records the total out of 22. It does not list a separate score for each of the 11 tests on this name.</p>`
+    );
+    return bits.join("");
+  }
+
+  function compactRow(row) {
     const max = 22;
-    return `<tr>
-      <td class="tick" data-label="Ticker">${P.escapeHtml(row.ticker || "—")}${row.reason ? `<span class="subname">${P.escapeHtml(row.reason)}</span>` : ""}</td>
-      <td class="num" data-label="Score">${P.escapeHtml(String(row.score))} / ${max}</td>
-      <td class="wl-grade" data-label="Grade">${P.escapeHtml(row.grade || "—")}</td>
-      <td data-label="Status">${row.status ? `<span class="status-pill">${P.escapeHtml(row.status)}</span>` : "—"}</td>
-      <td class="num" data-label="Price">${P.escapeHtml(price)}</td>
-      <td data-label="Flags">${flags.length ? flags.map((flag) => `<span class="status-pill">${P.escapeHtml(flag)}</span>`).join(" ") : "—"}</td>
-    </tr>`;
+    const score = P.isNum(row.score) ? `${row.score}/${max}` : "—";
+    return {
+      ticker: row.ticker || "—",
+      name: row.reason || "",
+      grade: row.grade || "—",
+      score,
+      status: row.status || "",
+      price: P.isNum(row.price) ? P.money(row.price, "USD") : "",
+      flags: chipsFor(row),
+      detailHtml: detailHtml(row),
+    };
   }
 
   function render(doc) {
-    const rows = B.ranked(doc);
+    const rows = byScore(B.ranked(doc));
     el("asof").textContent = doc.asof ? `Updated ${doc.asof}` : "Beta watchlist";
     el("count-line").textContent = `${rows.length} names, highest score first. Prices are the Oct 19, 2026 closes from the research file.`;
-    el("beta-table").innerHTML = `<thead><tr>
-      <th>Ticker</th><th class="num">Score</th><th>Grade</th><th>Status</th><th class="num">Price</th><th>Flags</th>
-    </tr></thead><tbody>${rows.map(rowHtml).join("")}</tbody>`;
+    const tests = el("test-names");
+    if (tests) tests.innerHTML = listHtml(doc.tests);
+    el("beta-list").innerHTML = window.CompactList.list(rows.map(compactRow));
     el("grade-cuts").innerHTML = listHtml((doc.grades || []).map((grade) => `${grade.letter}: ${grade.rule}`));
     el("eject-rules").innerHTML = listHtml(doc.eject);
     el("change-log").innerHTML = listHtml(doc.changelog);

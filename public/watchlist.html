@@ -63,23 +63,28 @@
     </div>
 
     <div id="v3" hidden>
-      <section class="read-box" id="how-in">
-        <h2>How names get in</h2>
-        <p>A company joins this list only if it passes every test:</p>
-        <ul>
-          <li>It has been public for at least 3 years.</li>
-          <li>Return on capital averages at least 15% over 5 years, and no single year is under 8%.</li>
-          <li>Profits turn into cash: free cash flow is at least 0.8 times net income.</li>
-          <li>Debt stays low: net debt under 2 times EBITDA, and interest covered 8 times.</li>
-          <li>Assets are not growing in a reckless way.</li>
-          <li>No accounting or bankruptcy red flags.</li>
-          <li>Boom-bust chip names are judged over 7 years, not a short hot streak.</li>
-          <li>The disruption check is done, and it is not red.</li>
-        </ul>
-        <p>Grades judge the company only, never the price. Each account uses its own price rules.</p>
-        <p id="caps-line">No more than 10% in one stock, and no more than 30% in one theme. Yellow means half size.</p>
-        <p>Names are rescored every quarter. A name that slips gets one quarter of grace before it leaves.</p>
-      </section>
+      <details class="compact-explain" id="how-in">
+        <summary>
+          <span class="group-title">How names get in</span>
+          <span class="group-summary">A company joins only if it passes every test. A grade is about the company, not the price.</span>
+        </summary>
+        <div class="compact-explain-body">
+          <p>A company joins this list only if it passes every test:</p>
+          <ul>
+            <li>It has been public for at least 3 years.</li>
+            <li>Return on capital averages at least 15% over 5 years, and no single year is under 8%.</li>
+            <li>Profits turn into cash: free cash flow is at least 0.8 times net income.</li>
+            <li>Debt stays low: net debt under 2 times EBITDA, and interest covered 8 times.</li>
+            <li>Assets are not growing in a reckless way.</li>
+            <li>No accounting or bankruptcy red flags.</li>
+            <li>Boom-bust chip names are judged over 7 years, not a short hot streak.</li>
+            <li>The disruption check is done, and it is not red.</li>
+          </ul>
+          <p>Grades judge the company only, never the price. Each account uses its own price rules.</p>
+          <p id="caps-line">No more than 10% in one stock, and no more than 30% in one theme. Yellow means half size.</p>
+          <p>Names are rescored every quarter. A name that slips gets one quarter of grace before it leaves.</p>
+        </div>
+      </details>
 
       <section>
         <div class="section-label">God tier</div>
@@ -110,6 +115,7 @@
 <script src="/account-groups.js"></script>
 <script src="/practice-lib.js"></script>
 <script src="/watchlist-v3.js"></script>
+<script src="/compact-list.js"></script>
 <script src="/watchlist.js"></script>
 </body>
 </html>

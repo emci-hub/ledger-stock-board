@@ -36,36 +36,46 @@
   <p class="state-msg" id="state-msg" role="status">Loading the beta list…</p>
 
   <main id="dash" hidden>
-    <section class="read-box" id="what">
-      <h2>What this is</h2>
-      <p>God-tier is the strict list. Beta is the riskier list next to it: AI-related companies that failed that gate. A grade here describes the company, not the price you would pay to get in. Each account still uses its own price rules.</p>
-      <p>Eleven staying-power tests score 0, 1, or 2. The most a name can earn is 22. A missing filing scores 0. Nothing on this page is promoted to god-tier.</p>
-    </section>
+    <details class="compact-explain" id="what">
+      <summary>
+        <span class="group-title">How names get in</span>
+        <span class="group-summary">These names failed the god-tier tests. Eleven checks, 22 points at most. Nothing here is promoted.</span>
+      </summary>
+      <div class="compact-explain-body">
+        <p>God-tier is the strict list. Beta is the riskier list next to it: AI-related companies that failed that gate. A grade here describes the company, not the price you would pay to get in. Each account still uses its own price rules.</p>
+        <p>Eleven staying-power tests score 0, 1, or 2. The most a name can earn is 22. A missing filing scores 0. Nothing on this page is promoted to god-tier.</p>
+        <ul id="test-names"></ul>
+      </div>
+    </details>
 
     <section>
       <div class="section-label">Ranked names</div>
       <p class="section-intro" id="count-line"></p>
-      <div class="table-scroll">
-        <table class="data-table beta-table" id="beta-table"></table>
+      <div id="beta-list"></div>
+    </section>
+
+    <details class="compact-explain">
+      <summary><span class="group-title">Grade cutoffs</span></summary>
+      <div class="compact-explain-body">
+        <ul id="grade-cuts"></ul>
+        <p>A zero on cash runway caps the grade at C. One customer over 40% of sales caps it at C. A controlling holder caps it at B, unless the company already produces free cash flow.</p>
       </div>
-    </section>
+    </details>
 
-    <section class="read-box">
-      <h2>Grade cutoffs</h2>
-      <ul id="grade-cuts"></ul>
-      <p>A zero on cash runway caps the grade at C. One customer over 40% of sales caps it at C. A controlling holder caps it at B, unless the company already produces free cash flow.</p>
-    </section>
+    <details class="compact-explain">
+      <summary><span class="group-title">Eject rules</span></summary>
+      <div class="compact-explain-body">
+        <p>A name comes off the list if any of these is true. NBIS and SMCI are still listed, and flagged for review.</p>
+        <ul id="eject-rules"></ul>
+      </div>
+    </details>
 
-    <section class="read-box">
-      <h2>Eject rules</h2>
-      <p>A name comes off the list if any of these is true. NBIS and SMCI are still listed, and flagged for review.</p>
-      <ul id="eject-rules"></ul>
-    </section>
-
-    <section class="read-box">
-      <h2>Change log</h2>
-      <ul id="change-log"></ul>
-    </section>
+    <details class="compact-explain">
+      <summary><span class="group-title">Change log</span></summary>
+      <div class="compact-explain-body">
+        <ul id="change-log"></ul>
+      </div>
+    </details>
   </main>
 
   <footer>
@@ -79,6 +89,7 @@
 </div>
 <script src="/practice-lib.js"></script>
 <script src="/beta-watchlist.js"></script>
+<script src="/compact-list.js"></script>
 <script src="/beta.js"></script>
 </body>
 </html>

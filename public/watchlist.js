@@ -283,15 +283,6 @@
     return "—";
   }
 
-  function disruptionChip(stock) {
-    const label = textOrEmpty(stock.disruption);
-    if (!label) return "";
-    const key = label.toUpperCase();
-    const tone = key === "GREEN" ? "disruption-green" : key === "YELLOW" ? "disruption-yellow" : key === "RED" ? "disruption-red" : "";
-    const why = textOrEmpty(stock.disruption_why);
-    return `<span class="disruption ${tone}" title="${P.escapeHtml(why)}">${P.escapeHtml(key)}</span>`;
-  }
-
   function percentCap(value, fallback) {
     return typeof value === "number" && Number.isFinite(value) ? Math.round(value * 100) : fallback;
   }
@@ -309,13 +300,35 @@
     return reasons.join(" ");
   }
 
-  function watchOnlyItem(stock, note) {
-    const ticker = textOrEmpty(stock.ticker) || "—";
-    const name = textOrEmpty(stock.name);
-    return `<li>
-      <b>${P.escapeHtml(ticker)}</b>${name ? ` <span class="god-name">${P.escapeHtml(name)}</span>` : ""}
-      ${note ? `<p>${P.escapeHtml(note)}</p>` : `<p>${P.escapeHtml(failSentence(stock))}</p>`}
-    </li>`;
+  function scoreText(stock) {
+    const composite = window.WatchlistV3.compositeOf(stock);
+    if (composite == null) return "—";
+    return Number.isInteger(composite) ? String(composite) : String(Math.round(composite * 10) / 10);
+  }
+
+  function godFlags(stock) {
+    const flags = [];
+    const disruption = textOrEmpty(stock.disruption).toUpperCase();
+    if (disruption) {
+      const tone = disruption === "YELLOW" ? "yellow" : disruption === "RED" ? "red" : disruption === "GREEN" ? "green" : "";
+      flags.push({ label: disruption, tone, title: textOrEmpty(stock.disruption_why) });
+    }
+    if (window.WatchlistV3.newsHold(stock)) {
+      flags.push({ label: "News hold", title: textOrEmpty(stock.news_hold_reason) });
+    }
+    if (window.WatchlistV3.halfSize(stock)) flags.push({ label: "Half size" });
+    return flags;
+  }
+
+  function byScore(a, b) {
+    const V3 = window.WatchlistV3;
+    const left = V3.compositeOf(a);
+    const right = V3.compositeOf(b);
+    if (left == null && right == null) return String(a.ticker || "").localeCompare(String(b.ticker || ""));
+    if (left == null) return 1;
+    if (right == null) return -1;
+    if (right !== left) return right - left;
+    return String(a.ticker || "").localeCompare(String(b.ticker || ""));
   }
 
   function gradesHtml(card) {
@@ -401,95 +414,86 @@
       <div class="news-block"><h3 class="block-label">Signals</h3><dl class="signal-grid">${signalHtml}</dl></div>`;
   }
 
-  function godCard(stock, open) {
+  function compactDetail(stock, note) {
     const V3 = window.WatchlistV3;
-    const card = stock.report_card && typeof stock.report_card === "object" ? stock.report_card : {};
-    const ticker = textOrEmpty(stock.ticker) || "—";
-    const name = textOrEmpty(stock.name);
-    const description = textOrEmpty(card.description);
-    const overall = V3.overallGrade(stock) || "—";
-    const composite = V3.compositeOf(stock);
-    const compositeLabel = composite == null ? "—" : Number.isInteger(composite) ? String(composite) : String(Math.round(composite * 10) / 10);
-    const statusTag = textOrEmpty(card.status_tag);
+    const card = stock.report_card && typeof stock.report_card === "object" ? stock.report_card : null;
+    const bits = [];
+    if (note) bits.push(`<p>${P.escapeHtml(note)}</p>`);
+    const description = card ? textOrEmpty(card.description) : "";
+    if (description) bits.push(`<p class="hc-blurb">${P.escapeHtml(description)}</p>`);
     const theme = textOrEmpty(stock.theme);
-    const price = P.isNum(stock.price) ? P.money(stock.price, "USD") : "";
-    const holdWhy = V3.newsHold(stock) ? textOrEmpty(stock.news_hold_reason) : "";
-    const badges = [
-      `<span class="grade-badge" title="Overall grade">${P.escapeHtml(overall)}</span>`,
-      `<span class="composite-num" title="Company score, 0 to 100">${P.escapeHtml(compositeLabel)}</span>`,
-      statusTag ? `<span class="status-pill">${P.escapeHtml(statusTag)}</span>` : "",
-      disruptionChip(stock),
-      V3.newsHold(stock) ? `<span class="status-pill">News hold</span>` : "",
-      V3.halfSize(stock) ? `<span class="status-pill">Half size</span>` : "",
-    ]
-      .filter(Boolean)
-      .join("");
+    const meta = [
+      theme ? `Theme: ${theme}` : "",
+      stock.cyclical === true ? "Boom-bust, judged over 7 years" : "",
+    ].filter(Boolean);
+    if (meta.length) bits.push(`<p class="god-meta">${P.escapeHtml(meta.join(" · "))}</p>`);
+    if (V3.newsHold(stock) && textOrEmpty(stock.news_hold_reason)) {
+      bits.push(`<p class="god-meta">${P.escapeHtml(textOrEmpty(stock.news_hold_reason))}</p>`);
+    }
+    const reasons = Array.isArray(stock.fail_reasons) ? stock.fail_reasons.map((item) => textOrEmpty(item)).filter(Boolean) : [];
+    if (reasons.length && !card) {
+      bits.push(`<ul class="watch-next">${reasons.map((item) => `<li>${P.escapeHtml(item)}</li>`).join("")}</ul>`);
+    }
+    if (!card) {
+      if (!bits.length) bits.push(`<p class="god-meta">${P.escapeHtml(failSentence(stock))}</p>`);
+      return bits.join("");
+    }
     const watchNext = V3.watchNextOf(stock);
     const watchHtml = watchNext.length
       ? `<ul class="watch-next">${watchNext.map((item) => `<li>${P.escapeHtml(item)}</li>`).join("")}</ul>`
       : `<p class="god-meta">Nothing listed to watch next.</p>`;
-    return `<article class="god-card">
-      <div class="god-top">
-        <div>
-          <h2>${P.escapeHtml(ticker)}${name ? `<span class="god-name">${P.escapeHtml(name)}</span>` : ""}</h2>
-          ${description ? `<p class="hc-blurb">${P.escapeHtml(description)}</p>` : `<p class="hc-blurb">No one-line description in this snapshot.</p>`}
-          ${theme || price ? `<p class="hc-id">${theme ? `Theme: ${P.escapeHtml(theme)}` : ""}${stock.cyclical === true ? " · boom-bust, judged over 7 years" : ""}${price ? `${theme || stock.cyclical === true ? " · " : ""}${P.escapeHtml(price)}` : ""}</p>` : ""}
-          ${holdWhy ? `<p class="hc-id">${P.escapeHtml(holdWhy)}</p>` : ""}
-        </div>
-        <div class="god-badges">${badges}</div>
-      </div>
-      <details${open ? " open" : ""}>
-        <summary>Grades, issues, and news</summary>
-        <div class="god-detail">
-          <div class="god-grades">${gradesHtml(card)}</div>
-          <h3 class="block-label">Issue log</h3>
-          ${issueTable(card.issue_log)}
-          <h3 class="block-label">What to watch next</h3>
-          ${watchHtml}
-          <h3 class="block-label">News</h3>
-          ${newsHtml(stock)}
-        </div>
-      </details>
-    </article>`;
+    bits.push(`<div class="god-grades">${gradesHtml(card)}</div>`);
+    bits.push(`<h3 class="block-label">Issue log</h3>${issueTable(card.issue_log)}`);
+    bits.push(`<h3 class="block-label">What to watch next</h3>${watchHtml}`);
+    bits.push(`<h3 class="block-label">News</h3>${newsHtml(stock)}`);
+    return bits.join("");
+  }
+
+  function compactStock(stock, note) {
+    const V3 = window.WatchlistV3;
+    const card = stock.report_card && typeof stock.report_card === "object" ? stock.report_card : {};
+    const price = P.isNum(stock.price) ? P.money(stock.price, "USD") : "";
+    return {
+      ticker: textOrEmpty(stock.ticker) || "—",
+      name: textOrEmpty(stock.name),
+      grade: V3.overallGrade(stock) || "—",
+      score: scoreText(stock),
+      status: textOrEmpty(card.status_tag),
+      price,
+      flags: godFlags(stock),
+      detailHtml: compactDetail(stock, note),
+    };
   }
 
   function renderV3(watchlist) {
     const V3 = window.WatchlistV3;
     const parts = V3.partition(watchlist);
     el("caps-line").textContent = capsLine(watchlist);
-    const godCount = parts.god.length;
+    const god = parts.god.slice().sort(byScore);
+    const godCount = god.length;
     el("god-count").textContent = godCount
       ? `${godCount} name${godCount === 1 ? "" : "s"}, highest score first.`
       : "No god-tier names in this snapshot.";
-    el("god-list").innerHTML = godCount
-      ? parts.god.map((stock) => godCard(stock, false)).join("")
-      : `<p class="empty">No god-tier names in this snapshot.</p>`;
-    const watchRows = parts.watchOnly;
-    const otherRows = parts.other;
+    el("god-list").innerHTML = window.CompactList.list(god.map((stock) => compactStock(stock)));
+    const watchRows = parts.watchOnly.slice().sort(byScore);
+    const otherRows = parts.other.slice().sort(byScore);
     const watchCount = watchRows.length + otherRows.length;
     el("watch-only-count").textContent = watchCount
       ? `${watchCount} name${watchCount === 1 ? "" : "s"} that did not pass every test.`
       : "No names in this group.";
-    const blocks = [];
-    if (watchRows.length) {
-      blocks.push(`<ul class="watch-only-list">${watchRows.map((stock) => watchOnlyItem(stock)).join("")}</ul>`);
-    }
-    if (otherRows.length) {
-      blocks.push(`<p class="section-intro">These names did not say god or watch-only, so they stay visible and are not treated as god-tier.</p>`);
-      blocks.push(
-        `<ul class="watch-only-list">${otherRows
-          .map((stock) => {
-            const status = textOrEmpty(stock.status);
-            const note = status
-              ? `Status on the snapshot: ${status}. ${failSentence(stock)}`
-              : `Status was not on the snapshot. ${failSentence(stock)}`;
-            return watchOnlyItem(stock, note);
-          })
-          .join("")}</ul>`
-      );
-    }
-    el("watch-only-body").innerHTML = blocks.length
-      ? blocks.join("")
+    const rows = watchRows.map((stock) => compactStock(stock));
+    otherRows.forEach((stock) => {
+      const status = textOrEmpty(stock.status);
+      const note = status
+        ? `Status on the snapshot: ${status}. ${failSentence(stock)}`
+        : `Status was not on the snapshot. ${failSentence(stock)}`;
+      rows.push(compactStock(stock, note));
+    });
+    const intro = otherRows.length
+      ? `<p class="section-intro">These names did not say god or watch-only, so they stay visible and are not treated as god-tier.</p>`
+      : "";
+    el("watch-only-body").innerHTML = rows.length
+      ? intro + window.CompactList.list(rows)
       : `<p class="empty">No watch-only names in this snapshot.</p>`;
   }
 

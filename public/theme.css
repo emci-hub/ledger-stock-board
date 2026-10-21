@@ -1,0 +1,283 @@
+/* Site-wide dark theme. Load this after practice.css, page styles, and site-nav.css.
+   Green and red stay on gain and loss figures. Layout and row sizes are unchanged. */
+
+:root{
+  --bg:#07090f;
+  --bg-line:#101722;
+  --surface:#121a2b;
+  --surface-2:#1a2438;
+  --panel:#121a2b;
+  --line:rgba(150, 198, 255, 0.22);
+  --line-soft:rgba(150, 198, 255, 0.12);
+  --ink:#eef3fb;
+  --ink-bright:#f7fbff;
+  --muted:#c5d0e0;
+  --muted-dim:#a9b8cc;
+  --gain:#3ee0a0;
+  --loss:#ff6b8a;
+  --green:var(--gain);
+  --green-soft:var(--gain);
+  --green-bg:rgba(62, 224, 160, 0.12);
+  --rust:var(--loss);
+  --rust-bg:rgba(255, 107, 138, 0.12);
+  --ok:var(--gain);
+  --bad:var(--loss);
+  --warn:#d7ccff;
+  --gold:#d7ccff;
+  --gold-bg:rgba(155, 123, 255, 0.12);
+  --accent:#3ee0ff;
+  --accent-2:#b9a0ff;
+  color-scheme:dark;
+}
+
+html{color-scheme:dark;}
+
+body{
+  background-color:var(--bg);
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(232, 244, 255, 0.025) 0px,
+      rgba(232, 244, 255, 0.025) 1px,
+      transparent 1px,
+      transparent 4px
+    ),
+    linear-gradient(rgba(140, 186, 230, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(140, 186, 230, 0.045) 1px, transparent 1px),
+    radial-gradient(ellipse 90% 50% at 0% -10%, rgba(62, 224, 255, 0.16), transparent 52%),
+    radial-gradient(ellipse 70% 46% at 100% 0%, rgba(155, 123, 255, 0.18), transparent 50%),
+    radial-gradient(ellipse 55% 40% at 80% 110%, rgba(62, 224, 255, 0.07), transparent 46%);
+  background-size:auto, 56px 56px, 56px 56px, auto, auto, auto;
+  background-attachment:fixed;
+  color:var(--ink);
+  font-family:"Outfit", "Segoe UI", sans-serif;
+}
+
+h1, h2, h3, h4,
+.brand h1,
+.page-head h1,
+.acct-hero h1,
+button, input, select, textarea,
+.mode-toggle button,
+.search input,
+.section-label,
+.ticker, .logo-fallback,
+.avail, .toolbar button, .row-actions button,
+.pw-row input, .badge, .exch, .via-source, .warn, .meta,
+.mono{
+  font-family:"Outfit", "Segoe UI", sans-serif;
+}
+
+.mono, .num,
+.hc-value, .hc-return,
+.compact-ticker, .compact-score, .compact-price, .compact-grade,
+.grade dd, .grade-badge, .composite-num,
+.acct-stat dd, .lab-stats dd,
+.data-table td.num, .data-table th.num, .wl-table td.num,
+.price, .delta, .r-price, .r-ticker, .pick-ticker, .pos-ticker, .sc-date{
+  font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric:tabular-nums;
+}
+
+::selection{background:rgba(62, 224, 255, 0.28);color:#fff;}
+
+.kicker, .acct-kicker, .section-label, .group-title{
+  color:#9aebff;
+}
+
+.updated .dot{
+  background:var(--accent);
+  box-shadow:0 0 8px var(--accent);
+  animation:theme-pulse 2.6s ease-in-out infinite;
+}
+
+.hc-value, .compact-score, .compact-price, .acct-stat dd, .lab-stats dd, .composite-num, .price{
+  text-shadow:0 0 16px rgba(62, 224, 255, 0.22);
+}
+.pos-text, .delta.up, .up{color:var(--gain);text-shadow:0 0 12px rgba(62, 224, 160, 0.35);}
+.neg-text, .delta.down, .down{color:var(--loss);text-shadow:0 0 12px rgba(255, 107, 138, 0.32);}
+
+.site-nav{
+  background:rgba(7, 9, 15, 0.9);
+  border-bottom:1px solid rgba(62, 224, 255, 0.28);
+  box-shadow:0 10px 28px rgba(0, 0, 0, 0.35);
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+}
+.nav-brand{
+  background:rgba(7, 9, 15, 0.94);
+  border-right:1px solid rgba(62, 224, 255, 0.28);
+  color:var(--accent);
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+  text-shadow:0 0 14px rgba(62, 224, 255, 0.45);
+}
+.site-nav a{
+  color:var(--muted);
+  transition:color 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+.site-nav a:hover{
+  color:var(--ink);
+  background:rgba(155, 123, 255, 0.14);
+}
+.site-nav a[aria-current="page"]{
+  color:var(--ink);
+  background:rgba(62, 224, 255, 0.12);
+  border-color:rgba(62, 224, 255, 0.5);
+  box-shadow:inset 0 -2px 0 var(--accent), 0 0 16px rgba(62, 224, 255, 0.16);
+}
+.site-nav a:focus-visible,
+.home-card:focus-visible,
+.compact-main:focus-visible,
+.acct-tab:focus-visible,
+button:focus-visible,
+a:focus-visible{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+}
+
+.home-card, .read-box, .block, .god-card, .bench-card, .lab-card,
+.table-scroll, .wl-scroll, .acct-stat, .state-msg, .paused-banner,
+.disclaimer, .advice, .empty, .watch-only-list li, .compact-list,
+.card, details.row, .toolbar, .banner, .row-list, .search, .mode-toggle{
+  background:
+    linear-gradient(180deg, rgba(62, 224, 255, 0.045), rgba(155, 123, 255, 0.03)),
+    rgba(14, 20, 36, 0.82);
+  border-color:rgba(150, 210, 255, 0.2);
+  box-shadow:0 0 0 1px rgba(62, 224, 255, 0.04), 0 14px 36px rgba(0, 0, 0, 0.28);
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+}
+
+.home-card, .bench-card, .lab-card, .acct-tab, .grade-filters button, .card, details.row{
+  transition:border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, background-color 160ms ease;
+}
+.home-card:hover, .bench-card:hover, .lab-card:hover, .card:hover{
+  border-color:rgba(62, 224, 255, 0.55);
+  box-shadow:0 0 0 1px rgba(62, 224, 255, 0.22), 0 0 26px rgba(62, 224, 255, 0.12);
+  transform:translateY(-2px);
+}
+.home-card.is-selected{
+  border-color:rgba(185, 160, 255, 0.85);
+  box-shadow:0 0 0 1px rgba(185, 160, 255, 0.4), 0 0 24px rgba(155, 123, 255, 0.2);
+}
+.acct-group.is-muted .home-card{background:rgba(16, 22, 36, 0.72);}
+
+.compact-row{background:transparent;transition:background-color 160ms ease;}
+.compact-row:hover > .compact-main{background:rgba(62, 224, 255, 0.06);}
+.compact-row[open] > .compact-main{
+  background:rgba(62, 224, 255, 0.08);
+  box-shadow:inset 2px 0 0 var(--accent);
+}
+.compact-mark{transition:transform 160ms ease;}
+.compact-detail{animation:theme-reveal 180ms ease;}
+.compact-grade, .grade-badge{
+  border-color:rgba(185, 160, 255, 0.75);
+  color:#efe8ff;
+  background:rgba(155, 123, 255, 0.12);
+  box-shadow:0 0 12px rgba(155, 123, 255, 0.22);
+}
+
+.status-pill.flag-yellow, .disruption-yellow{
+  background:rgba(214, 184, 92, 0.14);
+  border-color:rgba(230, 204, 130, 0.45);
+  color:#f6e7bf;
+}
+.status-pill.flag-red, .disruption-red{
+  background:rgba(255, 107, 138, 0.12);
+  border-color:rgba(255, 140, 164, 0.45);
+  color:#ffd0db;
+}
+.status-pill.flag-green, .disruption-green{
+  background:rgba(62, 224, 160, 0.12);
+  border-color:rgba(110, 230, 180, 0.4);
+  color:#d5ffee;
+}
+
+.acct-tab[aria-selected="true"],
+.grade-filters button[aria-pressed="true"],
+.mode-toggle button.active{
+  color:var(--ink);
+  border-color:rgba(62, 224, 255, 0.65);
+  background:rgba(62, 224, 255, 0.1);
+  box-shadow:inset 0 0 0 1px rgba(62, 224, 255, 0.28), 0 0 14px rgba(62, 224, 255, 0.14);
+}
+.acct-tab:hover, .grade-filters button:hover, .page-link:hover, .group-link:hover,
+.back-link:hover, .foot-links a:hover, .th-btn:hover{
+  color:#bff4ff;
+  border-bottom-color:rgba(62, 224, 255, 0.55);
+}
+
+.data-table th, .wl-table th{background:rgba(20, 30, 48, 0.95);}
+.data-table .sticky, .wl-table .sticky{background:#121a2b;}
+.grade, .god-grade, .signal-grid div, .level, .proj-grid > div, .weak-fix div{
+  background:rgba(22, 32, 52, 0.9);
+  border-color:rgba(150, 198, 255, 0.16);
+}
+
+.bar{background:rgba(255, 255, 255, 0.06);}
+.bar span{
+  background:linear-gradient(90deg, var(--accent), var(--accent-2));
+  box-shadow:0 0 10px rgba(62, 224, 255, 0.4);
+}
+.swatch{background:var(--accent);box-shadow:0 0 8px rgba(62, 224, 255, 0.55);}
+.swatch.bench{background:var(--accent-2);border-top-color:var(--accent-2);box-shadow:none;}
+.chart-svg{filter:drop-shadow(0 0 8px rgba(62, 224, 255, 0.12));}
+
+.state-msg.err{border-color:rgba(255, 107, 138, 0.45);}
+.search:focus-within,
+.more-picks-toggle:hover,
+.pw-row button:hover,
+.deeper-look-btn:hover{
+  border-color:rgba(62, 224, 255, 0.55);
+}
+
+input, select, textarea,
+#login-panel input,
+#force-result,
+.pw-row input{
+  background:#10182a;
+  color:var(--ink);
+  border-color:var(--line);
+}
+button,
+.toolbar button,
+.row-actions button{
+  background:#141e32;
+  color:var(--ink);
+  border-color:var(--line);
+}
+.toolbar button:hover:not(:disabled),
+.row-actions button:hover:not(:disabled),
+button:hover{
+  background:rgba(62, 224, 255, 0.1);
+  border-color:rgba(62, 224, 255, 0.5);
+  color:var(--ink);
+}
+button.danger{
+  color:#ffc2d0;
+  border-color:rgba(255, 107, 138, 0.5);
+  background:rgba(255, 107, 138, 0.08);
+}
+.safeguard-note, #preview-panel{background:#121a2b;color:var(--muted);}
+
+.card::before{background:linear-gradient(90deg, var(--accent), var(--accent-2));}
+
+@keyframes theme-pulse{
+  0%, 100%{opacity:1;}
+  50%{opacity:0.4;}
+}
+@keyframes theme-reveal{
+  from{opacity:0;transform:translateY(-4px);}
+  to{opacity:1;transform:none;}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *, *::before, *::after{
+    animation:none !important;
+    transition:none !important;
+    scroll-behavior:auto !important;
+  }
+  .home-card:hover, .bench-card:hover, .lab-card:hover, .card:hover{transform:none;}
+  .compact-detail{animation:none;}
+}

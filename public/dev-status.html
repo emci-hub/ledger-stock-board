@@ -19,11 +19,8 @@
     min-height:100vh;
     line-height:1.5;
   }
-  .wrap{max-width:1120px;margin:0 auto;padding:28px 24px 80px;}
-  .site-nav{display:flex;flex-wrap:wrap;gap:4px 8px;margin:0 0 28px;padding:0 0 8px;border-bottom:1px solid var(--line);}
-  .site-nav a{color:var(--muted);text-decoration:none;font-weight:600;font-size:15px;min-height:44px;padding:0 12px;display:inline-flex;align-items:center;}
-  .site-nav a:hover{color:var(--ink);}
-  h1{font-size:26px;margin:0 0 4px;font-weight:700;letter-spacing:-0.02em;}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 var(--site-pad-x, 24px) 80px;}
+  h1{font-size:clamp(1.7rem, 1.25rem + 1.1vw, 2.15rem);margin:0 0 4px;font-weight:650;letter-spacing:-0.03em;line-height:1.15;}
   .sub{color:var(--muted);font-size:14px;margin:0 0 22px;}
   .nav a{color:var(--muted);font-size:13px;}
   .card{
@@ -62,10 +59,13 @@
   .err{color:var(--bad);font-size:13px;margin-top:8px;}
   .toolbar{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px;}
 </style>
+<link rel="stylesheet" href="/site-nav.css">
+<script src="/site-nav.js" defer></script>
 </head>
 <body>
 <div class="wrap">
   <nav class="site-nav" aria-label="Ledger">
+    <span class="nav-brand">Ledger</span>
     <a href="/">Overview</a>
     <a href="/watchlist">GOD-Tier watchlist</a>
     <a href="/beta">Beta</a>

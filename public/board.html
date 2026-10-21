@@ -35,17 +35,18 @@
     -webkit-font-smoothing:antialiased;
     line-height:1.5;
   }
-  .wrap{max-width:1120px;margin:0 auto;padding:28px 24px 80px;}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 var(--site-pad-x, 24px) 80px;}
 
   /* header */
   header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:10px;}
   .brand{display:flex;align-items:baseline;gap:10px;}
   .brand h1{
     font-family:"DM Sans", sans-serif;
-    font-weight:600;
-    font-size:27px;
+    font-weight:650;
+    font-size:clamp(1.7rem, 1.25rem + 1.1vw, 2.15rem);
     margin:0;
-    letter-spacing:-0.01em;
+    letter-spacing:-0.03em;
+    line-height:1.15;
     color:var(--ink);
   }
   .brand .tick{
@@ -469,24 +470,15 @@
   }
   .pw-row button:hover{border-color:#c5cad1;}
 
-  /* top nav — switches between the Practice Run dashboard (/) and this board */
-  .site-nav{
-    display:flex;flex-wrap:wrap;gap:4px 8px;margin:0 0 32px;padding:0 0 8px;
-    border-bottom:1px solid var(--line);width:100%;
-  }
-  .site-nav a{
-    font-size:15px;font-weight:600;color:var(--muted);text-decoration:none;
-    min-height:44px;padding:0 12px;display:inline-flex;align-items:center;
-    border-bottom:2px solid transparent;
-  }
-  .site-nav a:hover{color:var(--ink);}
-  .site-nav a[aria-current="page"]{color:var(--ink);border-bottom-color:var(--ink);}
 </style>
+<link rel="stylesheet" href="/site-nav.css">
+<script src="/site-nav.js" defer></script>
 </head>
 <body>
 <div class="wrap">
 
   <nav class="site-nav" aria-label="Ledger">
+    <span class="nav-brand">Ledger</span>
     <a href="/">Overview</a>
     <a href="/watchlist">GOD-Tier watchlist</a>
     <a href="/beta">Beta</a>

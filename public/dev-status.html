@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ledger — Dev status</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<meta name="color-scheme" content="light">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
+<meta name="color-scheme" content="dark">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg:#f4f5f7; --panel:#ffffff; --line:#e4e7eb; --ink:#1a1d21; --muted:#5c6570;
@@ -60,6 +60,7 @@
   .toolbar{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px;}
 </style>
 <link rel="stylesheet" href="/site-nav.css">
+<link rel="stylesheet" href="/theme.css">
 <script src="/site-nav.js" defer></script>
 </head>
 <body>
@@ -123,13 +124,13 @@
         Both actions show a <strong>pre-flight cost preview</strong> first (no API spend).
         Only “Confirm &amp; run” executes for real.
       </p>
-      <p class="safeguard-note" style="margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--muted);font-size:12px;line-height:1.5;">
+      <p class="safeguard-note" style="margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--muted);font-size:12px;line-height:1.5;">
         <strong style="color:var(--ink);">Safeguards:</strong>
         Discovery respects FMP’s reserve and never touches Alpha Vantage.
         Smart Refresh respects each source’s reserve and only refreshes genuinely stale fields.
         Both share one in-progress lock so they cannot run at the same time.
       </p>
-      <p class="safeguard-note" style="margin:0 0 12px;padding:10px 12px;border:1px dashed var(--line);border-radius:8px;background:#fff;color:var(--muted);font-size:12px;line-height:1.5;">
+      <p class="safeguard-note" style="margin:0 0 12px;padding:10px 12px;border:1px dashed var(--line);border-radius:8px;background:var(--surface);color:var(--muted);font-size:12px;line-height:1.5;">
         <strong style="color:var(--ink);">Recommended order:</strong>
         Run Discovery first to update the board, then Smart Refresh to fill gaps
         and promote any remaining eligible candidates with leftover quota.
@@ -139,7 +140,7 @@
         <button type="button" class="danger" id="force-btn">Smart refresh…</button>
         <button type="button" class="danger" id="discovery-btn">Discover new stocks</button>
       </div>
-      <div id="preview-panel" class="hidden" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:#fff;">
+      <div id="preview-panel" class="hidden" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:var(--surface);">
         <h2 style="margin:0 0 8px;" id="preview-title">Preview</h2>
         <div id="preview-body" style="font-size:13px;line-height:1.5;color:var(--muted);"></div>
         <div class="row" style="margin-top:12px;">
@@ -343,9 +344,9 @@
             </div>`;
         };
         catSummaryEl.innerHTML =
-          sectionBlock("Long-term", "long", "#1a1d21") +
-          sectionBlock("Short-term", "short", "#5c6570") +
-          sectionBlock("Penny", "penny", "#7b848e") +
+          sectionBlock("Long-term", "long", "var(--accent)") +
+          sectionBlock("Short-term", "short", "var(--accent-2)") +
+          sectionBlock("Penny", "penny", "var(--muted)") +
           sectionBlock("Unclassified (needs backfill)", "unclassified", "var(--muted)");
       }
     }

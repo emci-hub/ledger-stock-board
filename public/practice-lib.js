@@ -387,7 +387,7 @@
     const d = rows.map((p, i) => `${i ? "L" : "M"}${xAt(i).toFixed(1)},${yAt(p.value).toFixed(1)}`).join(" ");
     const last = rows[rows.length - 1].value;
     const first = rows[0].value;
-    const color = last >= first ? "#0b7a43" : "#b42318";
+    const color = last >= first ? "#3ee0a0" : "#ff6b8a";
     return `<svg class="spark" viewBox="0 0 ${W} ${H}" aria-hidden="true" preserveAspectRatio="none">
       <path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
     </svg>`;
@@ -444,14 +444,14 @@
     const gridLines = [0, 0.5, 1]
       .map((t) => {
         const y = (padT + innerH - t * innerH).toFixed(1);
-        return `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#e6e8eb" stroke-width="1" />`;
+        return `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="rgba(150,186,230,0.2)" stroke-width="1" />`;
       })
       .join("");
     const yLabels = [0, 0.5, 1]
       .map((t) => {
         const value = min + t * (max - min);
         const y = (padT + innerH - t * innerH).toFixed(1);
-        return `<text x="${padL - 8}" y="${y}" text-anchor="end" dominant-baseline="middle" font-family="DM Sans, sans-serif" font-size="12" fill="#5c656d">${escapeHtml(
+        return `<text x="${padL - 8}" y="${y}" text-anchor="end" dominant-baseline="middle" font-family="IBM Plex Mono, ui-monospace, sans-serif" font-size="12" fill="#c5d0e0">${escapeHtml(
           Math.round(value).toLocaleString("en-CA")
         )}</text>`;
       })
@@ -459,9 +459,9 @@
     const firstLabel = formatDay(rows[0].date, longHistory);
     const lastLabel = formatDay(rows[rows.length - 1].date, longHistory);
     const xLabels =
-      `<text x="${padL}" y="${H - 10}" font-family="DM Sans, sans-serif" font-size="12" fill="#5c656d">${escapeHtml(firstLabel)}</text>` +
+      `<text x="${padL}" y="${H - 10}" font-family="IBM Plex Mono, ui-monospace, sans-serif" font-size="12" fill="#c5d0e0">${escapeHtml(firstLabel)}</text>` +
       (rows.length > 1
-        ? `<text x="${W - padR}" y="${H - 10}" text-anchor="end" font-family="DM Sans, sans-serif" font-size="12" fill="#5c656d">${escapeHtml(lastLabel)}</text>`
+        ? `<text x="${W - padR}" y="${H - 10}" text-anchor="end" font-family="IBM Plex Mono, ui-monospace, sans-serif" font-size="12" fill="#c5d0e0">${escapeHtml(lastLabel)}</text>`
         : "");
     const area =
       mine.length > 1
@@ -469,11 +469,11 @@
         : "";
     const benchPath =
       bench.length > 1
-        ? `<path d="M${bench.join(" L")}" fill="none" stroke="#8B978F" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round" />`
+        ? `<path d="M${bench.join(" L")}" fill="none" stroke="#b9a0ff" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round" />`
         : "";
     const minePath =
       mine.length > 1
-        ? `<path d="M${mine.join(" L")}" fill="none" stroke="#1a1d1f" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" />`
+        ? `<path d="M${mine.join(" L")}" fill="none" stroke="#3ee0ff" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" />`
         : "";
     const dots = rows
       .map((p, i) => {
@@ -483,11 +483,11 @@
         const parts = [];
         if (isNum(p.benchmark) && (!longHistory || last)) {
           parts.push(
-            `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(p.benchmark).toFixed(1)}" r="3" fill="#8B978F" />`
+            `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(p.benchmark).toFixed(1)}" r="3" fill="#b9a0ff" />`
           );
         }
         parts.push(
-          `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(p.value).toFixed(1)}" r="${last ? 5 : 3.2}" fill="#1a1d1f" stroke="#ffffff" stroke-width="${last ? 2 : 0}" />`
+          `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(p.value).toFixed(1)}" r="${last ? 5 : 3.2}" fill="#3ee0ff" stroke="#07090f" stroke-width="${last ? 2 : 0}" />`
         );
         return parts.join("");
       })
@@ -497,8 +497,8 @@
     );
     return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${title}" preserveAspectRatio="xMidYMid meet">
       <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#1a1d1f" stop-opacity="0.08" />
-        <stop offset="100%" stop-color="#1a1d1f" stop-opacity="0" />
+        <stop offset="0%" stop-color="#3ee0ff" stop-opacity="0.22" />
+        <stop offset="100%" stop-color="#3ee0ff" stop-opacity="0" />
       </linearGradient></defs>
       ${gridLines}${yLabels}${xLabels}${area}${benchPath}${minePath}${dots}
     </svg>`;

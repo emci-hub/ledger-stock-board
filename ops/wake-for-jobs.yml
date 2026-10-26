@@ -7,6 +7,9 @@ on:
   schedule:
     - cron: "52 6 * * *"   # 07:00 refresh/discovery
     - cron: "10 7 * * *"   # keep awake while 07:00 run finishes
+    - cron: "25 7 * * *"   # (long Gemini refresh loop safety)
+    - cron: "40 7 * * *"
+    - cron: "8 13 * * *"   # keep awake during 13:00 retry
     - cron: "5 8 * * *"    # 08:15 section self-check
     - cron: "52 12 * * *"  # 13:00 morning-failure retry
     - cron: "52 3 1 * *"   # monthly 04:00 cleanup

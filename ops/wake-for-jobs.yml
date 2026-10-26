@@ -1,0 +1,27 @@
+# Render free plan sleeps after 15 min with no inbound HTTP, and node-cron
+# timers only fire while the process is awake. Instead of a 24/7 keep-alive
+# (UptimeRobot every 5 min), wake the service just before each in-process job
+# and keep it up while the job runs. All times UTC, matching server.js crons.
+name: Wake for scheduled jobs
+on:
+  schedule:
+    - cron: "52 6 * * *"   # 07:00 refresh/discovery
+    - cron: "10 7 * * *"   # keep awake while 07:00 run finishes
+    - cron: "25 7 * * *"   # (long Gemini refresh loop safety)
+    - cron: "40 7 * * *"
+    - cron: "8 13 * * *"   # keep awake during 13:00 retry
+    - cron: "5 8 * * *"    # 08:15 section self-check
+    - cron: "52 12 * * *"  # 13:00 morning-failure retry
+    - cron: "52 3 1 * *"   # monthly 04:00 cleanup
+  workflow_dispatch:
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /healthz (retry while it cold-starts)
+        run: |
+          for i in 1 2 3 4 5 6; do
+            curl -fsS -m 90 https://stocks.emgens.com/healthz && exit 0
+            sleep 20
+          done
+          exit 1

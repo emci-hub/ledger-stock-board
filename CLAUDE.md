@@ -8,7 +8,7 @@ Read this first, every session. This is the Code-side twin of the "Stock Big" Cl
 ## Stack
 - Node.js + Express
 - Turso (hosted libSQL/SQLite via @libsql/client, async)
-- Hosting: Render free tier; UptimeRobot pings /healthz every 5 min
+- Hosting: Render free tier; sleeps when idle; `ops/wake-for-jobs.yml` (move to .github/workflows/ to enable) wakes it just before the node-cron jobs (no 24/7 keep-alive)
 - Data sources: Twelve Data (price/indicators) · Alpha Vantage (analyst target + fallback news, 25/day) · Finnhub (peers/earnings) · Marketaux (primary news) · Gemini (synthesis, model via GEMINI_MODEL env) · Claude (manual "Deeper Look" button only, never automated)
 - **AI kill switch:** Gemini/Claude are **off unless `AI_ENABLED=1`**. See "AI kill switch" below. Paper sync is unaffected.
 - Repo: emci-hub/ledger-stock-board (public)
@@ -20,7 +20,7 @@ Read this first, every session. This is the Code-side twin of the "Stock Big" Cl
 - `/accounts` — account workspace (`public/accounts.html`). Scoreboard, then one account’s detail at a time. Same four sections as before: scorecard, picks, trades, analysis. A signal log shows when the account has one.
 - `/account/:id` — that one account (`public/account.html` + `account.js`).
 - `/board` — the family stock board (`public/board.html`). `/archive` and `/dev-status` stay. Family board is linked from the footer.
-- `/healthz` — unchanged, still what UptimeRobot pings.
+- `/healthz` — unchanged, used by the wake-for-jobs workflow.
 - Top nav on these pages: Overview, Watchlist, Strategy Lab, Accounts.
 
 The paper snapshot may also carry optional `watchlist` (v2 graded list), `hot_today`, `lab` (SPY/QQQ start and latest), and per-account `signals`. Missing blocks are omitted. A bad shape is still a 400. Existing account payloads keep working. An explicit `value: null` stays null (unavailable), not zero.
